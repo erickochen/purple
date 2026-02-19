@@ -23,7 +23,7 @@ jobs:
           - target: aarch64-apple-darwin
             runner: macos-latest
           - target: x86_64-apple-darwin
-            runner: macos-13  # Last Intel-native runner
+            runner: macos-latest
 
     steps:
       - name: Checkout
