@@ -1,0 +1,26 @@
+[package]
+name = "purple"
+version = "0.1.0"
+edition = "2024"
+description = "A fast, interactive TUI (terminal UI) for managing your ~/.ssh/config. Add, edit, delete and connect to SSH hosts from the terminal"
+license = "MIT"
+repository = "https://github.com/erickochen/purple"
+homepage = "https://github.com/erickochen/purple"
+readme = "README.md"
+keywords = ["ssh", "ssh-config", "tui", "terminal", "config-manager"]
+categories = ["command-line-utilities", "network-programming"]
+rust-version = "1.85"
+exclude = [".github/", ".gitignore"]
+
+[dependencies]
+ratatui = "0.30"
+crossterm = "0.29"
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+anyhow = "1"
+thiserror = "2"
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "z"

@@ -1,0 +1,243 @@
+use std::path::Path;
+
+use anyhow::{Context, Result};
+
+use super::model::{ConfigElement, Directive, HostBlock, SshConfigFile};
+
+impl SshConfigFile {
+    /// Parse an SSH config file from the given path.
+    /// Preserves all formatting, comments, and unknown directives for round-trip fidelity.
+    pub fn parse(path: &Path) -> Result<Self> {
+        let content = if path.exists() {
+            std::fs::read_to_string(path)
+                .with_context(|| format!("Failed to read SSH config at {}", path.display()))?
+        } else {
+            String::new()
+        };
+
+        let elements = Self::parse_content(&content);
+
+        Ok(SshConfigFile {
+            elements,
+            path: path.to_path_buf(),
+        })
+    }
+
+    /// Parse SSH config content from a string.
+    pub(crate) fn parse_content(content: &str) -> Vec<ConfigElement> {
+        let mut elements = Vec::new();
+        let mut current_block: Option<HostBlock> = None;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            // Check if this line starts a new Host block
+            if let Some(pattern) = Self::parse_host_line(trimmed) {
+                // Flush the previous block if any
+                if let Some(block) = current_block.take() {
+                    elements.push(ConfigElement::HostBlock(block));
+                }
+                current_block = Some(HostBlock {
+                    host_pattern: pattern,
+                    raw_host_line: line.to_string(),
+                    directives: Vec::new(),
+                });
+                continue;
+            }
+
+            // If we're inside a Host block, add this line as a directive
+            if let Some(ref mut block) = current_block {
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    // Comment or blank line inside a host block
+                    block.directives.push(Directive {
+                        key: String::new(),
+                        value: String::new(),
+                        raw_line: line.to_string(),
+                        is_non_directive: true,
+                    });
+                } else if let Some((key, value)) = Self::parse_directive(trimmed) {
+                    block.directives.push(Directive {
+                        key,
+                        value,
+                        raw_line: line.to_string(),
+                        is_non_directive: false,
+                    });
+                } else {
+                    // Unrecognized line format — preserve verbatim
+                    block.directives.push(Directive {
+                        key: String::new(),
+                        value: String::new(),
+                        raw_line: line.to_string(),
+                        is_non_directive: true,
+                    });
+                }
+            } else {
+                // Global line (before any Host block)
+                elements.push(ConfigElement::GlobalLine(line.to_string()));
+            }
+        }
+
+        // Flush the last block
+        if let Some(block) = current_block {
+            elements.push(ConfigElement::HostBlock(block));
+        }
+
+        elements
+    }
+
+    /// Check if a line is a "Host <pattern>" line.
+    /// Returns the pattern if it is.
+    fn parse_host_line(trimmed: &str) -> Option<String> {
+        let lower = trimmed.to_lowercase();
+        if lower.starts_with("host ") && !lower.starts_with("hostname") {
+            let pattern = trimmed[5..].trim().to_string();
+            if !pattern.is_empty() {
+                return Some(pattern);
+            }
+        }
+        None
+    }
+
+    /// Parse a "Key Value" directive line.
+    fn parse_directive(trimmed: &str) -> Option<(String, String)> {
+        // SSH config format: Key Value (space-separated) or Key=Value
+        let (key, value) = if let Some(eq_pos) = trimmed.find('=') {
+            let key = trimmed[..eq_pos].trim();
+            let value = trimmed[eq_pos + 1..].trim();
+            (key, value)
+        } else {
+            let mut parts = trimmed.splitn(2, char::is_whitespace);
+            let key = parts.next()?;
+            let value = parts.next().unwrap_or("").trim();
+            (key, value)
+        };
+
+        if key.is_empty() {
+            return None;
+        }
+
+        Some((key.to_string(), value.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn parse_str(content: &str) -> SshConfigFile {
+        SshConfigFile {
+            elements: SshConfigFile::parse_content(content),
+            path: PathBuf::from("/tmp/test_config"),
+        }
+    }
+
+    #[test]
+    fn test_empty_config() {
+        let config = parse_str("");
+        assert!(config.host_entries().is_empty());
+    }
+
+    #[test]
+    fn test_basic_host() {
+        let config = parse_str(
+            "Host myserver\n  HostName 192.168.1.10\n  User admin\n  Port 2222\n",
+        );
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].alias, "myserver");
+        assert_eq!(entries[0].hostname, "192.168.1.10");
+        assert_eq!(entries[0].user, "admin");
+        assert_eq!(entries[0].port, 2222);
+    }
+
+    #[test]
+    fn test_multiple_hosts() {
+        let content = "\
+Host alpha
+  HostName alpha.example.com
+  User deploy
+
+Host beta
+  HostName beta.example.com
+  User root
+  Port 22022
+";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].alias, "alpha");
+        assert_eq!(entries[1].alias, "beta");
+        assert_eq!(entries[1].port, 22022);
+    }
+
+    #[test]
+    fn test_wildcard_host_filtered() {
+        let content = "\
+Host *
+  ServerAliveInterval 60
+
+Host myserver
+  HostName 10.0.0.1
+";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].alias, "myserver");
+    }
+
+    #[test]
+    fn test_comments_preserved() {
+        let content = "\
+# Global comment
+Host myserver
+  # This is a comment
+  HostName 10.0.0.1
+  User admin
+";
+        let config = parse_str(content);
+        // Check that the global comment is preserved
+        assert!(matches!(&config.elements[0], ConfigElement::GlobalLine(s) if s == "# Global comment"));
+        // Check that the host block has the comment directive
+        if let ConfigElement::HostBlock(block) = &config.elements[1] {
+            assert!(block.directives[0].is_non_directive);
+            assert_eq!(block.directives[0].raw_line, "  # This is a comment");
+        } else {
+            panic!("Expected HostBlock");
+        }
+    }
+
+    #[test]
+    fn test_identity_file_and_proxy_jump() {
+        let content = "\
+Host bastion
+  HostName bastion.example.com
+  User admin
+  IdentityFile ~/.ssh/id_ed25519
+  ProxyJump gateway
+";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries[0].identity_file, "~/.ssh/id_ed25519");
+        assert_eq!(entries[0].proxy_jump, "gateway");
+    }
+
+    #[test]
+    fn test_unknown_directives_preserved() {
+        let content = "\
+Host myserver
+  HostName 10.0.0.1
+  ForwardAgent yes
+  LocalForward 8080 localhost:80
+";
+        let config = parse_str(content);
+        if let ConfigElement::HostBlock(block) = &config.elements[0] {
+            assert_eq!(block.directives.len(), 3);
+            assert_eq!(block.directives[1].key, "ForwardAgent");
+            assert_eq!(block.directives[1].value, "yes");
+            assert_eq!(block.directives[2].key, "LocalForward");
+        } else {
+            panic!("Expected HostBlock");
+        }
+    }
+}

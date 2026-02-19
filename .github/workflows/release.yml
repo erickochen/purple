@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g., v0.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-13  # Last Intel-native runner
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify version matches tag
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Cargo.toml version ($CARGO_VERSION) does not match tag ($TAG_VERSION)"
+            exit 1
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          ARCHIVE="purple-${VERSION}-${{ matrix.target }}.tar.gz"
+          cd target/${{ matrix.target }}/release
+          tar -czf ../../../"${ARCHIVE}" purple
+          cd ../../..
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+          shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
+
+      - name: Verify archive
+        run: |
+          ls -lh "${{ env.ARCHIVE }}"
+          cat "${{ env.ARCHIVE }}.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: purple-${{ matrix.target }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            purple-aarch64-apple-darwin/*.tar.gz
+            purple-aarch64-apple-darwin/*.sha256
+            purple-x86_64-apple-darwin/*.tar.gz
+            purple-x86_64-apple-darwin/*.sha256
+
+  update-homebrew:
+    name: Update Homebrew Tap
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release tarballs and compute SHA256
+        id: sha
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BASE="https://github.com/erickochen/purple/releases/download/v${VERSION}"
+          curl -fSL -o arm64.tar.gz "${BASE}/purple-${VERSION}-aarch64-apple-darwin.tar.gz"
+          curl -fSL -o x86_64.tar.gz "${BASE}/purple-${VERSION}-x86_64-apple-darwin.tar.gz"
+          echo "sha256_arm64=$(sha256sum arm64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "sha256_x86_64=$(sha256sum x86_64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout homebrew-purple tap
+        uses: actions/checkout@v4
+        with:
+          repository: erickochen/homebrew-purple
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256_ARM64: ${{ steps.sha.outputs.sha256_arm64 }}
+          SHA256_X86_64: ${{ steps.sha.outputs.sha256_x86_64 }}
+        run: |
+          mkdir -p Formula
+          cat > Formula/purple.rb << EOF
+          class Purple < Formula
+            desc "Fast, friendly TUI for managing SSH hosts"
+            homepage "https://github.com/erickochen/purple"
+            version "${VERSION}"
+            license "MIT"
+
+            depends_on :macos
+
+            on_macos do
+              on_arm do
+                url "https://github.com/erickochen/purple/releases/download/v${VERSION}/purple-${VERSION}-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA256_ARM64}"
+              end
+              on_intel do
+                url "https://github.com/erickochen/purple/releases/download/v${VERSION}/purple-${VERSION}-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA256_X86_64}"
+              end
+            end
+
+            def install
+              bin.install "purple"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/purple --version")
+            end
+          end
+          EOF
+
+      - name: Commit and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/purple.rb
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "purple ${VERSION}"
+          git push
