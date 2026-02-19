@@ -8,8 +8,7 @@
 
 Written in Rust. Works with your existing `~/.ssh/config`. No proprietary formats, no lock-in, no nonsense. If you need a **terminal SSH manager** that respects your workflow, Purple is it.
 
-<!-- TODO: Add demo GIF here -->
-<!-- <p align="center"><img src="assets/demo.gif" alt="Purple TUI demo" width="700"></p> -->
+<p align="center"><img src="demo.gif" alt="Purple SSH config manager TUI demo" width="700"></p>
 
 ## What is Purple?
 
