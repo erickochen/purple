@@ -55,7 +55,7 @@ brew install purple
 ### From source
 
 ```bash
-cargo install purple
+cargo install purple-ssh
 ```
 
 ### Build from Git
