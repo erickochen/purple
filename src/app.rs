@@ -166,6 +166,7 @@ pub enum PingStatus {
     Checking,
     Reachable,
     Unreachable,
+    Skipped,
 }
 
 /// Main application state.
@@ -184,6 +185,7 @@ pub struct App {
     // Search state
     pub search_query: Option<String>,
     pub filtered_indices: Vec<usize>,
+    pre_search_selection: Option<usize>,
 
     // Form state
     pub form: HostForm,
@@ -226,6 +228,7 @@ impl App {
             display_list,
             search_query: None,
             filtered_indices: Vec::new(),
+            pre_search_selection: None,
             form: HostForm::new(),
             status: None,
             pending_connect: None,
@@ -469,28 +472,40 @@ impl App {
 
     /// Reload hosts from config.
     pub fn reload_hosts(&mut self) {
+        let had_search = self.search_query.clone();
+
         self.hosts = self.config.host_entries();
         self.display_list = Self::build_display_list_from(&self.config, &self.hosts);
-        self.search_query = None;
-        self.filtered_indices.clear();
 
-        // Fix selection
-        if self.hosts.is_empty() {
-            self.list_state.select(None);
-        } else if let Some(pos) = self
-            .display_list
-            .iter()
-            .position(|item| matches!(item, HostListItem::Host { .. }))
-        {
-            let current = self.list_state.selected().unwrap_or(0);
-            // Try to keep current position valid
-            if current >= self.display_list.len()
-                || !matches!(self.display_list.get(current), Some(HostListItem::Host { .. }))
-            {
-                self.list_state.select(Some(pos));
-            }
+        // Prune ping status for hosts that no longer exist
+        let valid_aliases: std::collections::HashSet<&str> =
+            self.hosts.iter().map(|h| h.alias.as_str()).collect();
+        self.ping_status.retain(|alias, _| valid_aliases.contains(alias.as_str()));
+
+        // Restore search if it was active, otherwise reset
+        if let Some(query) = had_search {
+            self.search_query = Some(query);
+            self.apply_filter();
         } else {
-            self.list_state.select(None);
+            self.search_query = None;
+            self.filtered_indices.clear();
+            // Fix selection for display list mode
+            if self.hosts.is_empty() {
+                self.list_state.select(None);
+            } else if let Some(pos) = self
+                .display_list
+                .iter()
+                .position(|item| matches!(item, HostListItem::Host { .. }))
+            {
+                let current = self.list_state.selected().unwrap_or(0);
+                if current >= self.display_list.len()
+                    || !matches!(self.display_list.get(current), Some(HostListItem::Host { .. }))
+                {
+                    self.list_state.select(Some(pos));
+                }
+            } else {
+                self.list_state.select(None);
+            }
         }
     }
 
@@ -498,6 +513,7 @@ impl App {
 
     /// Enter search mode.
     pub fn start_search(&mut self) {
+        self.pre_search_selection = self.list_state.selected();
         self.search_query = Some(String::new());
         self.apply_filter();
     }
@@ -512,13 +528,17 @@ impl App {
     pub fn cancel_search(&mut self) {
         self.search_query = None;
         self.filtered_indices.clear();
-        // Restore selection to first host in display list
-        if let Some(pos) = self
-            .display_list
-            .iter()
-            .position(|item| matches!(item, HostListItem::Host { .. }))
-        {
-            self.list_state.select(Some(pos));
+        // Restore pre-search position (bounds-checked)
+        if let Some(pos) = self.pre_search_selection.take() {
+            if pos < self.display_list.len() {
+                self.list_state.select(Some(pos));
+            } else if let Some(first) = self
+                .display_list
+                .iter()
+                .position(|item| matches!(item, HostListItem::Host { .. }))
+            {
+                self.list_state.select(Some(first));
+            }
         }
     }
 

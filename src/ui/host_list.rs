@@ -81,7 +81,11 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
         .map(|item| match item {
             HostListItem::GroupHeader(text) => {
                 let line = Line::from(vec![
-                    Span::styled(format!("  {} ", text), theme::section_header()),
+                    Span::styled(
+                        format!("  {} ", text),
+                        theme::section_header(),
+                    ),
+                    Span::styled(" ────", theme::muted()),
                 ]);
                 ListItem::new(line)
             }
@@ -195,6 +199,7 @@ fn build_host_item<'a>(
             PingStatus::Checking => (" [..]", theme::muted()),
             PingStatus::Reachable => (" [ok]", theme::success()),
             PingStatus::Unreachable => (" [--]", theme::error()),
+            PingStatus::Skipped => (" [??]", theme::muted()),
         };
         spans.push(Span::styled(indicator, style));
     }

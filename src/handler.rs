@@ -61,10 +61,11 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
         }
         KeyCode::Char('e') => {
             if let (Some(index), Some(host)) = (app.selected_host_index(), app.selected_host()) {
-                if host.source_file.is_some() {
+                if let Some(ref source) = host.source_file {
                     let alias = host.alias.clone();
+                    let path = source.display();
                     app.set_status(
-                        format!("{} lives in an included file. Edit it there.", alias),
+                        format!("{} lives in {}. Edit it there.", alias, path),
                         true,
                     );
                     return;
@@ -75,10 +76,11 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
         }
         KeyCode::Char('d') => {
             if let (Some(index), Some(host)) = (app.selected_host_index(), app.selected_host()) {
-                if host.source_file.is_some() {
+                if let Some(ref source) = host.source_file {
                     let alias = host.alias.clone();
+                    let path = source.display();
                     app.set_status(
-                        format!("{} lives in an included file. Edit it there.", alias),
+                        format!("{} lives in {}. Edit it there.", alias, path),
                         true,
                     );
                     return;
@@ -103,21 +105,37 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
         KeyCode::Char('p') => {
             if let Some(host) = app.selected_host() {
                 let alias = host.alias.clone();
-                let hostname = host.hostname.clone();
-                let port = host.port;
-                app.ping_status
-                    .insert(alias.clone(), crate::app::PingStatus::Checking);
-                app.set_status(format!("Pinging {}...", alias), false);
-                ping::ping_host(alias, hostname, port, events_tx.clone());
+                if !host.proxy_jump.is_empty() {
+                    app.ping_status
+                        .insert(alias.clone(), crate::app::PingStatus::Skipped);
+                    app.set_status(
+                        format!("{} uses ProxyJump. Can't ping directly.", alias),
+                        true,
+                    );
+                } else {
+                    let hostname = host.hostname.clone();
+                    let port = host.port;
+                    app.ping_status
+                        .insert(alias.clone(), crate::app::PingStatus::Checking);
+                    app.set_status(format!("Pinging {}...", alias), false);
+                    ping::ping_host(alias, hostname, port, events_tx.clone());
+                }
             }
         }
         KeyCode::Char('P') => {
             let hosts_to_ping: Vec<(String, String, u16)> = app
                 .hosts
                 .iter()
-                .filter(|h| !h.hostname.is_empty())
+                .filter(|h| !h.hostname.is_empty() && h.proxy_jump.is_empty())
                 .map(|h| (h.alias.clone(), h.hostname.clone(), h.port))
                 .collect();
+            // Mark ProxyJump hosts as skipped (can't ping directly)
+            for h in &app.hosts {
+                if !h.proxy_jump.is_empty() {
+                    app.ping_status
+                        .insert(h.alias.clone(), crate::app::PingStatus::Skipped);
+                }
+            }
             if !hosts_to_ping.is_empty() {
                 for (alias, _, _) in &hosts_to_ping {
                     app.ping_status

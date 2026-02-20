@@ -216,7 +216,7 @@ fn handle_quick_add(
         });
 
     if config.has_host(&alias_str) {
-        eprintln!("'{}' already exists. Pick a different name.", alias_str);
+        eprintln!("'{}' already exists. Use --alias to pick a different name.", alias_str);
         std::process::exit(1);
     }
 

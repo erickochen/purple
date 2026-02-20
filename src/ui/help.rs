@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use super::theme;
 
 pub fn render(frame: &mut Frame) {
-    let area = super::centered_rect_fixed(50, 32, frame.area());
+    let area = super::centered_rect_fixed(50, 22, frame.area());
 
     // Clear background
     frame.render_widget(Clear, area);
@@ -16,32 +16,23 @@ pub fn render(frame: &mut Frame) {
         .border_style(theme::accent());
 
     let help_text = vec![
-        Line::from(""),
         Line::from(Span::styled("  Host List", theme::section_header())),
-        Line::from(""),
-        help_line("  j / Down  ", "Move down"),
-        help_line("  k / Up    ", "Move up"),
+        help_line("  j/k       ", "Move down / up"),
         help_line("  Enter     ", "Connect to host"),
-        help_line("  a         ", "Add new host"),
-        help_line("  e         ", "Edit selected host"),
-        help_line("  d         ", "Delete selected host"),
+        help_line("  a e d     ", "Add / edit / delete host"),
         help_line("  y         ", "Copy SSH command"),
         help_line("  /         ", "Search / filter hosts"),
-        help_line("  p         ", "Ping selected host"),
-        help_line("  P         ", "Ping all hosts"),
+        help_line("  p / P     ", "Ping host / ping all"),
         help_line("  K         ", "SSH key list"),
-        help_line("  Ctrl+C    ", "Quit (from anywhere)"),
         help_line("  q / Esc   ", "Quit / back"),
+        help_line("  Ctrl+C    ", "Quit (from anywhere)"),
         Line::from(""),
         Line::from(Span::styled("  Search", theme::section_header())),
-        Line::from(""),
         help_line("  Enter     ", "Connect to selected"),
         help_line("  Esc       ", "Cancel search"),
         Line::from(""),
         Line::from(Span::styled("  Form", theme::section_header())),
-        Line::from(""),
-        help_line("  Tab       ", "Next field"),
-        help_line("  Shift+Tab ", "Previous field"),
+        help_line("  Tab/S-Tab ", "Next / previous field"),
         help_line("  Ctrl+K    ", "Pick SSH key"),
         help_line("  Enter     ", "Save"),
         help_line("  Esc       ", "Cancel"),
