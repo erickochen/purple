@@ -188,7 +188,7 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
             let purple_dir = home.join(".purple");
             if !purple_dir.exists() {
                 let _ = std::fs::create_dir_all(&purple_dir);
-                app.set_status("Welcome to Purple. Press ? for the cheat sheet.", false);
+                app.set_status("Welcome to purple. Press ? for the cheat sheet.", false);
             }
         }
     }

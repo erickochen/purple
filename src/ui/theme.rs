@@ -26,13 +26,11 @@ pub fn brand() -> Style {
     with_fg(Style::default().add_modifier(Modifier::BOLD), Color::Magenta)
 }
 
-/// Brand badge: reversed Magenta chip for main screen titles.
-/// REVERSED guarantees readability on any terminal theme by swapping fg/bg.
+/// Brand badge: reversed chip for main screen titles.
+/// Uses REVERSED without color so it always swaps the terminal's own fg/bg,
+/// guaranteeing high contrast on every theme.
 pub fn brand_badge() -> Style {
-    with_fg(
-        Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED),
-        Color::Magenta,
-    )
+    Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED)
 }
 
 /// Primary accent: structural elements (borders, focus indicators).
