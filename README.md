@@ -1,78 +1,70 @@
 <h1 align="center">🟣 Purple.</h1>
 
-<p align="center"><strong>Your SSH config, managed.</strong></p>
+<p align="center"><strong>A smart, fast SSH launcher for your terminal.</strong></p>
 
 <p align="center">
   <a href="https://crates.io/crates/purple-ssh"><img src="https://img.shields.io/crates/v/purple-ssh.svg" alt="Crates.io"></a>
+  <a href="https://crates.io/crates/purple-ssh"><img src="https://img.shields.io/crates/d/purple-ssh.svg" alt="Downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
 <p align="center">
-  A fast, keyboard-driven TUI for managing SSH hosts.<br>
-  Add, edit, delete and connect. All from your terminal.<br>
-  Written in Rust. Single binary. No lock-in.
+  Bookmarks for your SSH hosts. Search, tag, connect.<br>
+  Reads your <code>~/.ssh/config</code> and writes it back byte-for-byte.<br>
+  Rust. Single binary. No lock-in.
 </p>
 
-<p align="center"><img src="demo.gif" alt="Purple SSH config manager TUI demo" width="700"></p>
+<br>
+
+<p align="center"><img src="demo.gif" alt="Purple SSH launcher TUI demo" width="700"></p>
+
+<br>
+
+<p align="center">
+  Purple is a keyboard-driven TUI that turns your SSH config into a searchable, taggable launcher.<br>
+  Browse 50 hosts in a keystroke. Press Enter to connect. Manage the rest without opening an editor.<br>
+  Your comments, formatting and unknown directives survive every edit.
+</p>
+
+<br>
 
 ---
 
-## 😩 The Problem
+## ✨ Features
 
-Your `~/.ssh/config` has 47 hosts and counting. You edit it by hand. One typo locks you out of production. You have no backups. You `grep` for hostnames like a caveman. Sound familiar?
+&nbsp;&nbsp;&nbsp;&nbsp;**Launch fast.** &nbsp; `purple` opens the TUI. `purple myserver` connects directly. `purple prod` opens pre-filtered.
 
-## ✨ What Purple Does
+&nbsp;&nbsp;&nbsp;&nbsp;**Search everything.** &nbsp; Matches alias, hostname and user as you type. Match count updates live.
 
-Purple reads your SSH config, gives you a proper interface and writes it back. Byte-for-byte. Your comments, formatting and unknown directives survive every edit. No proprietary formats. No surprises.
+&nbsp;&nbsp;&nbsp;&nbsp;**Ping before you connect.** &nbsp; TCP reachability check. One host or all of them.
 
-### 🖥️ Manage Hosts
+&nbsp;&nbsp;&nbsp;&nbsp;**Tags and groups.** &nbsp; Tag hosts with labels. Filter with `tag:prod`. Comments become visual group headers.
 
-Add, edit, clone and delete hosts through a form interface. Connect to any host by pressing Enter. Quick-add from the command line with `purple add user@host:port`. Bulk import from a hosts file or `~/.ssh/known_hosts`. Paste `user@host:port` into the alias field and watch it auto-fill the rest. Smart paste. Because life's too short to fill out forms.
+&nbsp;&nbsp;&nbsp;&nbsp;**Sort by frecency.** &nbsp; Purple remembers when you connected. Most-used hosts surface first.
 
-### 🔍 Find Things Fast
+&nbsp;&nbsp;&nbsp;&nbsp;**SSH key browser.** &nbsp; Fingerprints, linked hosts, key types. Pick a key from the form with Ctrl+K.
 
-Search and filter by alias, hostname or user. Filter by tag with `tag:prod`. Sort by alias, hostname or frecency. Vim-style navigation with `j`/`k` and arrow keys. Group headers turn comments above Host blocks into visual sections. Your config stays organized without you trying.
+&nbsp;&nbsp;&nbsp;&nbsp;**Quick-add and import.** &nbsp; `purple add user@host:port` from the CLI. Bulk import from a file or known_hosts.
 
-### 📡 Know What's Alive
+&nbsp;&nbsp;&nbsp;&nbsp;**Include support.** &nbsp; Reads Include directives recursively. Multi-file configs just work.
 
-Ping hosts with a TCP reachability check before you connect. One host or all of them. No more SSHing into the void.
+&nbsp;&nbsp;&nbsp;&nbsp;**Clipboard.** &nbsp; Copy the SSH command or the full config block. macOS, Wayland and X11.
 
-### 🔑 SSH Key Management
-
-Browse your keys, see fingerprints and linked hosts. Pick a key with Ctrl+K right from the form. No more guessing which key goes where.
-
-### 📂 Include Support
-
-Reads Include directives recursively with glob expansion. Included hosts show up in the list but stay read-only. Your multi-file setup just works.
-
-### 🏷️ Tags and Labels
-
-Tag hosts with `t` and comma-separated labels. Filter by tag with `/tag:prod`. Tags are stored as comments in your config. Fully round-trip safe.
-
-### 📋 Copy to Clipboard
-
-Press `y` to copy the SSH command or `x` to export the full config block. Works on macOS, Wayland and X11.
-
-### 🔄 Auto-Reload
-
-Edit your config in another editor? Purple detects external changes and reloads automatically. Deleted a host by accident? Press `u` to undo.
-
-### 📊 Connection History
-
-Purple remembers when you last connected to each host. Sort by frecency to surface your most-used hosts. History persists across sessions.
+&nbsp;&nbsp;&nbsp;&nbsp;**Auto-reload and undo.** &nbsp; Detects external changes. Undo accidental deletes with `u`.
 
 ---
 
-## 🛡️ Built for the Paranoid
+## 🔒 Safe by default
 
 | | |
 |---|---|
 | **Round-trip fidelity** | Comments, formatting, unknown directives. All preserved. |
 | **Atomic writes** | Temp file, chmod 600, rename. No half-written configs. |
 | **Automatic backups** | Every write creates a backup. Keeps the last 5. |
+| **177 tests** | 70 unit + 107 integration. Every operation tested for fidelity. |
+| **Works everywhere** | ANSI 16 colors. Any terminal, any theme, any monospace font. |
+| **NO_COLOR** | Respects the [NO_COLOR](https://no-color.org/) standard. |
 | **Shell completions** | Bash, zsh and fish. |
-| **Works everywhere** | ANSI 16 colors. Any terminal theme, any monospace font. No Nerd Font needed. |
-| **NO_COLOR** | Respects the [NO_COLOR](https://no-color.org/) standard. Set `NO_COLOR=1` to disable colors. |
 
 ---
 
@@ -88,7 +80,7 @@ brew install erickochen/purple/purple
 cargo install purple-ssh
 ```
 
-**From Source**
+**From source**
 ```bash
 git clone https://github.com/erickochen/purple.git && cd purple && cargo build --release
 ```
@@ -105,15 +97,17 @@ purple --list                       # List all hosts
 purple add deploy@10.0.1.5:22      # Quick-add a host
 purple import hosts.txt             # Bulk import from file
 purple import --known-hosts         # Import from known_hosts
-purple import hosts.txt --group Prod # Import with group label
-purple --completions zsh             # Generate shell completions
+purple --completions zsh            # Shell completions
 ```
 
 ---
 
-## ⌨️ Keybindings
+<details>
+<summary><strong>Keybindings</strong> &mdash; press <code>?</code> in the TUI for the cheat sheet</summary>
 
-### Host List
+<br>
+
+**Host List**
 
 | Key | Action |
 |-----|--------|
@@ -126,7 +120,7 @@ purple --completions zsh             # Generate shell completions
 | `y` | Copy SSH command |
 | `x` | Export config block to clipboard |
 | `/` | Search and filter |
-| `t` | Tag host (comma-separated) |
+| `t` | Tag host |
 | `s` | Cycle sort mode |
 | `i` | Inspect host details |
 | `u` | Undo last delete |
@@ -136,7 +130,7 @@ purple --completions zsh             # Generate shell completions
 | `?` | Help |
 | `q` / `Esc` | Quit |
 
-### Search
+**Search**
 
 | Key | Action |
 |-----|--------|
@@ -145,7 +139,7 @@ purple --completions zsh             # Generate shell completions
 | `Esc` | Cancel search |
 | `Tab` / `Shift+Tab` | Next / previous result |
 
-### Form
+**Form**
 
 | Key | Action |
 |-----|--------|
@@ -154,12 +148,10 @@ purple --completions zsh             # Generate shell completions
 | `Enter` | Save |
 | `Esc` | Cancel |
 
----
+</details>
 
-## 💜 Why "Purple"?
+<br>
 
-Every project needs a name. This one got picked because purple is the creator's favorite color. No acronym, no grand metaphor. Just vibes. 😉
-
-## License
-
-[MIT](LICENSE)
+<p align="center">
+  💜 <a href="LICENSE">MIT License</a>
+</p>

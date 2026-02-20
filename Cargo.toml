@@ -2,12 +2,12 @@
 name = "purple-ssh"
 version = "0.5.0"
 edition = "2024"
-description = "A fast, interactive TUI (terminal UI) for managing your ~/.ssh/config. Add, edit, delete and connect to SSH hosts from the terminal"
+description = "A smart, fast SSH launcher for your terminal. Search, tag and connect to hosts from a TUI. Manages ~/.ssh/config with round-trip fidelity"
 license = "MIT"
 repository = "https://github.com/erickochen/purple"
 homepage = "https://github.com/erickochen/purple"
 readme = "README.md"
-keywords = ["ssh", "ssh-config", "tui", "terminal", "config-manager"]
+keywords = ["ssh", "ssh-config", "tui", "terminal", "ssh-manager"]
 categories = ["command-line-utilities", "network-programming"]
 rust-version = "1.85"
 exclude = [".github/", ".gitignore"]
