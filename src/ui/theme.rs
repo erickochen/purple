@@ -96,13 +96,9 @@ pub fn danger() -> Style {
     )
 }
 
-/// Default border (unfocused). Magenta for purple identity, DIM fallback for NO_COLOR.
+/// Default border (unfocused).
 pub fn border() -> Style {
-    if nc() {
-        Style::default().add_modifier(Modifier::DIM)
-    } else {
-        Style::default().fg(Color::Magenta)
-    }
+    Style::default().add_modifier(Modifier::DIM)
 }
 
 /// Focused border.

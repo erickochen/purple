@@ -12,7 +12,7 @@ pub fn render(frame: &mut Frame) {
 
     let title = Line::from(vec![
         Span::styled(" purple. ", theme::brand_badge()),
-        Span::styled(" Cheat Sheet ", theme::muted()),
+        Span::raw(" Cheat Sheet "),
     ]);
     let block = Block::default()
         .title(title)

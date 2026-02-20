@@ -61,7 +61,6 @@
 | **Round-trip fidelity** | Comments, formatting, unknown directives. All preserved. |
 | **Atomic writes** | Temp file, chmod 600, rename. No half-written configs. |
 | **Automatic backups** | Every write creates a backup. Keeps the last 5. |
-| **177 tests** | 70 unit + 107 integration. Every operation tested for fidelity. |
 | **Works everywhere** | ANSI 16 colors. Any terminal, any theme, any monospace font. |
 | **NO_COLOR** | Respects the [NO_COLOR](https://no-color.org/) standard. |
 | **Shell completions** | Bash, zsh and fish. |

@@ -18,13 +18,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let title = if app.keys.is_empty() {
         Line::from(vec![
             Span::styled(" purple. ", theme::brand_badge()),
-            Span::styled(" keys ", theme::muted()),
+            Span::raw(" keys "),
         ])
     } else {
         let pos = app.key_list_state.selected().map(|i| i + 1).unwrap_or(0);
         Line::from(vec![
             Span::styled(" purple. ", theme::brand_badge()),
-            Span::styled(format!(" keys {}/{} ", pos, app.keys.len()), theme::muted()),
+            Span::raw(format!(" keys {}/{} ", pos, app.keys.len())),
         ])
     };
 

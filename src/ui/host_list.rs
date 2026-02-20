@@ -71,13 +71,10 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
             .unwrap_or(0);
         let mut spans = vec![
             Span::styled(" purple. ", theme::brand_badge()),
-            Span::styled(format!(" {}/{} ", pos, host_count), theme::muted()),
+            Span::raw(format!(" {}/{} ", pos, host_count)),
         ];
         if app.sort_mode != SortMode::Original {
-            spans.push(Span::styled(
-                format!("({}) ", app.sort_mode.label()),
-                theme::muted(),
-            ));
+            spans.push(Span::raw(format!("({}) ", app.sort_mode.label())));
         }
         Line::from(spans)
     };
@@ -131,10 +128,11 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
 fn render_search_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
     let title = Line::from(vec![
         Span::styled(" purple. ", theme::brand_badge()),
-        Span::styled(
-            format!(" search: {}/{} ", app.filtered_indices.len(), app.hosts.len()),
-            theme::muted(),
-        ),
+        Span::raw(format!(
+            " search: {}/{} ",
+            app.filtered_indices.len(),
+            app.hosts.len()
+        )),
     ]);
 
     if app.filtered_indices.is_empty() {
