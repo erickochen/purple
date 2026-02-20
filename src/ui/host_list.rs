@@ -4,18 +4,19 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 
 use super::theme;
-use crate::app::{App, HostListItem, PingStatus};
+use crate::app::{App, HostListItem, PingStatus, SortMode};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
     let is_searching = app.search_query.is_some();
+    let is_tagging = app.tag_input.is_some();
 
-    // Layout: host list + optional search bar + footer/status
-    let chunks = if is_searching {
+    // Layout: host list + optional input bar + footer/status
+    let chunks = if is_searching || is_tagging {
         Layout::vertical([
             Constraint::Min(5),   // Host list (maximized)
-            Constraint::Length(1), // Search bar
+            Constraint::Length(1), // Search/tag bar
             Constraint::Length(1), // Footer or status message
         ])
         .split(area)
@@ -35,6 +36,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             super::render_status_bar(frame, chunks[2], app);
         } else {
             render_search_footer(frame, chunks[2]);
+        }
+    } else if is_tagging {
+        render_display_list(frame, app, chunks[0]);
+        render_tag_bar(frame, app, chunks[1]);
+        // Footer or status
+        if app.status.is_some() {
+            super::render_status_bar(frame, chunks[2], app);
+        } else {
+            render_tag_footer(frame, chunks[2]);
         }
     } else {
         render_display_list(frame, app, chunks[0]);
@@ -58,7 +68,11 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
             .selected_host_index()
             .map(|i| i + 1)
             .unwrap_or(0);
-        format!(" purple [{}/{}] ", pos, host_count)
+        if app.sort_mode != SortMode::Original {
+            format!(" purple [{}/{}] ({}) ", pos, host_count, app.sort_mode.label())
+        } else {
+            format!(" purple [{}/{}] ", pos, host_count)
+        }
     };
 
     if app.hosts.is_empty() {
@@ -91,7 +105,7 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
             }
             HostListItem::Host { index } => {
                 let host = &app.hosts[*index];
-                build_host_item(host, &app.ping_status)
+                build_host_item(host, &app.ping_status, &app.history)
             }
         })
         .collect();
@@ -134,7 +148,7 @@ fn render_search_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::R
         .iter()
         .map(|&idx| {
             let host = &app.hosts[idx];
-            build_host_item(host, &app.ping_status)
+            build_host_item(host, &app.ping_status, &app.history)
         })
         .collect();
 
@@ -154,6 +168,7 @@ fn render_search_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::R
 fn build_host_item<'a>(
     host: &'a crate::ssh_config::model::HostEntry,
     ping_status: &'a std::collections::HashMap<String, PingStatus>,
+    history: &'a crate::history::ConnectionHistory,
 ) -> ListItem<'a> {
     let user_display = if host.user.is_empty() {
         String::new()
@@ -182,6 +197,11 @@ fn build_host_item<'a>(
         spans.push(Span::styled(format!(" [{}]", key_name), theme::muted()));
     }
 
+    // Show tags
+    for tag in &host.tags {
+        spans.push(Span::styled(format!(" [{}]", tag), theme::accent()));
+    }
+
     // Show source file for included hosts
     if let Some(ref source) = host.source_file {
         let file_name = source
@@ -202,6 +222,14 @@ fn build_host_item<'a>(
             PingStatus::Skipped => (" [??]", theme::muted()),
         };
         spans.push(Span::styled(indicator, style));
+    }
+
+    // Last connected time
+    if let Some(entry) = history.entries.get(&host.alias) {
+        let ago = crate::history::ConnectionHistory::format_time_ago(entry.last_connected);
+        if !ago.is_empty() {
+            spans.push(Span::styled(format!(" ({})", ago), theme::muted()));
+        }
     }
 
     let line = Line::from(spans);
@@ -244,6 +272,27 @@ fn render_search_footer(frame: &mut Frame, area: ratatui::layout::Rect) {
         Span::styled(" connect  ", theme::muted()),
         Span::styled("Esc", theme::accent_bold()),
         Span::styled(" cancel", theme::muted()),
+    ]);
+    frame.render_widget(Paragraph::new(footer), area);
+}
+
+fn render_tag_bar(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
+    let input = app.tag_input.as_deref().unwrap_or("");
+    let tag_line = Line::from(vec![
+        Span::styled(" tags: ", theme::accent_bold()),
+        Span::raw(input),
+        Span::styled("_", theme::accent()),
+    ]);
+    frame.render_widget(Paragraph::new(tag_line), area);
+}
+
+fn render_tag_footer(frame: &mut Frame, area: ratatui::layout::Rect) {
+    let footer = Line::from(vec![
+        Span::styled(" Enter", theme::primary_action()),
+        Span::styled(" save  ", theme::muted()),
+        Span::styled("Esc", theme::accent_bold()),
+        Span::styled(" cancel  ", theme::muted()),
+        Span::styled("comma-separated", theme::muted()),
     ]);
     frame.render_widget(Paragraph::new(footer), area);
 }

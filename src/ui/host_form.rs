@@ -2,6 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
+use unicode_width::UnicodeWidthStr;
 
 use super::theme;
 use crate::app::{App, FormField, Screen};
@@ -173,12 +174,12 @@ fn render_field(frame: &mut Frame, area: Rect, field: FormField, form: &crate::a
     let paragraph = Paragraph::new(display).block(block);
     frame.render_widget(paragraph, area);
 
-    // Place cursor at end of focused field
+    // Place cursor at end of focused field (use display width for multibyte chars)
     if is_focused {
         let cursor_x = area
             .x
             .saturating_add(1)
-            .saturating_add(value.len().min(u16::MAX as usize) as u16);
+            .saturating_add(value.width().min(u16::MAX as usize) as u16);
         let cursor_y = area.y + 1;
         if cursor_x < area.x + area.width - 1 {
             frame.set_cursor_position((cursor_x, cursor_y));

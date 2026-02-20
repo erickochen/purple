@@ -27,11 +27,11 @@ Purple reads your SSH config, gives you a proper interface and writes it back. B
 
 ### 🖥️ Manage Hosts
 
-Add, edit and delete hosts through a form interface. Connect to any host by pressing Enter. Quick-add from the command line with `purple add user@host:port`. Paste `user@host:port` into the alias field and watch it auto-fill the rest. Smart paste. Because life's too short to fill out forms.
+Add, edit, clone and delete hosts through a form interface. Connect to any host by pressing Enter. Quick-add from the command line with `purple add user@host:port`. Bulk import from a hosts file or `~/.ssh/known_hosts`. Paste `user@host:port` into the alias field and watch it auto-fill the rest. Smart paste. Because life's too short to fill out forms.
 
 ### 🔍 Find Things Fast
 
-Search and filter by alias, hostname or user. Vim-style navigation with `j`/`k` and arrow keys. Group headers turn comments above Host blocks into visual sections. Your config stays organized without you trying.
+Search and filter by alias, hostname or user. Filter by tag with `tag:prod`. Sort by alias, hostname or frecency. Vim-style navigation with `j`/`k` and arrow keys. Group headers turn comments above Host blocks into visual sections. Your config stays organized without you trying.
 
 ### 📡 Know What's Alive
 
@@ -45,9 +45,21 @@ Browse your keys, see fingerprints and linked hosts. Pick a key with Ctrl+K righ
 
 Reads Include directives recursively with glob expansion. Included hosts show up in the list but stay read-only. Your multi-file setup just works.
 
+### 🏷️ Tags and Labels
+
+Tag hosts with `t` and comma-separated labels. Filter by tag with `/tag:prod`. Tags are stored as comments in your config. Fully round-trip safe.
+
 ### 📋 Copy to Clipboard
 
-Press `y` to copy the SSH command. Works on macOS, Wayland and X11.
+Press `y` to copy the SSH command or `x` to export the full config block. Works on macOS, Wayland and X11.
+
+### 🔄 Auto-Reload
+
+Edit your config in another editor? Purple detects external changes and reloads automatically. Deleted a host by accident? Press `u` to undo.
+
+### 📊 Connection History
+
+Purple remembers when you last connected to each host. Sort by frecency to surface your most-used hosts. History persists across sessions.
 
 ---
 
@@ -85,12 +97,15 @@ git clone https://github.com/erickochen/purple.git && cd purple && cargo build -
 ## 🚀 Usage
 
 ```bash
-purple                          # Launch the TUI
-purple myserver                 # Connect or search
-purple -c myserver              # Direct connect
-purple --list                   # List all hosts
-purple add deploy@10.0.1.5:22  # Quick-add a host
-purple --completions zsh        # Generate shell completions
+purple                              # Launch the TUI
+purple myserver                     # Connect or search
+purple -c myserver                  # Direct connect
+purple --list                       # List all hosts
+purple add deploy@10.0.1.5:22      # Quick-add a host
+purple import hosts.txt             # Bulk import from file
+purple import --known-hosts         # Import from known_hosts
+purple import hosts.txt --group Prod # Import with group label
+purple --completions zsh             # Generate shell completions
 ```
 
 ---
@@ -106,8 +121,14 @@ purple --completions zsh        # Generate shell completions
 | `a` | Add new host |
 | `e` | Edit selected host |
 | `d` | Delete selected host |
-| `y` | Copy SSH command to clipboard |
+| `c` | Clone host |
+| `y` | Copy SSH command |
+| `x` | Export config block to clipboard |
 | `/` | Search and filter |
+| `t` | Tag host (comma-separated) |
+| `s` | Cycle sort mode |
+| `i` | Inspect host details |
+| `u` | Undo last delete |
 | `p` | Ping selected host |
 | `P` | Ping all hosts |
 | `K` | SSH key list |

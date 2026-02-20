@@ -8,6 +8,7 @@ use crate::clipboard;
 use crate::event::AppEvent;
 use crate::ping;
 use crate::quick_add;
+use crate::ssh_config::model::ConfigElement;
 
 /// Handle a key event based on the current screen.
 pub fn handle_key_event(
@@ -34,11 +35,18 @@ pub fn handle_key_event(
         Screen::Help => handle_help(app, key),
         Screen::KeyList => handle_key_list(app, key),
         Screen::KeyDetail { .. } => handle_key_detail(app, key),
+        Screen::HostDetail { .. } => handle_host_detail(app, key),
     }
     Ok(())
 }
 
 fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEvent>) {
+    // Handle tag input mode
+    if app.tag_input.is_some() {
+        handle_tag_input(app, key);
+        return;
+    }
+
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.running = false;
@@ -88,6 +96,23 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
                 app.screen = Screen::ConfirmDelete { index };
             }
         }
+        KeyCode::Char('c') => {
+            if let Some(host) = app.selected_host() {
+                if let Some(ref source) = host.source_file {
+                    let alias = host.alias.clone();
+                    let path = source.display();
+                    app.set_status(
+                        format!("{} lives in {}. Clone it there.", alias, path),
+                        true,
+                    );
+                    return;
+                }
+                let mut form = HostForm::from_entry(host);
+                form.alias = format!("{}-copy", host.alias);
+                app.form = form;
+                app.screen = Screen::AddHost;
+            }
+        }
         KeyCode::Char('y') => {
             if let Some(host) = app.selected_host() {
                 let cmd = host.ssh_command();
@@ -98,6 +123,24 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
                     }
                     Err(e) => {
                         app.set_status(e, true);
+                    }
+                }
+            }
+        }
+        KeyCode::Char('x') => {
+            if let Some(host) = app.selected_host() {
+                let alias = host.alias.clone();
+                if let Some(block) = serialize_host_block(&app.config.elements, &alias) {
+                    match clipboard::copy_to_clipboard(&block) {
+                        Ok(()) => {
+                            app.set_status(
+                                format!("Copied config block for {}.", alias),
+                                false,
+                            );
+                        }
+                        Err(e) => {
+                            app.set_status(e, true);
+                        }
                     }
                 }
             }
@@ -151,6 +194,49 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
         KeyCode::Char('K') => {
             app.scan_keys();
             app.screen = Screen::KeyList;
+        }
+        KeyCode::Char('t') => {
+            if let Some(host) = app.selected_host() {
+                if let Some(ref source) = host.source_file {
+                    let alias = host.alias.clone();
+                    let path = source.display();
+                    app.set_status(
+                        format!("{} is included from {}. Tag it there.", alias, path),
+                        true,
+                    );
+                    return;
+                }
+                let current_tags = host.tags.join(", ");
+                app.tag_input = Some(current_tags);
+            }
+        }
+        KeyCode::Char('s') => {
+            app.sort_mode = app.sort_mode.next();
+            app.apply_sort();
+            app.set_status(format!("Sorted by {}.", app.sort_mode.label()), false);
+        }
+        KeyCode::Char('i') => {
+            if let Some(index) = app.selected_host_index() {
+                app.screen = Screen::HostDetail { index };
+            }
+        }
+        KeyCode::Char('u') => {
+            if let Some(deleted) = app.deleted_host.take() {
+                let alias = match &deleted.element {
+                    ConfigElement::HostBlock(block) => block.host_pattern.clone(),
+                    _ => "host".to_string(),
+                };
+                app.config.insert_host_at(deleted.element, deleted.position);
+                if let Err(e) = app.config.write() {
+                    app.set_status(format!("Failed to save: {}", e), true);
+                } else {
+                    app.update_last_modified();
+                    app.reload_hosts();
+                    app.set_status(format!("{} is back from the dead.", alias), false);
+                }
+            } else {
+                app.set_status("Nothing to undo.", true);
+            }
         }
         KeyCode::Char('?') => {
             app.screen = Screen::Help;
@@ -298,6 +384,9 @@ fn submit_form(app: &mut App) {
     let entry = app.form.to_entry();
     let alias = entry.alias.clone();
 
+    // Clear undo buffer on any write
+    app.deleted_host = None;
+
     match &app.screen {
         Screen::AddHost => {
             // Check for duplicate alias
@@ -316,6 +405,7 @@ fn submit_form(app: &mut App) {
                 app.set_status(format!("Failed to save: {}", e), true);
                 return;
             }
+            app.update_last_modified();
             app.reload_hosts();
             // Auto-select the newly added host (find it in display list)
             for (i, item) in app.display_list.iter().enumerate() {
@@ -351,6 +441,7 @@ fn submit_form(app: &mut App) {
                 app.set_status(format!("Failed to save: {}", e), true);
                 return;
             }
+            app.update_last_modified();
             app.reload_hosts();
             app.set_status(format!("{} got a makeover.", alias), false);
         }
@@ -366,16 +457,24 @@ fn handle_confirm_delete(app: &mut App, key: KeyEvent) {
             if let Screen::ConfirmDelete { index } = app.screen {
                 if index < app.hosts.len() {
                     let alias = app.hosts[index].alias.clone();
-                    app.config.delete_host(&alias);
-                    if let Err(e) = app.config.write() {
-                        app.set_status(format!("Failed to save: {}", e), true);
-                    } else {
-                        app.set_status(
-                            format!("Goodbye, {}. We barely knew ye.", alias),
-                            false,
-                        );
+                    if let Some((element, position)) = app.config.delete_host_undoable(&alias) {
+                        if let Err(e) = app.config.write() {
+                            // Restore the element on write failure
+                            app.config.insert_host_at(element, position);
+                            app.set_status(format!("Failed to save: {}", e), true);
+                        } else {
+                            app.deleted_host = Some(crate::app::DeletedHost {
+                                element,
+                                position,
+                            });
+                            app.update_last_modified();
+                            app.reload_hosts();
+                            app.set_status(
+                                format!("Goodbye, {}. We barely knew ye. (u to undo)", alias),
+                                false,
+                            );
+                        }
                     }
-                    app.reload_hosts();
                 }
             }
             app.screen = Screen::HostList;
@@ -422,6 +521,91 @@ fn handle_key_detail(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => {
             app.screen = Screen::KeyList;
+        }
+        _ => {}
+    }
+}
+
+/// Serialize a host block to its raw SSH config text.
+fn serialize_host_block(elements: &[ConfigElement], alias: &str) -> Option<String> {
+    for element in elements {
+        match element {
+            ConfigElement::HostBlock(block) if block.host_pattern == alias => {
+                let mut lines = vec![block.raw_host_line.clone()];
+                for directive in &block.directives {
+                    lines.push(directive.raw_line.clone());
+                }
+                return Some(lines.join("\n"));
+            }
+            ConfigElement::Include(include) => {
+                for file in &include.resolved_files {
+                    if let Some(result) = serialize_host_block(&file.elements, alias) {
+                        return Some(result);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn handle_tag_input(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Enter => {
+            if let Some(ref input) = app.tag_input {
+                let tags: Vec<String> = input
+                    .split(',')
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .collect();
+                if let Some(host) = app.selected_host() {
+                    let alias = host.alias.clone();
+                    let old_tags = host.tags.clone();
+                    app.config.set_host_tags(&alias, &tags);
+                    if let Err(e) = app.config.write() {
+                        // Restore old tags on write failure
+                        app.config.set_host_tags(&alias, &old_tags);
+                        app.set_status(format!("Failed to save: {}", e), true);
+                    } else {
+                        app.update_last_modified();
+                        let count = tags.len();
+                        app.reload_hosts();
+                        app.set_status(
+                            format!(
+                                "Tagged {} with {} label{}.",
+                                alias,
+                                count,
+                                if count == 1 { "" } else { "s" }
+                            ),
+                            false,
+                        );
+                    }
+                }
+            }
+            app.tag_input = None;
+        }
+        KeyCode::Esc => {
+            app.tag_input = None;
+        }
+        KeyCode::Char(c) => {
+            if let Some(ref mut input) = app.tag_input {
+                input.push(c);
+            }
+        }
+        KeyCode::Backspace => {
+            if let Some(ref mut input) = app.tag_input {
+                input.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_host_detail(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('i') => {
+            app.screen = Screen::HostList;
         }
         _ => {}
     }

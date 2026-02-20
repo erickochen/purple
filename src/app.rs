@@ -1,8 +1,10 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use ratatui::widgets::ListState;
 
+use crate::history::ConnectionHistory;
 use crate::ssh_config::model::{ConfigElement, HostEntry, SshConfigFile};
 use crate::ssh_keys::{self, SshKeyInfo};
 
@@ -16,6 +18,7 @@ pub enum Screen {
     Help,
     KeyList,
     KeyDetail { index: usize },
+    HostDetail { index: usize },
 }
 
 /// Which form field is focused.
@@ -141,6 +144,7 @@ impl HostForm {
             identity_file: self.identity_file.trim().to_string(),
             proxy_jump: self.proxy_jump.trim().to_string(),
             source_file: None,
+            tags: Vec::new(),
         }
     }
 }
@@ -167,6 +171,42 @@ pub enum PingStatus {
     Reachable,
     Unreachable,
     Skipped,
+}
+
+/// Sort mode for the host list.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SortMode {
+    Original,
+    AlphaAlias,
+    AlphaHostname,
+    Frecency,
+}
+
+impl SortMode {
+    pub fn next(self) -> Self {
+        match self {
+            SortMode::Original => SortMode::AlphaAlias,
+            SortMode::AlphaAlias => SortMode::AlphaHostname,
+            SortMode::AlphaHostname => SortMode::Frecency,
+            SortMode::Frecency => SortMode::Original,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SortMode::Original => "config order",
+            SortMode::AlphaAlias => "A-Z alias",
+            SortMode::AlphaHostname => "A-Z hostname",
+            SortMode::Frecency => "most used",
+        }
+    }
+}
+
+/// Stores a deleted host for undo.
+#[derive(Debug, Clone)]
+pub struct DeletedHost {
+    pub element: ConfigElement,
+    pub position: usize,
 }
 
 /// Main application state.
@@ -204,6 +244,22 @@ pub struct App {
 
     // Ping status
     pub ping_status: HashMap<String, PingStatus>,
+
+    // Tag input
+    pub tag_input: Option<String>,
+
+    // Connection history
+    pub history: ConnectionHistory,
+
+    // Sort mode
+    pub sort_mode: SortMode,
+
+    // Undo state
+    pub deleted_host: Option<DeletedHost>,
+
+    // Auto-reload state
+    pub config_path: PathBuf,
+    pub last_modified: Option<SystemTime>,
 }
 
 impl App {
@@ -218,6 +274,9 @@ impl App {
         {
             list_state.select(Some(pos));
         }
+
+        let config_path = config.path.clone();
+        let last_modified = Self::get_mtime(&config_path);
 
         Self {
             screen: Screen::HostList,
@@ -237,6 +296,12 @@ impl App {
             show_key_picker: false,
             key_picker_state: ListState::default(),
             ping_status: HashMap::new(),
+            tag_input: None,
+            history: ConnectionHistory::load(),
+            sort_mode: SortMode::Original,
+            deleted_host: None,
+            config_path,
+            last_modified,
         }
     }
 
@@ -398,6 +463,55 @@ impl App {
         }
     }
 
+    /// Rebuild the display list based on the current sort mode.
+    pub fn apply_sort(&mut self) {
+        if self.sort_mode == SortMode::Original {
+            self.display_list = Self::build_display_list_from(&self.config, &self.hosts);
+        } else {
+            let mut indices: Vec<usize> = (0..self.hosts.len()).collect();
+            match self.sort_mode {
+                SortMode::AlphaAlias => {
+                    indices.sort_by(|a, b| {
+                        self.hosts[*a]
+                            .alias
+                            .to_lowercase()
+                            .cmp(&self.hosts[*b].alias.to_lowercase())
+                    });
+                }
+                SortMode::AlphaHostname => {
+                    indices.sort_by(|a, b| {
+                        self.hosts[*a]
+                            .hostname
+                            .to_lowercase()
+                            .cmp(&self.hosts[*b].hostname.to_lowercase())
+                    });
+                }
+                SortMode::Frecency => {
+                    indices.sort_by(|a, b| {
+                        let score_a = self.history.frecency_score(&self.hosts[*a].alias);
+                        let score_b = self.history.frecency_score(&self.hosts[*b].alias);
+                        score_b
+                            .partial_cmp(&score_a)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                }
+                _ => {}
+            }
+            self.display_list = indices
+                .into_iter()
+                .map(|i| HostListItem::Host { index: i })
+                .collect();
+        }
+        // Select first host
+        if let Some(pos) = self
+            .display_list
+            .iter()
+            .position(|item| matches!(item, HostListItem::Host { .. }))
+        {
+            self.list_state.select(Some(pos));
+        }
+    }
+
     /// Get the host index from the currently selected display list item.
     pub fn selected_host_index(&self) -> Option<usize> {
         if self.search_query.is_some() {
@@ -475,7 +589,11 @@ impl App {
         let had_search = self.search_query.clone();
 
         self.hosts = self.config.host_entries();
-        self.display_list = Self::build_display_list_from(&self.config, &self.hosts);
+        if self.sort_mode == SortMode::Original {
+            self.display_list = Self::build_display_list_from(&self.config, &self.hosts);
+        } else {
+            self.apply_sort();
+        }
 
         // Prune ping status for hosts that no longer exist
         let valid_aliases: std::collections::HashSet<&str> =
@@ -551,6 +669,18 @@ impl App {
 
         if query.is_empty() {
             self.filtered_indices = (0..self.hosts.len()).collect();
+        } else if let Some(tag_query) = query.strip_prefix("tag:") {
+            self.filtered_indices = self
+                .hosts
+                .iter()
+                .enumerate()
+                .filter(|(_, host)| {
+                    host.tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(tag_query))
+                })
+                .map(|(i, _)| i)
+                .collect();
         } else {
             self.filtered_indices = self
                 .hosts
@@ -591,6 +721,30 @@ impl App {
                 self.status = None;
             }
         }
+    }
+
+    /// Get the modification time of a file.
+    fn get_mtime(path: &Path) -> Option<SystemTime> {
+        std::fs::metadata(path).ok()?.modified().ok()
+    }
+
+    /// Check if config has changed externally and reload if so.
+    pub fn check_config_changed(&mut self) {
+        let current_mtime = Self::get_mtime(&self.config_path);
+        if current_mtime != self.last_modified {
+            if let Ok(new_config) = SshConfigFile::parse(&self.config_path) {
+                self.config = new_config;
+                self.reload_hosts();
+                self.last_modified = current_mtime;
+                let count = self.hosts.len();
+                self.set_status(format!("Config reloaded. {} hosts.", count), false);
+            }
+        }
+    }
+
+    /// Update the last_modified timestamp (call after writing config).
+    pub fn update_last_modified(&mut self) {
+        self.last_modified = Self::get_mtime(&self.config_path);
     }
 
     /// Scan SSH keys from ~/.ssh/ and cross-reference with hosts.

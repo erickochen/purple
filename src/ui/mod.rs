@@ -1,5 +1,6 @@
 mod confirm_dialog;
 mod help;
+mod host_detail;
 mod host_form;
 mod host_list;
 mod key_detail;
@@ -45,6 +46,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             let index = *index;
             key_list::render(frame, app);
             key_detail::render(frame, app, index);
+        }
+        Screen::HostDetail { index } => {
+            let index = *index;
+            host_list::render(frame, app);
+            host_detail::render(frame, app, index);
         }
     }
 }

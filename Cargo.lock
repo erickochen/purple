@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "purple-ssh"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1036,6 +1036,7 @@ dependencies = [
  "glob",
  "ratatui",
  "thiserror 2.0.18",
+ "unicode-width",
 ]
 
 [[package]]

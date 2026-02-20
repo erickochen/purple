@@ -1,6 +1,6 @@
 [package]
 name = "purple-ssh"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 description = "A fast, interactive TUI (terminal UI) for managing your ~/.ssh/config. Add, edit, delete and connect to SSH hosts from the terminal"
 license = "MIT"
@@ -25,6 +25,7 @@ dirs = "6"
 glob = "0.3"
 anyhow = "1"
 thiserror = "2"
+unicode-width = "0.2.2"
 
 [profile.release]
 strip = true

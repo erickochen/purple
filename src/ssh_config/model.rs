@@ -70,6 +70,8 @@ pub struct HostEntry {
     pub proxy_jump: String,
     /// If this host comes from an included file, the file path.
     pub source_file: Option<PathBuf>,
+    /// Tags from purple:tags comment.
+    pub tags: Vec<String>,
 }
 
 impl HostEntry {
@@ -80,6 +82,42 @@ impl HostEntry {
 }
 
 impl HostBlock {
+    /// Extract tags from purple:tags comment in directives.
+    pub fn tags(&self) -> Vec<String> {
+        for d in &self.directives {
+            if d.is_non_directive {
+                let trimmed = d.raw_line.trim();
+                if let Some(rest) = trimmed.strip_prefix("# purple:tags ") {
+                    return rest
+                        .split(',')
+                        .map(|t| t.trim().to_string())
+                        .filter(|t| !t.is_empty())
+                        .collect();
+                }
+            }
+        }
+        Vec::new()
+    }
+
+    /// Set tags on a host block. Replaces existing purple:tags comment or adds one.
+    pub fn set_tags(&mut self, tags: &[String]) {
+        self.directives.retain(|d| {
+            if d.is_non_directive {
+                !d.raw_line.trim().starts_with("# purple:tags")
+            } else {
+                true
+            }
+        });
+        if !tags.is_empty() {
+            self.directives.push(Directive {
+                key: String::new(),
+                value: String::new(),
+                raw_line: format!("  # purple:tags {}", tags.join(",")),
+                is_non_directive: true,
+            });
+        }
+    }
+
     /// Extract a convenience HostEntry view from this block.
     pub fn to_host_entry(&self) -> HostEntry {
         let mut entry = HostEntry {
@@ -100,6 +138,7 @@ impl HostBlock {
                 _ => {}
             }
         }
+        entry.tags = self.tags();
         entry
     }
 }
@@ -143,8 +182,30 @@ impl SshConfigFile {
     }
 
     /// Check if a host alias already exists (including in Include files).
+    /// Walks the element tree directly without building HostEntry structs.
     pub fn has_host(&self, alias: &str) -> bool {
-        self.host_entries().iter().any(|h| h.alias == alias)
+        Self::has_host_in_elements(&self.elements, alias)
+    }
+
+    fn has_host_in_elements(elements: &[ConfigElement], alias: &str) -> bool {
+        for e in elements {
+            match e {
+                ConfigElement::HostBlock(block) => {
+                    if block.host_pattern == alias {
+                        return true;
+                    }
+                }
+                ConfigElement::Include(include) => {
+                    for file in &include.resolved_files {
+                        if Self::has_host_in_elements(&file.elements, alias) {
+                            return true;
+                        }
+                    }
+                }
+                ConfigElement::GlobalLine(_) => {}
+            }
+        }
+        false
     }
 
     /// Add a new host entry to the config.
@@ -211,7 +272,20 @@ impl SshConfigFile {
         });
     }
 
+    /// Set tags on a host block by alias.
+    pub fn set_host_tags(&mut self, alias: &str, tags: &[String]) {
+        for element in &mut self.elements {
+            if let ConfigElement::HostBlock(block) = element {
+                if block.host_pattern == alias {
+                    block.set_tags(tags);
+                    return;
+                }
+            }
+        }
+    }
+
     /// Delete a host entry by alias.
+    #[allow(dead_code)]
     pub fn delete_host(&mut self, alias: &str) {
         self.elements.retain(|e| match e {
             ConfigElement::HostBlock(block) => block.host_pattern != alias,
@@ -225,6 +299,38 @@ impl SshConfigFile {
                 if x.trim().is_empty() && y.trim().is_empty()
             )
         });
+    }
+
+    /// Delete a host and return the removed element and its position for undo.
+    /// Does NOT collapse blank lines so the position stays valid for re-insertion.
+    pub fn delete_host_undoable(&mut self, alias: &str) -> Option<(ConfigElement, usize)> {
+        let pos = self.elements.iter().position(|e| {
+            matches!(e, ConfigElement::HostBlock(b) if b.host_pattern == alias)
+        })?;
+        let element = self.elements.remove(pos);
+        Some((element, pos))
+    }
+
+    /// Insert a host block at a specific position (for undo).
+    pub fn insert_host_at(&mut self, element: ConfigElement, position: usize) {
+        let pos = position.min(self.elements.len());
+        self.elements.insert(pos, element);
+    }
+
+    /// Swap two host blocks in the config by alias. Returns true if swap was performed.
+    #[allow(dead_code)]
+    pub fn swap_hosts(&mut self, alias_a: &str, alias_b: &str) -> bool {
+        let pos_a = self.elements.iter().position(|e| {
+            matches!(e, ConfigElement::HostBlock(b) if b.host_pattern == alias_a)
+        });
+        let pos_b = self.elements.iter().position(|e| {
+            matches!(e, ConfigElement::HostBlock(b) if b.host_pattern == alias_b)
+        });
+        if let (Some(a), Some(b)) = (pos_a, pos_b) {
+            self.elements.swap(a, b);
+            return true;
+        }
+        false
     }
 
     /// Convert a HostEntry into a new HostBlock with clean formatting.

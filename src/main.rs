@@ -3,6 +3,8 @@ mod clipboard;
 mod connection;
 mod event;
 mod handler;
+mod history;
+mod import;
 mod ping;
 mod quick_add;
 mod ssh_config;
@@ -69,6 +71,19 @@ enum Commands {
         #[arg(short, long)]
         key: Option<String>,
     },
+    /// Import hosts from a file or known_hosts
+    Import {
+        /// File with one host per line (user@host:port format)
+        file: Option<String>,
+
+        /// Import from ~/.ssh/known_hosts instead
+        #[arg(long)]
+        known_hosts: bool,
+
+        /// Group label for imported hosts
+        #[arg(short, long)]
+        group: Option<String>,
+    },
 }
 
 fn resolve_config_path(path: &str) -> Result<PathBuf> {
@@ -94,12 +109,23 @@ fn main() -> Result<()> {
     let config = SshConfigFile::parse(&config_path)?;
 
     // Handle subcommands
-    if let Some(Commands::Add { target, alias, key }) = cli.command {
-        return handle_quick_add(config, &target, alias.as_deref(), key.as_deref());
+    match cli.command {
+        Some(Commands::Add { target, alias, key }) => {
+            return handle_quick_add(config, &target, alias.as_deref(), key.as_deref());
+        }
+        Some(Commands::Import {
+            file,
+            known_hosts,
+            group,
+        }) => {
+            return handle_import(config, file.as_deref(), known_hosts, group.as_deref());
+        }
+        None => {}
     }
 
     // Direct connect mode (--connect)
     if let Some(alias) = cli.connect {
+        history::ConnectionHistory::load().record(&alias);
         let status = connection::connect(&alias)?;
         std::process::exit(status.code().unwrap_or(1));
     }
@@ -132,6 +158,7 @@ fn main() -> Result<()> {
         let entries = config.host_entries();
         if let Some(host) = entries.iter().find(|h| h.alias == *alias) {
             let alias = host.alias.clone();
+            history::ConnectionHistory::load().record(&alias);
             println!("Beaming you up to {}...\n", alias);
             let status = connection::connect(&alias)?;
             std::process::exit(status.code().unwrap_or(1));
@@ -164,7 +191,10 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
 
         match events.next()? {
             AppEvent::Key(key) => handler::handle_key_event(&mut app, key, &events_tx)?,
-            AppEvent::Tick => app.tick_status(),
+            AppEvent::Tick => {
+                app.tick_status();
+                app.check_config_changed();
+            }
             AppEvent::PingResult { alias, reachable } => {
                 let status = if reachable {
                     app::PingStatus::Reachable
@@ -177,6 +207,7 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
 
         // Handle pending SSH connection
         if let Some(alias) = app.pending_connect.take() {
+            app.history.record(&alias);
             terminal.exit()?;
             println!("Beaming you up to {}...\n", alias);
             let status = connection::connect(&alias);
@@ -228,10 +259,48 @@ fn handle_quick_add(
         identity_file: key.unwrap_or("").to_string(),
         proxy_jump: String::new(),
         source_file: None,
+        tags: Vec::new(),
     };
 
     config.add_host(&entry);
     config.write()?;
     println!("Welcome aboard, {}!", alias_str);
     Ok(())
+}
+
+fn handle_import(
+    mut config: SshConfigFile,
+    file: Option<&str>,
+    known_hosts: bool,
+    group: Option<&str>,
+) -> Result<()> {
+    let result = if known_hosts {
+        import::import_from_known_hosts(&mut config, group)
+    } else if let Some(path) = file {
+        let resolved = resolve_config_path(path)?;
+        import::import_from_file(&mut config, &resolved, group)
+    } else {
+        eprintln!("Provide a file or use --known-hosts. Run 'purple import --help' for details.");
+        std::process::exit(1);
+    };
+
+    match result {
+        Ok((imported, skipped)) => {
+            if imported > 0 {
+                config.write()?;
+            }
+            println!(
+                "Imported {} host{}, skipped {} duplicate{}.",
+                imported,
+                if imported == 1 { "" } else { "s" },
+                skipped,
+                if skipped == 1 { "" } else { "s" },
+            );
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    }
 }
