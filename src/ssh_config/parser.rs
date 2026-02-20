@@ -35,7 +35,7 @@ impl SshConfigFile {
     /// Parse SSH config content from a string (without Include resolution).
     /// Used by tests to create SshConfigFile from inline strings.
     #[allow(dead_code)]
-    pub(crate) fn parse_content(content: &str) -> Vec<ConfigElement> {
+    pub fn parse_content(content: &str) -> Vec<ConfigElement> {
         Self::parse_content_with_includes(content, None, MAX_INCLUDE_DEPTH)
     }
 
@@ -51,21 +51,22 @@ impl SshConfigFile {
         for line in content.lines() {
             let trimmed = line.trim();
 
-            // Check for Include directive (only at global level, not inside Host block)
-            if current_block.is_none() {
-                if let Some(pattern) = Self::parse_include_line(trimmed) {
-                    let resolved = if depth < MAX_INCLUDE_DEPTH {
-                        Self::resolve_include(pattern, config_dir, depth)
-                    } else {
-                        Vec::new()
-                    };
-                    elements.push(ConfigElement::Include(IncludeDirective {
-                        raw_line: line.to_string(),
-                        pattern: pattern.to_string(),
-                        resolved_files: resolved,
-                    }));
-                    continue;
+            // Check for Include directive (at any level — flush current block if needed)
+            if let Some(pattern) = Self::parse_include_line(trimmed) {
+                if let Some(block) = current_block.take() {
+                    elements.push(ConfigElement::HostBlock(block));
                 }
+                let resolved = if depth < MAX_INCLUDE_DEPTH {
+                    Self::resolve_include(pattern, config_dir, depth)
+                } else {
+                    Vec::new()
+                };
+                elements.push(ConfigElement::Include(IncludeDirective {
+                    raw_line: line.to_string(),
+                    pattern: pattern.to_string(),
+                    resolved_files: resolved,
+                }));
+                continue;
             }
 
             // Check if this line starts a new Host block

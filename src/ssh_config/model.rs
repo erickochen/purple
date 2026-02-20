@@ -82,6 +82,52 @@ impl HostEntry {
 }
 
 impl HostBlock {
+    /// Index of the first trailing blank line (for inserting content before separators).
+    fn content_end(&self) -> usize {
+        let mut pos = self.directives.len();
+        while pos > 0 {
+            if self.directives[pos - 1].is_non_directive
+                && self.directives[pos - 1].raw_line.trim().is_empty()
+            {
+                pos -= 1;
+            } else {
+                break;
+            }
+        }
+        pos
+    }
+
+    /// Remove and return trailing blank lines.
+    fn pop_trailing_blanks(&mut self) -> Vec<Directive> {
+        let end = self.content_end();
+        self.directives.drain(end..).collect()
+    }
+
+    /// Ensure exactly one trailing blank line.
+    fn ensure_trailing_blank(&mut self) {
+        self.pop_trailing_blanks();
+        self.directives.push(Directive {
+            key: String::new(),
+            value: String::new(),
+            raw_line: String::new(),
+            is_non_directive: true,
+        });
+    }
+
+    /// Detect indentation used by existing directives (falls back to "  ").
+    fn detect_indent(&self) -> String {
+        for d in &self.directives {
+            if !d.is_non_directive && !d.raw_line.is_empty() {
+                let trimmed = d.raw_line.trim_start();
+                let indent_len = d.raw_line.len() - trimmed.len();
+                if indent_len > 0 {
+                    return d.raw_line[..indent_len].to_string();
+                }
+            }
+        }
+        "  ".to_string()
+    }
+
     /// Extract tags from purple:tags comment in directives.
     pub fn tags(&self) -> Vec<String> {
         for d in &self.directives {
@@ -101,20 +147,21 @@ impl HostBlock {
 
     /// Set tags on a host block. Replaces existing purple:tags comment or adds one.
     pub fn set_tags(&mut self, tags: &[String]) {
+        let indent = self.detect_indent();
         self.directives.retain(|d| {
-            if d.is_non_directive {
-                !d.raw_line.trim().starts_with("# purple:tags")
-            } else {
-                true
-            }
+            !(d.is_non_directive && d.raw_line.trim().starts_with("# purple:tags"))
         });
         if !tags.is_empty() {
-            self.directives.push(Directive {
-                key: String::new(),
-                value: String::new(),
-                raw_line: format!("  # purple:tags {}", tags.join(",")),
-                is_non_directive: true,
-            });
+            let pos = self.content_end();
+            self.directives.insert(
+                pos,
+                Directive {
+                    key: String::new(),
+                    value: String::new(),
+                    raw_line: format!("{}# purple:tags {}", indent, tags.join(",")),
+                    is_non_directive: true,
+                },
+            );
         }
     }
 
@@ -211,12 +258,24 @@ impl SshConfigFile {
     /// Add a new host entry to the config.
     pub fn add_host(&mut self, entry: &HostEntry) {
         let block = Self::entry_to_block(entry);
-        // Add a blank line separator if the file isn't empty
-        if !self.elements.is_empty() {
+        // Add a blank line separator if the file isn't empty and doesn't already end with one
+        if !self.elements.is_empty() && !self.last_element_has_trailing_blank() {
             self.elements
                 .push(ConfigElement::GlobalLine(String::new()));
         }
         self.elements.push(ConfigElement::HostBlock(block));
+    }
+
+    /// Check if the last element already ends with a blank line.
+    fn last_element_has_trailing_blank(&self) -> bool {
+        match self.elements.last() {
+            Some(ConfigElement::HostBlock(block)) => block
+                .directives
+                .last()
+                .is_some_and(|d| d.is_non_directive && d.raw_line.trim().is_empty()),
+            Some(ConfigElement::GlobalLine(line)) => line.trim().is_empty(),
+            _ => false,
+        }
     }
 
     /// Update an existing host entry by alias.
@@ -256,20 +315,25 @@ impl SshConfigFile {
                 .retain(|d| d.is_non_directive || d.key.to_lowercase() != key.to_lowercase());
             return;
         }
+        let indent = block.detect_indent();
         for d in &mut block.directives {
             if !d.is_non_directive && d.key.to_lowercase() == key.to_lowercase() {
                 d.value = value.to_string();
-                d.raw_line = format!("  {} {}", key, value);
+                d.raw_line = format!("{}{} {}", indent, key, value);
                 return;
             }
         }
-        // Not found — append
-        block.directives.push(Directive {
-            key: key.to_string(),
-            value: value.to_string(),
-            raw_line: format!("  {} {}", key, value),
-            is_non_directive: false,
-        });
+        // Not found — insert before trailing blanks
+        let pos = block.content_end();
+        block.directives.insert(
+            pos,
+            Directive {
+                key: key.to_string(),
+                value: value.to_string(),
+                raw_line: format!("{}{} {}", indent, key, value),
+                is_non_directive: false,
+            },
+        );
     }
 
     /// Set tags on a host block by alias.
@@ -327,7 +391,31 @@ impl SshConfigFile {
             matches!(e, ConfigElement::HostBlock(b) if b.host_pattern == alias_b)
         });
         if let (Some(a), Some(b)) = (pos_a, pos_b) {
-            self.elements.swap(a, b);
+            let (first, second) = (a.min(b), a.max(b));
+
+            // Strip trailing blanks from both blocks before swap
+            if let ConfigElement::HostBlock(block) = &mut self.elements[first] {
+                block.pop_trailing_blanks();
+            }
+            if let ConfigElement::HostBlock(block) = &mut self.elements[second] {
+                block.pop_trailing_blanks();
+            }
+
+            // Swap
+            self.elements.swap(first, second);
+
+            // Add trailing blank to first block (separator between the two)
+            if let ConfigElement::HostBlock(block) = &mut self.elements[first] {
+                block.ensure_trailing_blank();
+            }
+
+            // Add trailing blank to second only if not the last element
+            if second < self.elements.len() - 1 {
+                if let ConfigElement::HostBlock(block) = &mut self.elements[second] {
+                    block.ensure_trailing_blank();
+                }
+            }
+
             return true;
         }
         false
