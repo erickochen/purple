@@ -25,7 +25,7 @@ impl SshConfigFile {
         }
 
         // Atomic write: write to temp file, set permissions, then rename
-        let tmp_path = self.path.with_extension("purple_tmp");
+        let tmp_path = self.path.with_extension(format!("purple_tmp.{}", std::process::id()));
         fs::write(&tmp_path, &content)
             .with_context(|| format!("Failed to write temp file {}", tmp_path.display()))?;
 
@@ -83,7 +83,7 @@ impl SshConfigFile {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs();
+            .as_millis();
         let backup_name = format!(
             "{}.bak.{}",
             self.path.file_name().unwrap_or_default().to_string_lossy(),

@@ -63,3 +63,10 @@ impl Tui {
         Ok(())
     }
 }
+
+impl Drop for Tui {
+    fn drop(&mut self) {
+        let _ = Self::reset();
+        let _ = self.terminal.show_cursor();
+    }
+}

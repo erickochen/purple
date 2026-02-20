@@ -115,7 +115,10 @@ impl ConnectionHistory {
             .map(|e| format!("{}\t{}\t{}", e.alias, e.last_connected, e.count))
             .collect::<Vec<_>>()
             .join("\n");
-        fs::write(&self.path, content)
+        // Atomic write: tmp file + rename
+        let tmp_path = self.path.with_extension(format!("tmp.{}", std::process::id()));
+        fs::write(&tmp_path, &content)?;
+        fs::rename(&tmp_path, &self.path)
     }
 
     fn history_path() -> PathBuf {

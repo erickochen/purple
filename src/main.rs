@@ -185,6 +185,7 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
     terminal.enter()?;
     let events = EventHandler::new(250);
     let events_tx = events.sender();
+    let mut last_config_check = std::time::Instant::now();
 
     while app.running {
         terminal.draw(&mut app)?;
@@ -193,7 +194,11 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
             AppEvent::Key(key) => handler::handle_key_event(&mut app, key, &events_tx)?,
             AppEvent::Tick => {
                 app.tick_status();
-                app.check_config_changed();
+                // Throttle config file stat() to every 4 seconds
+                if last_config_check.elapsed() >= std::time::Duration::from_secs(4) {
+                    app.check_config_changed();
+                    last_config_check = std::time::Instant::now();
+                }
             }
             AppEvent::PingResult { alias, reachable } => {
                 let status = if reachable {
@@ -208,14 +213,30 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
         // Handle pending SSH connection
         if let Some(alias) = app.pending_connect.take() {
             app.history.record(&alias);
+            events.pause();
             terminal.exit()?;
             println!("Beaming you up to {}...\n", alias);
             let status = connection::connect(&alias);
             println!();
-            if let Err(ref e) = status {
-                eprintln!("Connection failed: {}", e);
+            match &status {
+                Ok(exit) => {
+                    if let Some(code) = exit.code() {
+                        if code != 0 {
+                            app.set_status(
+                                format!("SSH to {} exited with code {}.", alias, code),
+                                true,
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Connection failed: {}", e);
+                    app.set_status(format!("Connection to {} failed.", alias), true);
+                }
             }
             terminal.enter()?;
+            events.resume();
+            last_config_check = std::time::Instant::now();
             // Reload in case config changed externally
             let config_path = resolve_config_path(config_str)?;
             app.config = SshConfigFile::parse(&config_path)?;
