@@ -60,20 +60,26 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 }
 
 fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
-    // Build title with position indicator
+    // Build multi-span title: brand badge + position counter
     let host_count = app.hosts.len();
     let title = if host_count == 0 {
-        " purple ".to_string()
+        Line::from(Span::styled(" purple. ", theme::brand_badge()))
     } else {
         let pos = app
             .selected_host_index()
             .map(|i| i + 1)
             .unwrap_or(0);
+        let mut spans = vec![
+            Span::styled(" purple. ", theme::brand_badge()),
+            Span::styled(format!(" {}/{} ", pos, host_count), theme::muted()),
+        ];
         if app.sort_mode != SortMode::Original {
-            format!(" purple [{}/{}] ({}) ", pos, host_count, app.sort_mode.label())
-        } else {
-            format!(" purple [{}/{}] ", pos, host_count)
+            spans.push(Span::styled(
+                format!("({}) ", app.sort_mode.label()),
+                theme::muted(),
+            ));
         }
+        Line::from(spans)
     };
 
     if app.hosts.is_empty() {
@@ -82,7 +88,7 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
                 .style(theme::muted())
                 .block(
                     Block::default()
-                        .title(Span::styled(title, theme::brand()))
+                        .title(title)
                         .borders(Borders::ALL)
                         .border_style(theme::border()),
                 );
@@ -112,7 +118,7 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
     let list = List::new(items)
         .block(
             Block::default()
-                .title(Span::styled(title, theme::brand()))
+                .title(title)
                 .borders(Borders::ALL)
                 .border_style(theme::border()),
         )
@@ -123,18 +129,20 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
 }
 
 fn render_search_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::Rect) {
-    let title = format!(
-        " purple [search: {}/{}] ",
-        app.filtered_indices.len(),
-        app.hosts.len()
-    );
+    let title = Line::from(vec![
+        Span::styled(" purple. ", theme::brand_badge()),
+        Span::styled(
+            format!(" search: {}/{} ", app.filtered_indices.len(), app.hosts.len()),
+            theme::muted(),
+        ),
+    ]);
 
     if app.filtered_indices.is_empty() {
         let empty_msg = Paragraph::new("  No matches. Try a different search.")
             .style(theme::muted())
             .block(
                 Block::default()
-                    .title(Span::styled(title, theme::brand()))
+                    .title(title)
                     .borders(Borders::ALL)
                     .border_style(theme::accent()),
             );
@@ -155,7 +163,7 @@ fn render_search_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::R
     let list = List::new(items)
         .block(
             Block::default()
-                .title(Span::styled(title, theme::brand()))
+                .title(title)
                 .borders(Borders::ALL)
                 .border_style(theme::accent()),
         )

@@ -16,10 +16,16 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     .split(area);
 
     let title = if app.keys.is_empty() {
-        " purple keys ".to_string()
+        Line::from(vec![
+            Span::styled(" purple. ", theme::brand_badge()),
+            Span::styled(" keys ", theme::muted()),
+        ])
     } else {
         let pos = app.key_list_state.selected().map(|i| i + 1).unwrap_or(0);
-        format!(" purple keys [{}/{}] ", pos, app.keys.len())
+        Line::from(vec![
+            Span::styled(" purple. ", theme::brand_badge()),
+            Span::styled(format!(" keys {}/{} ", pos, app.keys.len()), theme::muted()),
+        ])
     };
 
     if app.keys.is_empty() {
@@ -28,7 +34,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 .style(theme::muted())
                 .block(
                     Block::default()
-                        .title(Span::styled(title, theme::brand()))
+                        .title(title)
                         .borders(Borders::ALL)
                         .border_style(theme::border()),
                 );
@@ -58,7 +64,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .collect();
 
         let block = Block::default()
-            .title(Span::styled(title, theme::brand()))
+            .title(title)
             .borders(Borders::ALL)
             .border_style(theme::border());
 

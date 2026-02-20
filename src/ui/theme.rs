@@ -21,9 +21,18 @@ fn with_fg(style: Style, color: Color) -> Style {
     if nc() { style } else { style.fg(color) }
 }
 
-/// Brand accent: used ONLY for titles. Magenta+Bold triggers bright magenta.
+/// Brand accent: Magenta+Bold for dialog/popup titles.
 pub fn brand() -> Style {
     with_fg(Style::default().add_modifier(Modifier::BOLD), Color::Magenta)
+}
+
+/// Brand badge: reversed Magenta chip for main screen titles.
+/// REVERSED guarantees readability on any terminal theme by swapping fg/bg.
+pub fn brand_badge() -> Style {
+    with_fg(
+        Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED),
+        Color::Magenta,
+    )
 }
 
 /// Primary accent: structural elements (borders, focus indicators).

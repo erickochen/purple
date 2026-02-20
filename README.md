@@ -1,4 +1,4 @@
-<h1 align="center">🟣 Purple.</h1>
+<h1 align="center">🟣 purple.</h1>
 
 <p align="center"><strong>A smart, fast SSH launcher for your terminal.</strong></p>
 
@@ -16,12 +16,12 @@
 
 <br>
 
-<p align="center"><img src="demo.gif" alt="Purple SSH launcher TUI demo" width="700"></p>
+<p align="center"><img src="demo.gif" alt="purple SSH launcher TUI demo" width="700"></p>
 
 <br>
 
 <p align="center">
-  Purple is a keyboard-driven TUI that turns your SSH config into a searchable, taggable launcher.<br>
+  purple is a keyboard-driven TUI that turns your SSH config into a searchable, taggable launcher.<br>
   Browse 50 hosts in a keystroke. Press Enter to connect. Manage the rest without opening an editor.<br>
   Your comments, formatting and unknown directives survive every edit.
 </p>
@@ -40,7 +40,7 @@
 
 &nbsp;&nbsp;&nbsp;&nbsp;**Tags and groups.** &nbsp; Tag hosts with labels. Filter with `tag:prod`. Comments become visual group headers.
 
-&nbsp;&nbsp;&nbsp;&nbsp;**Sort by frecency.** &nbsp; Purple remembers when you connected. Most-used hosts surface first.
+&nbsp;&nbsp;&nbsp;&nbsp;**Sort by frecency.** &nbsp; purple remembers when you connected. Most-used hosts surface first.
 
 &nbsp;&nbsp;&nbsp;&nbsp;**SSH key browser.** &nbsp; Fingerprints, linked hosts, key types. Pick a key from the form with Ctrl+K.
 

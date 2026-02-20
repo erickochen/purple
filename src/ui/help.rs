@@ -10,8 +10,12 @@ pub fn render(frame: &mut Frame) {
     // Clear background
     frame.render_widget(Clear, area);
 
+    let title = Line::from(vec![
+        Span::styled(" purple. ", theme::brand_badge()),
+        Span::styled(" Cheat Sheet ", theme::muted()),
+    ]);
     let block = Block::default()
-        .title(Span::styled(" Purple Cheat Sheet ", theme::brand()))
+        .title(title)
         .borders(Borders::ALL)
         .border_style(theme::accent());
 
