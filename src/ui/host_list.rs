@@ -192,7 +192,7 @@ fn build_host_item<'a>(
 
     // Three-tier typography: Bold alias > Regular hostname > DIM metadata
     let alias_style = if alias_matches {
-        theme::accent_bold()
+        theme::highlight_bold()
     } else {
         theme::bold()
     };
@@ -205,7 +205,7 @@ fn build_host_item<'a>(
     // User@ (DIM, or accent if it's the matching field)
     if !host.user.is_empty() {
         let user_style = if user_matches {
-            theme::accent_bold()
+            theme::highlight_bold()
         } else {
             theme::muted()
         };
@@ -214,7 +214,7 @@ fn build_host_item<'a>(
 
     // Hostname (regular weight - middle tier, or accent if matching)
     let hostname_style = if host_matches {
-        theme::accent_bold()
+        theme::highlight_bold()
     } else {
         Style::default()
     };

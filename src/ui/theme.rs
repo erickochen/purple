@@ -35,11 +35,19 @@ pub fn brand_badge() -> Style {
 
 /// Primary accent: structural elements (borders, focus indicators).
 pub fn accent() -> Style {
-    with_fg(Style::default(), Color::Cyan)
+    with_fg(Style::default(), Color::Magenta)
 }
 
 /// Primary accent with bold: keybinding keys in footer/help.
 pub fn accent_bold() -> Style {
+    with_fg(
+        Style::default().add_modifier(Modifier::BOLD),
+        Color::Magenta,
+    )
+}
+
+/// Search match highlight (secondary accent, Cyan for visual contrast).
+pub fn highlight_bold() -> Style {
     with_fg(
         Style::default().add_modifier(Modifier::BOLD),
         Color::Cyan,
@@ -59,11 +67,11 @@ pub fn muted() -> Style {
     Style::default().add_modifier(Modifier::DIM)
 }
 
-/// Section headers (help overlay).
+/// Section headers (help overlay, host detail).
 pub fn section_header() -> Style {
     with_fg(
         Style::default().add_modifier(Modifier::BOLD),
-        Color::Yellow,
+        Color::Blue,
     )
 }
 
@@ -105,7 +113,7 @@ pub fn border() -> Style {
 pub fn border_focused() -> Style {
     with_fg(
         Style::default().add_modifier(Modifier::BOLD),
-        Color::Cyan,
+        Color::Magenta,
     )
 }
 

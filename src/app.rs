@@ -180,6 +180,7 @@ pub enum SortMode {
     AlphaAlias,
     AlphaHostname,
     Frecency,
+    MostRecent,
 }
 
 impl SortMode {
@@ -188,7 +189,8 @@ impl SortMode {
             SortMode::Original => SortMode::AlphaAlias,
             SortMode::AlphaAlias => SortMode::AlphaHostname,
             SortMode::AlphaHostname => SortMode::Frecency,
-            SortMode::Frecency => SortMode::Original,
+            SortMode::Frecency => SortMode::MostRecent,
+            SortMode::MostRecent => SortMode::Original,
         }
     }
 
@@ -198,6 +200,7 @@ impl SortMode {
             SortMode::AlphaAlias => "A-Z alias",
             SortMode::AlphaHostname => "A-Z hostname",
             SortMode::Frecency => "most used",
+            SortMode::MostRecent => "most recent",
         }
     }
 
@@ -207,6 +210,7 @@ impl SortMode {
             SortMode::AlphaAlias => "alpha_alias",
             SortMode::AlphaHostname => "alpha_hostname",
             SortMode::Frecency => "frecency",
+            SortMode::MostRecent => "most_recent",
         }
     }
 
@@ -215,6 +219,7 @@ impl SortMode {
             "alpha_alias" => SortMode::AlphaAlias,
             "alpha_hostname" => SortMode::AlphaHostname,
             "frecency" => SortMode::Frecency,
+            "most_recent" => SortMode::MostRecent,
             _ => SortMode::Original,
         }
     }
@@ -515,6 +520,13 @@ impl App {
                         score_b
                             .partial_cmp(&score_a)
                             .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                }
+                SortMode::MostRecent => {
+                    indices.sort_by(|a, b| {
+                        let ts_a = self.history.last_connected(&self.hosts[*a].alias);
+                        let ts_b = self.history.last_connected(&self.hosts[*b].alias);
+                        ts_b.cmp(&ts_a)
                     });
                 }
                 _ => {}

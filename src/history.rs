@@ -67,6 +67,11 @@ impl ConnectionHistory {
         let _ = self.save();
     }
 
+    /// Last connected timestamp for a host (0 if never connected).
+    pub fn last_connected(&self, alias: &str) -> u64 {
+        self.entries.get(alias).map_or(0, |e| e.last_connected)
+    }
+
     /// Frecency score: count weighted by recency.
     pub fn frecency_score(&self, alias: &str) -> f64 {
         let entry = match self.entries.get(alias) {
