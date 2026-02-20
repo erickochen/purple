@@ -9,10 +9,12 @@ use crossterm::event::{self, Event as CrosstermEvent, KeyEvent, KeyEventKind};
 pub enum AppEvent {
     Key(KeyEvent),
     Tick,
+    PingResult { alias: String, reachable: bool },
 }
 
 /// Polls crossterm events in a background thread.
 pub struct EventHandler {
+    tx: mpsc::Sender<AppEvent>,
     rx: mpsc::Receiver<AppEvent>,
     // Keep the thread handle alive
     _handle: thread::JoinHandle<()>,
@@ -22,6 +24,7 @@ impl EventHandler {
     pub fn new(tick_rate_ms: u64) -> Self {
         let (tx, rx) = mpsc::channel();
         let tick_rate = Duration::from_millis(tick_rate_ms);
+        let event_tx = tx.clone();
 
         let handle = thread::spawn(move || {
             let mut last_tick = Instant::now();
@@ -34,7 +37,7 @@ impl EventHandler {
                     if let Ok(evt) = event::read() {
                         match evt {
                             CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
-                                if tx.send(AppEvent::Key(key)).is_err() {
+                                if event_tx.send(AppEvent::Key(key)).is_err() {
                                     return;
                                 }
                             }
@@ -44,7 +47,7 @@ impl EventHandler {
                 }
 
                 if last_tick.elapsed() >= tick_rate {
-                    if tx.send(AppEvent::Tick).is_err() {
+                    if event_tx.send(AppEvent::Tick).is_err() {
                         return;
                     }
                     last_tick = Instant::now();
@@ -53,6 +56,7 @@ impl EventHandler {
         });
 
         Self {
+            tx,
             rx,
             _handle: handle,
         }
@@ -61,5 +65,10 @@ impl EventHandler {
     /// Get the next event (blocks until available).
     pub fn next(&self) -> Result<AppEvent> {
         Ok(self.rx.recv()?)
+    }
+
+    /// Get a clone of the sender for sending events from other threads.
+    pub fn sender(&self) -> mpsc::Sender<AppEvent> {
+        self.tx.clone()
     }
 }

@@ -1,10 +1,20 @@
+use std::sync::mpsc;
+
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::app::{App, FormField, HostForm, Screen};
+use crate::clipboard;
+use crate::event::AppEvent;
+use crate::ping;
+use crate::quick_add;
 
 /// Handle a key event based on the current screen.
-pub fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<()> {
+pub fn handle_key_event(
+    app: &mut App,
+    key: KeyEvent,
+    events_tx: &mpsc::Sender<AppEvent>,
+) -> Result<()> {
     // Global Ctrl+C handler — works on every screen
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.running = false;
@@ -12,7 +22,13 @@ pub fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<()> {
     }
 
     match &app.screen {
-        Screen::HostList => handle_host_list(app, key),
+        Screen::HostList => {
+            if app.search_query.is_some() {
+                handle_host_list_search(app, key, events_tx);
+            } else {
+                handle_host_list(app, key, events_tx);
+            }
+        }
         Screen::AddHost | Screen::EditHost { .. } => handle_form(app, key),
         Screen::ConfirmDelete { .. } => handle_confirm_delete(app, key),
         Screen::Help => handle_help(app, key),
@@ -22,7 +38,7 @@ pub fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<()> {
     Ok(())
 }
 
-fn handle_host_list(app: &mut App, key: KeyEvent) {
+fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEvent>) {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.running = false;
@@ -44,19 +60,75 @@ fn handle_host_list(app: &mut App, key: KeyEvent) {
             app.screen = Screen::AddHost;
         }
         KeyCode::Char('e') => {
-            if let Some(index) = app.selected_index() {
-                if let Some(host) = app.hosts.get(index) {
-                    app.form = HostForm::from_entry(host);
-                    app.screen = Screen::EditHost { index };
+            if let (Some(index), Some(host)) = (app.selected_host_index(), app.selected_host()) {
+                if host.source_file.is_some() {
+                    let alias = host.alias.clone();
+                    app.set_status(
+                        format!("{} lives in an included file. Edit it there.", alias),
+                        true,
+                    );
+                    return;
                 }
+                app.form = HostForm::from_entry(host);
+                app.screen = Screen::EditHost { index };
             }
         }
         KeyCode::Char('d') => {
-            if let Some(index) = app.selected_index() {
-                if index < app.hosts.len() {
-                    app.screen = Screen::ConfirmDelete { index };
+            if let (Some(index), Some(host)) = (app.selected_host_index(), app.selected_host()) {
+                if host.source_file.is_some() {
+                    let alias = host.alias.clone();
+                    app.set_status(
+                        format!("{} lives in an included file. Edit it there.", alias),
+                        true,
+                    );
+                    return;
+                }
+                app.screen = Screen::ConfirmDelete { index };
+            }
+        }
+        KeyCode::Char('y') => {
+            if let Some(host) = app.selected_host() {
+                let cmd = host.ssh_command();
+                let alias = host.alias.clone();
+                match clipboard::copy_to_clipboard(&cmd) {
+                    Ok(()) => {
+                        app.set_status(format!("Copied SSH command for {}.", alias), false);
+                    }
+                    Err(e) => {
+                        app.set_status(e, true);
+                    }
                 }
             }
+        }
+        KeyCode::Char('p') => {
+            if let Some(host) = app.selected_host() {
+                let alias = host.alias.clone();
+                let hostname = host.hostname.clone();
+                let port = host.port;
+                app.ping_status
+                    .insert(alias.clone(), crate::app::PingStatus::Checking);
+                app.set_status(format!("Pinging {}...", alias), false);
+                ping::ping_host(alias, hostname, port, events_tx.clone());
+            }
+        }
+        KeyCode::Char('P') => {
+            let hosts_to_ping: Vec<(String, String, u16)> = app
+                .hosts
+                .iter()
+                .filter(|h| !h.hostname.is_empty())
+                .map(|h| (h.alias.clone(), h.hostname.clone(), h.port))
+                .collect();
+            if !hosts_to_ping.is_empty() {
+                for (alias, _, _) in &hosts_to_ping {
+                    app.ping_status
+                        .insert(alias.clone(), crate::app::PingStatus::Checking);
+                }
+                app.set_status("Pinging all the things...", false);
+                ping::ping_all(&hosts_to_ping, events_tx.clone());
+            }
+        }
+        KeyCode::Char('/') => {
+            app.start_search();
         }
         KeyCode::Char('K') => {
             app.scan_keys();
@@ -64,6 +136,51 @@ fn handle_host_list(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('?') => {
             app.screen = Screen::Help;
+        }
+        _ => {}
+    }
+}
+
+fn handle_host_list_search(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEvent>) {
+    match key.code {
+        KeyCode::Esc => {
+            app.cancel_search();
+        }
+        KeyCode::Enter => {
+            if let Some(host) = app.selected_host() {
+                let alias = host.alias.clone();
+                app.cancel_search();
+                app.pending_connect = Some(alias);
+            }
+        }
+        KeyCode::Down | KeyCode::Tab => {
+            app.select_next();
+        }
+        KeyCode::Up | KeyCode::BackTab => {
+            app.select_prev();
+        }
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Ctrl+P also for ping in search mode
+            if let Some(host) = app.selected_host() {
+                let alias = host.alias.clone();
+                let hostname = host.hostname.clone();
+                let port = host.port;
+                app.ping_status
+                    .insert(alias.clone(), crate::app::PingStatus::Checking);
+                ping::ping_host(alias, hostname, port, events_tx.clone());
+            }
+        }
+        KeyCode::Char(c) => {
+            if let Some(ref mut query) = app.search_query {
+                query.push(c);
+            }
+            app.apply_filter();
+        }
+        KeyCode::Backspace => {
+            if let Some(ref mut query) = app.search_query {
+                query.pop();
+            }
+            app.apply_filter();
         }
         _ => {}
     }
@@ -95,6 +212,10 @@ fn handle_form(app: &mut App, key: KeyEvent) {
             app.screen = Screen::HostList;
         }
         KeyCode::Tab | KeyCode::Down => {
+            // Smart paste detection: when leaving Alias field, check for user@host:port
+            if app.form.focused_field == FormField::Alias {
+                maybe_smart_paste(app);
+            }
             app.form.focused_field = app.form.focused_field.next();
         }
         KeyCode::BackTab => {
@@ -104,6 +225,10 @@ fn handle_form(app: &mut App, key: KeyEvent) {
             app.form.focused_field = app.form.focused_field.prev();
         }
         KeyCode::Enter => {
+            // Smart paste on submit too
+            if app.form.focused_field == FormField::Alias {
+                maybe_smart_paste(app);
+            }
             submit_form(app);
         }
         KeyCode::Char(c) => {
@@ -113,6 +238,35 @@ fn handle_form(app: &mut App, key: KeyEvent) {
             app.form.focused_value_mut().pop();
         }
         _ => {}
+    }
+}
+
+/// If the alias field contains something like user@host:port, auto-parse and fill fields.
+fn maybe_smart_paste(app: &mut App) {
+    let alias_value = app.form.alias.clone();
+    if !quick_add::looks_like_target(&alias_value) {
+        return;
+    }
+    if let Ok(parsed) = quick_add::parse_target(&alias_value) {
+        // Only auto-fill if other fields are still at defaults
+        if app.form.hostname.is_empty() {
+            app.form.hostname = parsed.hostname.clone();
+        }
+        if app.form.user.is_empty() && !parsed.user.is_empty() {
+            app.form.user = parsed.user.clone();
+        }
+        if app.form.port == "22" && parsed.port != 22 {
+            app.form.port = parsed.port.to_string();
+        }
+        // Generate a clean alias from the hostname
+        let clean_alias = parsed
+            .hostname
+            .split('.')
+            .next()
+            .unwrap_or(&parsed.hostname)
+            .to_string();
+        app.form.alias = clean_alias;
+        app.set_status("Smart-parsed that for you. Check the fields.", false);
     }
 }
 
@@ -131,7 +285,10 @@ fn submit_form(app: &mut App) {
             // Check for duplicate alias
             if app.config.has_host(&alias) {
                 app.set_status(
-                    format!("'{}' already exists. Aliases are like fingerprints — unique.", alias),
+                    format!(
+                        "'{}' already exists. Aliases are like fingerprints — unique.",
+                        alias
+                    ),
                     true,
                 );
                 return;
@@ -142,9 +299,15 @@ fn submit_form(app: &mut App) {
                 return;
             }
             app.reload_hosts();
-            // Auto-select the newly added host (appended at end)
-            let new_index = app.hosts.len().saturating_sub(1);
-            app.list_state.select(Some(new_index));
+            // Auto-select the newly added host (find it in display list)
+            for (i, item) in app.display_list.iter().enumerate() {
+                if let crate::app::HostListItem::Host { index } = item {
+                    if app.hosts.get(*index).is_some_and(|h| h.alias == alias) {
+                        app.list_state.select(Some(i));
+                        break;
+                    }
+                }
+            }
             app.set_status(format!("Welcome aboard, {}!", alias), false);
         }
         Screen::EditHost { index } => {
@@ -157,7 +320,10 @@ fn submit_form(app: &mut App) {
             // Check for duplicate if alias changed
             if alias != old_alias && app.config.has_host(&alias) {
                 app.set_status(
-                    format!("'{}' already exists. Aliases are like fingerprints — unique.", alias),
+                    format!(
+                        "'{}' already exists. Aliases are like fingerprints — unique.",
+                        alias
+                    ),
                     true,
                 );
                 return;
@@ -258,10 +424,7 @@ fn handle_key_picker(app: &mut App, key: KeyEvent) {
             if let Some(index) = app.key_picker_state.selected() {
                 if let Some(key) = app.keys.get(index) {
                     app.form.identity_file = key.display_path.clone();
-                    app.set_status(
-                        format!("Locked and loaded with {}.", key.name),
-                        false,
-                    );
+                    app.set_status(format!("Locked and loaded with {}.", key.name), false);
                 }
             }
             app.show_key_picker = false;

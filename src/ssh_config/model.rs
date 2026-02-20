@@ -8,6 +8,22 @@ pub struct SshConfigFile {
     pub path: PathBuf,
 }
 
+/// An Include directive that references other config files.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct IncludeDirective {
+    pub raw_line: String,
+    pub pattern: String,
+    pub resolved_files: Vec<IncludedFile>,
+}
+
+/// A file resolved from an Include directive.
+#[derive(Debug, Clone)]
+pub struct IncludedFile {
+    pub path: PathBuf,
+    pub elements: Vec<ConfigElement>,
+}
+
 /// A single element in the config file.
 #[derive(Debug, Clone)]
 pub enum ConfigElement {
@@ -15,6 +31,8 @@ pub enum ConfigElement {
     HostBlock(HostBlock),
     /// A comment, blank line, or global directive not inside a Host block.
     GlobalLine(String),
+    /// An Include directive referencing other config files (read-only).
+    Include(IncludeDirective),
 }
 
 /// A parsed Host block with its directives.
@@ -50,6 +68,15 @@ pub struct HostEntry {
     pub port: u16,
     pub identity_file: String,
     pub proxy_jump: String,
+    /// If this host comes from an included file, the file path.
+    pub source_file: Option<PathBuf>,
+}
+
+impl HostEntry {
+    /// Build the SSH command string for this host (e.g. "ssh myserver").
+    pub fn ssh_command(&self) -> String {
+        format!("ssh {}", self.alias)
+    }
 }
 
 impl HostBlock {
@@ -78,38 +105,46 @@ impl HostBlock {
 }
 
 impl SshConfigFile {
-    /// Get all host entries as convenience views.
+    /// Get all host entries as convenience views (including from Include files).
     pub fn host_entries(&self) -> Vec<HostEntry> {
-        self.elements
-            .iter()
-            .filter_map(|e| match e {
+        Self::collect_host_entries(&self.elements)
+    }
+
+    /// Recursively collect host entries from a list of elements.
+    fn collect_host_entries(elements: &[ConfigElement]) -> Vec<HostEntry> {
+        let mut entries = Vec::new();
+        for e in elements {
+            match e {
                 ConfigElement::HostBlock(block) => {
                     // Skip wildcard/multi patterns (*, ?, space-separated)
                     if block.host_pattern.contains('*')
                         || block.host_pattern.contains('?')
                         || block.host_pattern.contains(' ')
                     {
-                        None
-                    } else {
-                        Some(block.to_host_entry())
+                        continue;
+                    }
+                    entries.push(block.to_host_entry());
+                }
+                ConfigElement::Include(include) => {
+                    for file in &include.resolved_files {
+                        let mut file_entries = Self::collect_host_entries(&file.elements);
+                        for entry in &mut file_entries {
+                            if entry.source_file.is_none() {
+                                entry.source_file = Some(file.path.clone());
+                            }
+                        }
+                        entries.extend(file_entries);
                     }
                 }
-                ConfigElement::GlobalLine(_) => None,
-            })
-            .collect()
+                ConfigElement::GlobalLine(_) => {}
+            }
+        }
+        entries
     }
 
-    /// Find a host block by alias.
-    pub fn find_host(&self, alias: &str) -> Option<&HostBlock> {
-        self.elements.iter().find_map(|e| match e {
-            ConfigElement::HostBlock(block) if block.host_pattern == alias => Some(block),
-            _ => None,
-        })
-    }
-
-    /// Check if a host alias already exists.
+    /// Check if a host alias already exists (including in Include files).
     pub fn has_host(&self, alias: &str) -> bool {
-        self.find_host(alias).is_some()
+        self.host_entries().iter().any(|h| h.alias == alias)
     }
 
     /// Add a new host entry to the config.

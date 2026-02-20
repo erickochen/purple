@@ -1,13 +1,21 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::model::{ConfigElement, Directive, HostBlock, SshConfigFile};
+use super::model::{
+    ConfigElement, Directive, HostBlock, IncludeDirective, IncludedFile, SshConfigFile,
+};
+
+const MAX_INCLUDE_DEPTH: usize = 5;
 
 impl SshConfigFile {
     /// Parse an SSH config file from the given path.
     /// Preserves all formatting, comments, and unknown directives for round-trip fidelity.
     pub fn parse(path: &Path) -> Result<Self> {
+        Self::parse_with_depth(path, 0)
+    }
+
+    fn parse_with_depth(path: &Path, depth: usize) -> Result<Self> {
         let content = if path.exists() {
             std::fs::read_to_string(path)
                 .with_context(|| format!("Failed to read SSH config at {}", path.display()))?
@@ -15,7 +23,8 @@ impl SshConfigFile {
             String::new()
         };
 
-        let elements = Self::parse_content(&content);
+        let config_dir = path.parent().map(|p| p.to_path_buf());
+        let elements = Self::parse_content_with_includes(&content, config_dir.as_deref(), depth);
 
         Ok(SshConfigFile {
             elements,
@@ -23,13 +32,41 @@ impl SshConfigFile {
         })
     }
 
-    /// Parse SSH config content from a string.
+    /// Parse SSH config content from a string (without Include resolution).
+    /// Used by tests to create SshConfigFile from inline strings.
+    #[allow(dead_code)]
     pub(crate) fn parse_content(content: &str) -> Vec<ConfigElement> {
+        Self::parse_content_with_includes(content, None, MAX_INCLUDE_DEPTH)
+    }
+
+    /// Parse SSH config content, optionally resolving Include directives.
+    fn parse_content_with_includes(
+        content: &str,
+        config_dir: Option<&Path>,
+        depth: usize,
+    ) -> Vec<ConfigElement> {
         let mut elements = Vec::new();
         let mut current_block: Option<HostBlock> = None;
 
         for line in content.lines() {
             let trimmed = line.trim();
+
+            // Check for Include directive (only at global level, not inside Host block)
+            if current_block.is_none() {
+                if let Some(pattern) = Self::parse_include_line(trimmed) {
+                    let resolved = if depth < MAX_INCLUDE_DEPTH {
+                        Self::resolve_include(pattern, config_dir, depth)
+                    } else {
+                        Vec::new()
+                    };
+                    elements.push(ConfigElement::Include(IncludeDirective {
+                        raw_line: line.to_string(),
+                        pattern: pattern.to_string(),
+                        resolved_files: resolved,
+                    }));
+                    continue;
+                }
+            }
 
             // Check if this line starts a new Host block
             if let Some(pattern) = Self::parse_host_line(trimmed) {
@@ -83,6 +120,68 @@ impl SshConfigFile {
         }
 
         elements
+    }
+
+    /// Parse an Include directive line. Returns the pattern if it matches.
+    fn parse_include_line(trimmed: &str) -> Option<&str> {
+        // Case-insensitive check: "Include" is 7 chars + space
+        if trimmed.len() > 8 && trimmed[..8].eq_ignore_ascii_case("include ") {
+            let pattern = trimmed[8..].trim();
+            if !pattern.is_empty() {
+                return Some(pattern);
+            }
+        }
+        None
+    }
+
+    /// Resolve an Include pattern to a list of included files.
+    fn resolve_include(
+        pattern: &str,
+        config_dir: Option<&Path>,
+        depth: usize,
+    ) -> Vec<IncludedFile> {
+        let expanded = Self::expand_tilde(pattern);
+
+        // If relative path, resolve against config dir
+        let glob_pattern = if expanded.starts_with('/') {
+            expanded
+        } else if let Some(dir) = config_dir {
+            dir.join(&expanded).to_string_lossy().to_string()
+        } else {
+            return Vec::new();
+        };
+
+        let mut files = Vec::new();
+        if let Ok(paths) = glob::glob(&glob_pattern) {
+            let mut matched: Vec<PathBuf> = paths.filter_map(|p| p.ok()).collect();
+            matched.sort();
+            for path in matched {
+                if path.is_file() {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let elements = Self::parse_content_with_includes(
+                            &content,
+                            path.parent(),
+                            depth + 1,
+                        );
+                        files.push(IncludedFile {
+                            path: path.clone(),
+                            elements,
+                        });
+                    }
+                }
+            }
+        }
+        files
+    }
+
+    /// Expand ~ to the home directory.
+    fn expand_tilde(pattern: &str) -> String {
+        if let Some(rest) = pattern.strip_prefix("~/") {
+            if let Some(home) = dirs::home_dir() {
+                return format!("{}/{}", home.display(), rest);
+            }
+        }
+        pattern.to_string()
     }
 
     /// Check if a line is a "Host <pattern>" line.
@@ -239,5 +338,44 @@ Host myserver
         } else {
             panic!("Expected HostBlock");
         }
+    }
+
+    #[test]
+    fn test_include_directive_parsed() {
+        let content = "\
+Include config.d/*
+
+Host myserver
+  HostName 10.0.0.1
+";
+        let config = parse_str(content);
+        // parse_content uses no config_dir, so Include resolves to no files
+        assert!(matches!(&config.elements[0], ConfigElement::Include(inc) if inc.raw_line == "Include config.d/*"));
+        // Blank line becomes a GlobalLine between Include and HostBlock
+        assert!(matches!(&config.elements[1], ConfigElement::GlobalLine(s) if s.is_empty()));
+        assert!(matches!(&config.elements[2], ConfigElement::HostBlock(_)));
+    }
+
+    #[test]
+    fn test_include_round_trip() {
+        let content = "\
+Include ~/.ssh/config.d/*
+
+Host myserver
+  HostName 10.0.0.1
+";
+        let config = parse_str(content);
+        assert_eq!(config.serialize(), content);
+    }
+
+    #[test]
+    fn test_ssh_command() {
+        use crate::ssh_config::model::HostEntry;
+        let entry = HostEntry {
+            alias: "myserver".to_string(),
+            hostname: "10.0.0.1".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(entry.ssh_command(), "ssh myserver");
     }
 }

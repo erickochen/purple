@@ -64,6 +64,9 @@ impl SshConfigFile {
                         lines.push(directive.raw_line.clone());
                     }
                 }
+                ConfigElement::Include(include) => {
+                    lines.push(include.raw_line.clone());
+                }
             }
         }
 
