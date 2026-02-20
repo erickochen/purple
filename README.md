@@ -40,7 +40,7 @@
 
 &nbsp;&nbsp;&nbsp;&nbsp;**Tags and groups.** &nbsp; Tag hosts with labels. Filter with `tag:prod`. Comments become visual group headers.
 
-&nbsp;&nbsp;&nbsp;&nbsp;**Sort by frecency.** &nbsp; purple remembers when you connected. Most-used hosts surface first.
+&nbsp;&nbsp;&nbsp;&nbsp;**Sort your way.** &nbsp; Config order, alphabetical, most used or most recent. purple remembers your preference.
 
 &nbsp;&nbsp;&nbsp;&nbsp;**SSH key browser.** &nbsp; Fingerprints, linked hosts, key types. Pick a key from the form with Ctrl+K.
 
