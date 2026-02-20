@@ -1,6 +1,6 @@
 [package]
 name = "purple-ssh"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A fast, interactive TUI (terminal UI) for managing your ~/.ssh/config. Add, edit, delete and connect to SSH hosts from the terminal"
 license = "MIT"
@@ -20,7 +20,9 @@ path = "src/main.rs"
 ratatui = "0.30"
 crossterm = "0.29"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 dirs = "6"
+glob = "0.3"
 anyhow = "1"
 thiserror = "2"
 
