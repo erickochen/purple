@@ -96,6 +96,7 @@ fn resolve_config_path(path: &str) -> Result<PathBuf> {
 }
 
 fn main() -> Result<()> {
+    ui::theme::init();
     let cli = Cli::parse();
 
     // Shell completions (no config file needed)
@@ -181,6 +182,17 @@ fn main() -> Result<()> {
 }
 
 fn run_tui(mut app: App, config_str: &str) -> Result<()> {
+    // First-launch welcome hint (one-shot: creates .purple/ so it won't show again)
+    if app.status.is_none() && !app.hosts.is_empty() {
+        if let Some(home) = dirs::home_dir() {
+            let purple_dir = home.join(".purple");
+            if !purple_dir.exists() {
+                let _ = std::fs::create_dir_all(&purple_dir);
+                app.set_status("Welcome to Purple. Press ? for the cheat sheet.", false);
+            }
+        }
+    }
+
     let mut terminal = tui::Tui::new()?;
     terminal.enter()?;
     let events = EventHandler::new(250);

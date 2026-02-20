@@ -30,9 +30,9 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("      y", theme::danger()),
+            Span::styled("    Enter", theme::danger()),
             Span::styled(" yes   ", theme::muted()),
-            Span::styled("n", theme::primary_action()),
+            Span::styled("Esc", theme::accent_bold()),
             Span::styled(" no", theme::muted()),
         ]),
     ];

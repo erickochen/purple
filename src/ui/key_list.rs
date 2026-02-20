@@ -57,17 +57,36 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             })
             .collect();
 
+        let block = Block::default()
+            .title(Span::styled(title, theme::brand()))
+            .borders(Borders::ALL)
+            .border_style(theme::border());
+
+        let inner = block.inner(chunks[0]);
+        frame.render_widget(block, chunks[0]);
+
+        // Split inner for column header + list
+        let inner_chunks = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(1),
+        ])
+        .split(inner);
+
+        // Column header
+        let header = Line::from(vec![
+            Span::styled(format!(" {:<18}", "NAME"), theme::muted()),
+            Span::styled(format!("{:<12}", "TYPE"), theme::muted()),
+            Span::styled(format!("{:<24}", "FINGERPRINT"), theme::muted()),
+            Span::styled("HOSTS", theme::muted()),
+        ]);
+        frame.render_widget(Paragraph::new(header), inner_chunks[0]);
+
+        // Key list (without block — already rendered above)
         let list = List::new(items)
-            .block(
-                Block::default()
-                    .title(Span::styled(title, theme::brand()))
-                    .borders(Borders::ALL)
-                    .border_style(theme::border()),
-            )
             .highlight_style(theme::selected())
             .highlight_symbol("  ");
 
-        frame.render_stateful_widget(list, chunks[0], &mut app.key_list_state);
+        frame.render_stateful_widget(list, inner_chunks[1], &mut app.key_list_state);
     }
 
     if app.status.is_some() {
@@ -89,11 +108,12 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect) {
     frame.render_widget(Paragraph::new(footer), area);
 }
 
+/// Truncate a fingerprint to `max_len` display characters.
+/// Fingerprints are ASCII (SHA256:base64), so byte length == char count.
 fn truncate_fingerprint(fp: &str, max_len: usize) -> String {
     if fp.len() <= max_len {
         fp.to_string()
     } else {
-        let truncated: String = fp.chars().take(max_len.saturating_sub(3)).collect();
-        format!("{}...", truncated)
+        format!("{}...", &fp[..max_len.saturating_sub(3)])
     }
 }

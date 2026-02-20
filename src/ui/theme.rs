@@ -1,29 +1,50 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use ratatui::style::{Color, Modifier, Style};
+
+static NO_COLOR_FLAG: AtomicBool = AtomicBool::new(false);
+
+/// Initialize theme settings. Call once at startup.
+pub fn init() {
+    if std::env::var_os("NO_COLOR").is_some() {
+        NO_COLOR_FLAG.store(true, Ordering::Release);
+    }
+}
+
+/// Whether NO_COLOR is active (strip fg/bg colors, keep modifiers).
+fn nc() -> bool {
+    NO_COLOR_FLAG.load(Ordering::Acquire)
+}
+
+/// Apply fg color only when NO_COLOR is not set.
+fn with_fg(style: Style, color: Color) -> Style {
+    if nc() { style } else { style.fg(color) }
+}
 
 /// Brand accent: used ONLY for titles. Magenta+Bold triggers bright magenta.
 pub fn brand() -> Style {
-    Style::default()
-        .fg(Color::Magenta)
-        .add_modifier(Modifier::BOLD)
+    with_fg(Style::default().add_modifier(Modifier::BOLD), Color::Magenta)
 }
 
 /// Primary accent: structural elements (borders, focus indicators).
 pub fn accent() -> Style {
-    Style::default().fg(Color::Cyan)
+    with_fg(Style::default(), Color::Cyan)
 }
 
 /// Primary accent with bold: keybinding keys in footer/help.
 pub fn accent_bold() -> Style {
-    Style::default()
-        .fg(Color::Cyan)
-        .add_modifier(Modifier::BOLD)
+    with_fg(
+        Style::default().add_modifier(Modifier::BOLD),
+        Color::Cyan,
+    )
 }
 
 /// Primary action key (connect/Enter) — stands out from secondary keys.
 pub fn primary_action() -> Style {
-    Style::default()
-        .fg(Color::Green)
-        .add_modifier(Modifier::BOLD)
+    with_fg(
+        Style::default().add_modifier(Modifier::BOLD),
+        Color::Yellow,
+    )
 }
 
 /// Muted/secondary text. Uses DIM instead of DarkGray for theme safety.
@@ -33,9 +54,10 @@ pub fn muted() -> Style {
 
 /// Section headers (help overlay).
 pub fn section_header() -> Style {
-    Style::default()
-        .fg(Color::Yellow)
-        .add_modifier(Modifier::BOLD)
+    with_fg(
+        Style::default().add_modifier(Modifier::BOLD),
+        Color::Yellow,
+    )
 }
 
 /// Selected item in a list — REVERSED is universally visible.
@@ -45,23 +67,26 @@ pub fn selected() -> Style {
 
 /// Error message.
 pub fn error() -> Style {
-    Style::default()
-        .fg(Color::Red)
-        .add_modifier(Modifier::BOLD)
+    with_fg(
+        Style::default().add_modifier(Modifier::BOLD),
+        Color::Red,
+    )
 }
 
 /// Success message.
 pub fn success() -> Style {
-    Style::default()
-        .fg(Color::Green)
-        .add_modifier(Modifier::BOLD)
+    with_fg(
+        Style::default().add_modifier(Modifier::BOLD),
+        Color::Green,
+    )
 }
 
 /// Danger action key (delete "y").
 pub fn danger() -> Style {
-    Style::default()
-        .fg(Color::Red)
-        .add_modifier(Modifier::BOLD)
+    with_fg(
+        Style::default().add_modifier(Modifier::BOLD),
+        Color::Red,
+    )
 }
 
 /// Default border (unfocused).
@@ -71,12 +96,15 @@ pub fn border() -> Style {
 
 /// Focused border.
 pub fn border_focused() -> Style {
-    Style::default().fg(Color::Cyan)
+    with_fg(
+        Style::default().add_modifier(Modifier::BOLD),
+        Color::Cyan,
+    )
 }
 
 /// Danger border (delete dialog).
 pub fn border_danger() -> Style {
-    Style::default().fg(Color::Red)
+    with_fg(Style::default(), Color::Red)
 }
 
 /// Bold text (labels, emphasis).

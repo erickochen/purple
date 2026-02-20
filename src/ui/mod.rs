@@ -9,7 +9,7 @@ pub mod theme;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::text::Span;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::app::{App, Screen};
@@ -58,13 +58,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 /// Render the status bar at the bottom.
 pub fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     if let Some(ref status) = app.status {
-        let style = if status.is_error {
-            theme::error()
+        let line = if status.is_error {
+            Line::from(vec![
+                Span::styled("! ", theme::error()),
+                Span::styled(status.text.as_str(), theme::error()),
+            ])
         } else {
-            theme::success()
+            Line::from(Span::styled(status.text.as_str(), theme::success()))
         };
-        let paragraph = Paragraph::new(Span::styled(&status.text, style));
-        frame.render_widget(paragraph, area);
+        frame.render_widget(Paragraph::new(line), area);
     }
 }
 

@@ -257,6 +257,9 @@ pub struct App {
     // Undo state
     pub deleted_host: Option<DeletedHost>,
 
+    // Learning hints
+    pub has_pinged: bool,
+
     // Auto-reload state
     pub config_path: PathBuf,
     pub last_modified: Option<SystemTime>,
@@ -300,6 +303,7 @@ impl App {
             history: ConnectionHistory::load(),
             sort_mode: SortMode::Original,
             deleted_host: None,
+            has_pinged: false,
             config_path,
             last_modified,
         }

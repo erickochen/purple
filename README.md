@@ -72,6 +72,7 @@ Purple remembers when you last connected to each host. Sort by frecency to surfa
 | **Automatic backups** | Every write creates a backup. Keeps the last 5. |
 | **Shell completions** | Bash, zsh and fish. |
 | **Works everywhere** | ANSI 16 colors. Any terminal theme, any monospace font. No Nerd Font needed. |
+| **NO_COLOR** | Respects the [NO_COLOR](https://no-color.org/) standard. Set `NO_COLOR=1` to disable colors. |
 
 ---
 

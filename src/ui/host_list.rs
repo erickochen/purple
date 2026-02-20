@@ -1,5 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 
@@ -95,17 +96,15 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
         .map(|item| match item {
             HostListItem::GroupHeader(text) => {
                 let line = Line::from(vec![
-                    Span::styled(
-                        format!("  {} ", text),
-                        theme::section_header(),
-                    ),
-                    Span::styled(" ────", theme::muted()),
+                    Span::styled("──", theme::muted()),
+                    Span::styled(format!(" {} ", text), theme::section_header()),
+                    Span::styled("─".repeat(50), theme::muted()),
                 ]);
                 ListItem::new(line)
             }
             HostListItem::Host { index } => {
                 let host = &app.hosts[*index];
-                build_host_item(host, &app.ping_status, &app.history)
+                build_host_item(host, &app.ping_status, &app.history, None)
             }
         })
         .collect();
@@ -143,12 +142,13 @@ fn render_search_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::R
         return;
     }
 
+    let query = app.search_query.as_deref();
     let items: Vec<ListItem> = app
         .filtered_indices
         .iter()
         .map(|&idx| {
             let host = &app.hosts[idx];
-            build_host_item(host, &app.ping_status, &app.history)
+            build_host_item(host, &app.ping_status, &app.history, query)
         })
         .collect();
 
@@ -169,24 +169,55 @@ fn build_host_item<'a>(
     host: &'a crate::ssh_config::model::HostEntry,
     ping_status: &'a std::collections::HashMap<String, PingStatus>,
     history: &'a crate::history::ConnectionHistory,
+    query: Option<&str>,
 ) -> ListItem<'a> {
-    let user_display = if host.user.is_empty() {
-        String::new()
-    } else {
-        format!("{}@", host.user)
-    };
-    let port_display = if host.port == 22 {
-        String::new()
-    } else {
-        format!(":{}", host.port)
-    };
-    let detail = format!("{}{}{}", user_display, host.hostname, port_display);
+    let q = query.unwrap_or("");
+    let q_lower = q.to_lowercase();
 
-    let mut spans = vec![
-        Span::styled(format!(" {} ", host.alias), theme::bold()),
-        Span::styled(" -> ", theme::muted()),
-        Span::styled(detail, theme::muted()),
-    ];
+    // Determine which field matches for search highlighting
+    let alias_matches =
+        !q_lower.is_empty() && host.alias.to_lowercase().contains(&q_lower);
+    let host_matches =
+        !alias_matches && !q_lower.is_empty() && host.hostname.to_lowercase().contains(&q_lower);
+    let user_matches = !alias_matches
+        && !host_matches
+        && !q_lower.is_empty()
+        && host.user.to_lowercase().contains(&q_lower);
+
+    // Three-tier typography: Bold alias > Regular hostname > DIM metadata
+    let alias_style = if alias_matches {
+        theme::accent_bold()
+    } else {
+        theme::bold()
+    };
+
+    let mut spans = vec![Span::styled(format!(" {} ", host.alias), alias_style)];
+
+    // Arrow separator
+    spans.push(Span::styled(" -> ", theme::muted()));
+
+    // User@ (DIM, or accent if it's the matching field)
+    if !host.user.is_empty() {
+        let user_style = if user_matches {
+            theme::accent_bold()
+        } else {
+            theme::muted()
+        };
+        spans.push(Span::styled(format!("{}@", host.user), user_style));
+    }
+
+    // Hostname (regular weight - middle tier, or accent if matching)
+    let hostname_style = if host_matches {
+        theme::accent_bold()
+    } else {
+        Style::default()
+    };
+    spans.push(Span::styled(host.hostname.as_str(), hostname_style));
+
+    // Port (DIM)
+    if host.port != 22 {
+        spans.push(Span::styled(format!(":{}", host.port), theme::muted()));
+    }
 
     // Show key name if IdentityFile is set
     if !host.identity_file.is_empty() {
@@ -197,9 +228,9 @@ fn build_host_item<'a>(
         spans.push(Span::styled(format!(" [{}]", key_name), theme::muted()));
     }
 
-    // Show tags
+    // Show tags with # prefix
     for tag in &host.tags {
-        spans.push(Span::styled(format!(" [{}]", tag), theme::accent()));
+        spans.push(Span::styled(format!(" #{}", tag), theme::accent()));
     }
 
     // Show source file for included hosts
@@ -238,10 +269,21 @@ fn build_host_item<'a>(
 
 fn render_search_bar(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let query = app.search_query.as_deref().unwrap_or("");
+    let match_info = if query.is_empty() {
+        String::new()
+    } else {
+        let count = app.filtered_indices.len();
+        match count {
+            0 => " (no matches)".to_string(),
+            1 => " (1 match)".to_string(),
+            n => format!(" ({} matches)", n),
+        }
+    };
     let search_line = Line::from(vec![
         Span::styled(" / ", theme::accent_bold()),
         Span::raw(query),
         Span::styled("_", theme::accent()),
+        Span::styled(match_info, theme::muted()),
     ]);
     frame.render_widget(Paragraph::new(search_line), area);
 }

@@ -160,7 +160,15 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
                     let port = host.port;
                     app.ping_status
                         .insert(alias.clone(), crate::app::PingStatus::Checking);
-                    app.set_status(format!("Pinging {}...", alias), false);
+                    if !app.has_pinged {
+                        app.set_status(
+                            format!("Pinging {}... (Shift+P pings all)", alias),
+                            false,
+                        );
+                        app.has_pinged = true;
+                    } else {
+                        app.set_status(format!("Pinging {}...", alias), false);
+                    }
                     ping::ping_host(alias, hostname, port, events_tx.clone());
                 }
             }
@@ -453,7 +461,7 @@ fn submit_form(app: &mut App) {
 
 fn handle_confirm_delete(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Char('y') | KeyCode::Char('Y') => {
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
             if let Screen::ConfirmDelete { index } = app.screen {
                 if index < app.hosts.len() {
                     let alias = app.hosts[index].alias.clone();
