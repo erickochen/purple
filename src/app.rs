@@ -200,6 +200,24 @@ impl SortMode {
             SortMode::Frecency => "most used",
         }
     }
+
+    pub fn to_key(self) -> &'static str {
+        match self {
+            SortMode::Original => "original",
+            SortMode::AlphaAlias => "alpha_alias",
+            SortMode::AlphaHostname => "alpha_hostname",
+            SortMode::Frecency => "frecency",
+        }
+    }
+
+    pub fn from_key(s: &str) -> Self {
+        match s {
+            "alpha_alias" => SortMode::AlphaAlias,
+            "alpha_hostname" => SortMode::AlphaHostname,
+            "frecency" => SortMode::Frecency,
+            _ => SortMode::Original,
+        }
+    }
 }
 
 /// Stores a deleted host for undo.

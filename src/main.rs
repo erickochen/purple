@@ -6,6 +6,7 @@ mod handler;
 mod history;
 mod import;
 mod ping;
+mod preferences;
 mod quick_add;
 mod ssh_config;
 mod ssh_keys;
@@ -166,6 +167,7 @@ fn main() -> Result<()> {
         }
         // No exact match — open TUI with search pre-filled
         let mut app = App::new(config);
+        apply_saved_sort(&mut app);
         app.start_search_with(alias);
         if app.filtered_indices.is_empty() {
             app.set_status(
@@ -177,8 +179,17 @@ fn main() -> Result<()> {
     }
 
     // Interactive TUI mode
-    let app = App::new(config);
+    let mut app = App::new(config);
+    apply_saved_sort(&mut app);
     run_tui(app, &cli.config)
+}
+
+fn apply_saved_sort(app: &mut App) {
+    let saved = preferences::load_sort_mode();
+    if saved != app::SortMode::Original {
+        app.sort_mode = saved;
+        app.apply_sort();
+    }
 }
 
 fn run_tui(mut app: App, config_str: &str) -> Result<()> {

@@ -7,6 +7,7 @@ use crate::app::{App, FormField, HostForm, Screen};
 use crate::clipboard;
 use crate::event::AppEvent;
 use crate::ping;
+use crate::preferences;
 use crate::quick_add;
 use crate::ssh_config::model::ConfigElement;
 
@@ -221,6 +222,7 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
         KeyCode::Char('s') => {
             app.sort_mode = app.sort_mode.next();
             app.apply_sort();
+            let _ = preferences::save_sort_mode(app.sort_mode);
             app.set_status(format!("Sorted by {}.", app.sort_mode.label()), false);
         }
         KeyCode::Char('i') => {
