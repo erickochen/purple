@@ -53,11 +53,22 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 };
                 let detail = format!("{}{}{}", user_display, host.hostname, port_display);
 
-                let line = Line::from(vec![
+                let mut spans = vec![
                     Span::styled(format!(" {} ", host.alias), theme::bold()),
                     Span::styled(" -> ", theme::muted()),
                     Span::styled(detail, theme::muted()),
-                ]);
+                ];
+
+                // Show key name if IdentityFile is set
+                if !host.identity_file.is_empty() {
+                    let key_name = std::path::Path::new(&host.identity_file)
+                        .file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_else(|| host.identity_file.clone());
+                    spans.push(Span::styled(format!(" [{}]", key_name), theme::muted()));
+                }
+
+                let line = Line::from(spans);
                 ListItem::new(line)
             })
             .collect();
@@ -93,6 +104,8 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect) {
         Span::styled(" delete  ", theme::muted()),
         Span::styled("Enter", theme::primary_action()),
         Span::styled(" connect  ", theme::muted()),
+        Span::styled("K", theme::accent_bold()),
+        Span::styled(" keys  ", theme::muted()),
         Span::styled("?", theme::accent_bold()),
         Span::styled(" help  ", theme::muted()),
         Span::styled("q", theme::accent_bold()),

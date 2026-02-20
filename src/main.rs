@@ -3,6 +3,7 @@ mod connection;
 mod event;
 mod handler;
 mod ssh_config;
+mod ssh_keys;
 mod tui;
 mod ui;
 

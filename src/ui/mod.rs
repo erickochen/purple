@@ -2,6 +2,8 @@ mod confirm_dialog;
 mod help;
 mod host_form;
 mod host_list;
+mod key_detail;
+mod key_list;
 pub mod theme;
 
 use ratatui::Frame;
@@ -37,6 +39,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Screen::Help => {
             host_list::render(frame, app);
             help::render(frame);
+        }
+        Screen::KeyList => key_list::render(frame, app),
+        Screen::KeyDetail { index } => {
+            let index = *index;
+            key_list::render(frame, app);
+            key_detail::render(frame, app, index);
         }
     }
 }

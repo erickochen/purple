@@ -1,6 +1,9 @@
+use std::path::Path;
+
 use ratatui::widgets::ListState;
 
 use crate::ssh_config::model::{HostEntry, SshConfigFile};
+use crate::ssh_keys::{self, SshKeyInfo};
 
 /// Which screen is currently displayed.
 #[derive(Debug, Clone, PartialEq)]
@@ -10,6 +13,8 @@ pub enum Screen {
     EditHost { index: usize },
     ConfirmDelete { index: usize },
     Help,
+    KeyList,
+    KeyDetail { index: usize },
 }
 
 /// Which form field is focused.
@@ -164,6 +169,12 @@ pub struct App {
 
     // Pending SSH connection
     pub pending_connect: Option<String>,
+
+    // Key management state
+    pub keys: Vec<SshKeyInfo>,
+    pub key_list_state: ListState,
+    pub show_key_picker: bool,
+    pub key_picker_state: ListState,
 }
 
 impl App {
@@ -183,6 +194,10 @@ impl App {
             form: HostForm::new(),
             status: None,
             pending_connect: None,
+            keys: Vec::new(),
+            key_list_state: ListState::default(),
+            show_key_picker: false,
+            key_picker_state: ListState::default(),
         }
     }
 
@@ -198,38 +213,12 @@ impl App {
 
     /// Move selection up.
     pub fn select_prev(&mut self) {
-        if self.hosts.is_empty() {
-            return;
-        }
-        let i = match self.list_state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.hosts.len() - 1
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
-        };
-        self.list_state.select(Some(i));
+        cycle_selection(&mut self.list_state, self.hosts.len(), false);
     }
 
     /// Move selection down.
     pub fn select_next(&mut self) {
-        if self.hosts.is_empty() {
-            return;
-        }
-        let i = match self.list_state.selected() {
-            Some(i) => {
-                if i >= self.hosts.len() - 1 {
-                    0
-                } else {
-                    i + 1
-                }
-            }
-            None => 0,
-        };
-        self.list_state.select(Some(i));
+        cycle_selection(&mut self.list_state, self.hosts.len(), true);
     }
 
     /// Reload hosts from config.
@@ -264,4 +253,55 @@ impl App {
             }
         }
     }
+
+    /// Scan SSH keys from ~/.ssh/ and cross-reference with hosts.
+    pub fn scan_keys(&mut self) {
+        if let Some(home) = dirs::home_dir() {
+            let ssh_dir = home.join(".ssh");
+            self.keys = ssh_keys::discover_keys(Path::new(&ssh_dir), &self.hosts);
+            if !self.keys.is_empty() && self.key_list_state.selected().is_none() {
+                self.key_list_state.select(Some(0));
+            }
+        }
+    }
+
+    /// Move key list selection up.
+    pub fn select_prev_key(&mut self) {
+        cycle_selection(&mut self.key_list_state, self.keys.len(), false);
+    }
+
+    /// Move key list selection down.
+    pub fn select_next_key(&mut self) {
+        cycle_selection(&mut self.key_list_state, self.keys.len(), true);
+    }
+
+    /// Move key picker selection up.
+    pub fn select_prev_picker_key(&mut self) {
+        cycle_selection(&mut self.key_picker_state, self.keys.len(), false);
+    }
+
+    /// Move key picker selection down.
+    pub fn select_next_picker_key(&mut self) {
+        cycle_selection(&mut self.key_picker_state, self.keys.len(), true);
+    }
+}
+
+/// Cycle list selection forward or backward with wraparound.
+fn cycle_selection(state: &mut ListState, len: usize, forward: bool) {
+    if len == 0 {
+        return;
+    }
+    let i = match state.selected() {
+        Some(i) => {
+            if forward {
+                if i >= len - 1 { 0 } else { i + 1 }
+            } else if i == 0 {
+                len - 1
+            } else {
+                i - 1
+            }
+        }
+        None => 0,
+    };
+    state.select(Some(i));
 }

@@ -1,7 +1,7 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 
 use super::theme;
 use crate::app::{App, FormField, Screen};
@@ -70,11 +70,66 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Span::styled(" save  ", theme::muted()),
             Span::styled("Tab/S-Tab", theme::accent_bold()),
             Span::styled(" navigate  ", theme::muted()),
+            Span::styled("Ctrl+K", theme::accent_bold()),
+            Span::styled(" pick key  ", theme::muted()),
             Span::styled("Esc", theme::accent_bold()),
             Span::styled(" cancel", theme::muted()),
         ]);
         frame.render_widget(Paragraph::new(footer), chunks[7]);
     }
+
+    // Key picker popup overlay
+    if app.show_key_picker {
+        render_key_picker(frame, app);
+    }
+}
+
+fn render_key_picker(frame: &mut Frame, app: &mut App) {
+    if app.keys.is_empty() {
+        // Small popup saying no keys found
+        let area = super::centered_rect_fixed(44, 5, frame.area());
+        frame.render_widget(Clear, area);
+        let block = Block::default()
+            .title(Span::styled(" Select Key ", theme::brand()))
+            .borders(Borders::ALL)
+            .border_style(theme::accent());
+        let msg = Paragraph::new(Line::from(Span::styled(
+            "  No keys found in ~/.ssh/",
+            theme::muted(),
+        )))
+        .block(block);
+        frame.render_widget(msg, area);
+        return;
+    }
+
+    let height = (app.keys.len() as u16 + 4).min(16);
+    let area = super::centered_rect_fixed(50, height, frame.area());
+    frame.render_widget(Clear, area);
+
+    let items: Vec<ListItem> = app
+        .keys
+        .iter()
+        .map(|key| {
+            let type_display = key.type_display();
+            let line = Line::from(vec![
+                Span::styled(format!(" {:<18}", key.name), theme::bold()),
+                Span::styled(type_display, theme::muted()),
+            ]);
+            ListItem::new(line)
+        })
+        .collect();
+
+    let block = Block::default()
+        .title(Span::styled(" Select Key ", theme::brand()))
+        .borders(Borders::ALL)
+        .border_style(theme::accent());
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(theme::selected())
+        .highlight_symbol("  ");
+
+    frame.render_stateful_widget(list, area, &mut app.key_picker_state);
 }
 
 fn render_field(frame: &mut Frame, area: Rect, field: FormField, form: &crate::app::HostForm) {

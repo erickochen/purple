@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use super::theme;
 
 pub fn render(frame: &mut Frame) {
-    let area = super::centered_rect_fixed(50, 20, frame.area());
+    let area = super::centered_rect_fixed(50, 28, frame.area());
 
     // Clear background
     frame.render_widget(Clear, area);
@@ -25,6 +25,7 @@ pub fn render(frame: &mut Frame) {
         help_line("  a         ", "Add new host"),
         help_line("  e         ", "Edit selected host"),
         help_line("  d         ", "Delete selected host"),
+        help_line("  K         ", "SSH key list"),
         help_line("  Ctrl+C    ", "Quit (from anywhere)"),
         help_line("  q / Esc   ", "Quit / back"),
         Line::from(""),
@@ -32,8 +33,16 @@ pub fn render(frame: &mut Frame) {
         Line::from(""),
         help_line("  Tab       ", "Next field"),
         help_line("  Shift+Tab ", "Previous field"),
+        help_line("  Ctrl+K    ", "Pick SSH key"),
         help_line("  Enter     ", "Save"),
         help_line("  Esc       ", "Cancel"),
+        Line::from(""),
+        Line::from(Span::styled("  Key List", theme::section_header())),
+        Line::from(""),
+        help_line("  j / Down  ", "Move down"),
+        help_line("  k / Up    ", "Move up"),
+        help_line("  Enter     ", "View key details"),
+        help_line("  K / Esc   ", "Back to hosts"),
     ];
 
     let paragraph = Paragraph::new(help_text).block(block);
