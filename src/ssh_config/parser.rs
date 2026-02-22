@@ -53,22 +53,27 @@ impl SshConfigFile {
         for line in content.lines() {
             let trimmed = line.trim();
 
-            // Check for Include directive (at any level — flush current block if needed)
-            if let Some(pattern) = Self::parse_include_line(trimmed) {
-                if let Some(block) = current_block.take() {
-                    elements.push(ConfigElement::HostBlock(block));
+            // Check for Include directive.
+            // An indented Include inside a Host block is preserved as a directive
+            // (not a top-level Include). A non-indented Include flushes the block.
+            let is_indented = line.starts_with(' ') || line.starts_with('\t');
+            if !(current_block.is_some() && is_indented) {
+                if let Some(pattern) = Self::parse_include_line(trimmed) {
+                    if let Some(block) = current_block.take() {
+                        elements.push(ConfigElement::HostBlock(block));
+                    }
+                    let resolved = if depth < MAX_INCLUDE_DEPTH {
+                        Self::resolve_include(pattern, config_dir, depth)
+                    } else {
+                        Vec::new()
+                    };
+                    elements.push(ConfigElement::Include(IncludeDirective {
+                        raw_line: line.to_string(),
+                        pattern: pattern.to_string(),
+                        resolved_files: resolved,
+                    }));
+                    continue;
                 }
-                let resolved = if depth < MAX_INCLUDE_DEPTH {
-                    Self::resolve_include(pattern, config_dir, depth)
-                } else {
-                    Vec::new()
-                };
-                elements.push(ConfigElement::Include(IncludeDirective {
-                    raw_line: line.to_string(),
-                    pattern: pattern.to_string(),
-                    resolved_files: resolved,
-                }));
-                continue;
             }
 
             // Check if this line starts a new Host block
@@ -228,6 +233,14 @@ impl SshConfigFile {
         if key.is_empty() {
             return None;
         }
+
+        // Strip inline comments (# preceded by whitespace) from parsed value.
+        // Don't strip from raw_line — that preserves round-trip fidelity.
+        let value = if let Some(pos) = value.find(" #").or_else(|| value.find("\t#")) {
+            value[..pos].trim_end()
+        } else {
+            value
+        };
 
         Some((key.to_string(), value.to_string()))
     }

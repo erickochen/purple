@@ -428,8 +428,11 @@ fn submit_form(app: &mut App) {
                 return;
             }
             app.config.add_host(&entry);
+            if !entry.tags.is_empty() {
+                app.config.set_host_tags(&alias, &entry.tags);
+            }
             if let Err(e) = app.config.write() {
-                app.config.delete_host(&alias);
+                app.config.delete_host_undoable(&alias);
                 app.set_status(format!("Failed to save: {}", e), true);
                 return;
             }
@@ -467,6 +470,7 @@ fn submit_form(app: &mut App) {
             // Snapshot old entry for rollback
             let old_entry = app.hosts.iter().find(|h| h.alias == old_alias).cloned().unwrap_or_default();
             app.config.update_host(&old_alias, &entry);
+            app.config.set_host_tags(&entry.alias, &entry.tags);
             if let Err(e) = app.config.write() {
                 // Rollback: restore old entry
                 app.config.update_host(&entry.alias, &old_entry);

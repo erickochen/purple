@@ -31,16 +31,18 @@ pub enum FormField {
     Port,
     IdentityFile,
     ProxyJump,
+    Tags,
 }
 
 impl FormField {
-    pub const ALL: [FormField; 6] = [
+    pub const ALL: [FormField; 7] = [
         FormField::Alias,
         FormField::Hostname,
         FormField::User,
         FormField::Port,
         FormField::IdentityFile,
         FormField::ProxyJump,
+        FormField::Tags,
     ];
 
     pub fn next(self) -> Self {
@@ -61,6 +63,7 @@ impl FormField {
             FormField::Port => "Port",
             FormField::IdentityFile => "Identity File",
             FormField::ProxyJump => "ProxyJump",
+            FormField::Tags => "Tags",
         }
     }
 }
@@ -74,6 +77,7 @@ pub struct HostForm {
     pub port: String,
     pub identity_file: String,
     pub proxy_jump: String,
+    pub tags: String,
     pub focused_field: FormField,
 }
 
@@ -86,6 +90,7 @@ impl HostForm {
             port: "22".to_string(),
             identity_file: String::new(),
             proxy_jump: String::new(),
+            tags: String::new(),
             focused_field: FormField::Alias,
         }
     }
@@ -98,6 +103,7 @@ impl HostForm {
             port: entry.port.to_string(),
             identity_file: entry.identity_file.clone(),
             proxy_jump: entry.proxy_jump.clone(),
+            tags: entry.tags.join(", "),
             focused_field: FormField::Alias,
         }
     }
@@ -111,6 +117,7 @@ impl HostForm {
             FormField::Port => &mut self.port,
             FormField::IdentityFile => &mut self.identity_file,
             FormField::ProxyJump => &mut self.proxy_jump,
+            FormField::Tags => &mut self.tags,
         }
     }
 
@@ -121,6 +128,12 @@ impl HostForm {
         }
         if self.alias.contains(' ') {
             return Err("Alias can't contain spaces. Keep it simple.".to_string());
+        }
+        if self.alias.contains('*') || self.alias.contains('?') {
+            return Err(
+                "Alias can't contain wildcards. That creates a match pattern, not a host."
+                    .to_string(),
+            );
         }
         if self.hostname.trim().is_empty() {
             return Err("Hostname can't be empty. Where should we connect to?".to_string());
@@ -145,7 +158,7 @@ impl HostForm {
             identity_file: self.identity_file.trim().to_string(),
             proxy_jump: self.proxy_jump.trim().to_string(),
             source_file: None,
-            tags: Vec::new(),
+            tags: self.tags.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect(),
         }
     }
 }
@@ -683,6 +696,7 @@ impl App {
 
     /// Start search with an initial query (for positional arg).
     pub fn start_search_with(&mut self, query: &str) {
+        self.pre_search_selection = self.list_state.selected();
         self.search_query = Some(query.to_string());
         self.apply_filter();
     }

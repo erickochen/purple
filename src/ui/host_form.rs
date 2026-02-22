@@ -15,6 +15,7 @@ fn placeholder_for(field: FormField) -> &'static str {
         FormField::Port => "22",
         FormField::IdentityFile => "~/.ssh/id_ed25519",
         FormField::ProxyJump => "bastion-host",
+        FormField::Tags => "prod, staging, us-east",
     }
 }
 
@@ -41,7 +42,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let inner = outer_block.inner(form_area);
     frame.render_widget(outer_block, form_area);
 
-    // Layout: 6 fields + spacer + footer/status (merged)
+    // Layout: 7 fields + spacer + footer/status (merged)
     let chunks = Layout::vertical([
         Constraint::Length(3), // Alias
         Constraint::Length(3), // Hostname
@@ -49,6 +50,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Constraint::Length(3), // Port
         Constraint::Length(3), // IdentityFile
         Constraint::Length(3), // ProxyJump
+        Constraint::Length(3), // Tags
         Constraint::Min(1),   // Spacer
         Constraint::Length(1), // Footer or status
     ])
@@ -61,10 +63,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     render_field(frame, chunks[3], FormField::Port, &app.form);
     render_field(frame, chunks[4], FormField::IdentityFile, &app.form);
     render_field(frame, chunks[5], FormField::ProxyJump, &app.form);
+    render_field(frame, chunks[6], FormField::Tags, &app.form);
 
     // Footer or status (merged)
     if app.status.is_some() {
-        super::render_status_bar(frame, chunks[7], app);
+        super::render_status_bar(frame, chunks[8], app);
     } else {
         let footer = Line::from(vec![
             Span::styled(" Enter", theme::primary_action()),
@@ -76,7 +79,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Span::styled("Esc", theme::accent_bold()),
             Span::styled(" cancel", theme::muted()),
         ]);
-        frame.render_widget(Paragraph::new(footer), chunks[7]);
+        frame.render_widget(Paragraph::new(footer), chunks[8]);
     }
 
     // Key picker popup overlay
@@ -149,6 +152,7 @@ fn render_field(frame: &mut Frame, area: Rect, field: FormField, form: &crate::a
         FormField::Port => &form.port,
         FormField::IdentityFile => &form.identity_file,
         FormField::ProxyJump => &form.proxy_jump,
+        FormField::Tags => &form.tags,
     };
 
     let (border_style, label_style) = if is_focused {
