@@ -5,12 +5,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use super::theme;
 use crate::app::App;
 
-pub fn render(frame: &mut Frame, app: &App, index: usize) {
-    let alias = app
-        .hosts
-        .get(index)
-        .map(|h| h.alias.as_str())
-        .unwrap_or("???");
+pub fn render(frame: &mut Frame, _app: &App, alias: &str) {
 
     let area = super::centered_rect_fixed(44, 7, frame.area());
 

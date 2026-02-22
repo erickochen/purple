@@ -24,12 +24,9 @@ impl Tui {
         Ok(Self { terminal })
     }
 
-    /// Enter TUI mode: raw mode, alternate screen, panic hook (installed once).
+    /// Enter TUI mode: panic hook (installed once), raw mode, alternate screen.
     pub fn enter(&mut self) -> Result<()> {
-        enable_raw_mode()?;
-        io::stdout().execute(EnterAlternateScreen)?;
-
-        // Install panic hook only once to avoid nesting on re-entry after SSH
+        // Install panic hook BEFORE enabling raw mode to ensure cleanup on panic
         PANIC_HOOK.call_once(|| {
             let original_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |panic_info| {
@@ -37,6 +34,9 @@ impl Tui {
                 original_hook(panic_info);
             }));
         });
+
+        enable_raw_mode()?;
+        io::stdout().execute(EnterAlternateScreen)?;
 
         self.terminal.hide_cursor()?;
         self.terminal.clear()?;

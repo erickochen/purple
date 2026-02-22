@@ -33,10 +33,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     match &app.screen {
         Screen::HostList => host_list::render(frame, app),
         Screen::AddHost | Screen::EditHost { .. } => host_form::render(frame, app),
-        Screen::ConfirmDelete { index } => {
-            let index = *index;
+        Screen::ConfirmDelete { alias } => {
+            let alias = alias.clone();
             host_list::render(frame, app);
-            confirm_dialog::render(frame, app, index);
+            confirm_dialog::render(frame, app, &alias);
         }
         Screen::Help => {
             host_list::render(frame, app);

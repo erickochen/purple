@@ -47,19 +47,20 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
         .spawn()
         .map_err(|_| format!("Failed to run {}.", cmd))?;
 
-    {
+    let write_result = (|| {
         let stdin = child
             .stdin
             .as_mut()
             .ok_or_else(|| format!("Failed to write to {}.", cmd))?;
         stdin
             .write_all(text.as_bytes())
-            .map_err(|_| format!("Failed to write to {}.", cmd))?;
-    }
+            .map_err(|_| format!("Failed to write to {}.", cmd))
+    })();
 
-    child
-        .wait()
-        .map_err(|_| format!("{} exited unexpectedly.", cmd))?;
+    // Always reap the child process to prevent zombies
+    let _ = child.wait();
+
+    write_result?;
 
     Ok(())
 }

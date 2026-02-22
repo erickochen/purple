@@ -24,19 +24,27 @@ impl SshConfigFile {
                 .with_context(|| format!("Failed to create directory {}", parent.display()))?;
         }
 
-        // Atomic write: write to temp file, set permissions, then rename
+        // Atomic write: write to temp file (created with 0o600), then rename
         let tmp_path = self.path.with_extension(format!("purple_tmp.{}", std::process::id()));
-        fs::write(&tmp_path, &content)
-            .with_context(|| format!("Failed to write temp file {}", tmp_path.display()))?;
 
-        // Set permissions BEFORE rename so the file is never world-readable
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = fs::Permissions::from_mode(0o600);
-            fs::set_permissions(&tmp_path, perms)
-                .with_context(|| format!("Failed to set permissions on {}", tmp_path.display()))?;
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&tmp_path)
+                .with_context(|| format!("Failed to create temp file {}", tmp_path.display()))?;
+            file.write_all(content.as_bytes())
+                .with_context(|| format!("Failed to write temp file {}", tmp_path.display()))?;
         }
+
+        #[cfg(not(unix))]
+        fs::write(&tmp_path, &content)
+            .with_context(|| format!("Failed to write temp file {}", tmp_path.display()))?;
 
         fs::rename(&tmp_path, &self.path).with_context(|| {
             format!(

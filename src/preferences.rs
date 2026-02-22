@@ -70,15 +70,25 @@ pub fn save_sort_mode(mode: SortMode) -> io::Result<()> {
 
     let content = lines.join("\n") + "\n";
 
-    // Atomic write: tmp file + chmod 600 + rename
+    // Atomic write: tmp file (created with 0o600) + rename
     let tmp_path = path.with_extension(format!("tmp.{}", std::process::id()));
-    std::fs::write(&tmp_path, &content)?;
 
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600))?;
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp_path)?;
+        file.write_all(content.as_bytes())?;
     }
+
+    #[cfg(not(unix))]
+    std::fs::write(&tmp_path, &content)?;
 
     std::fs::rename(&tmp_path, &path)?;
     Ok(())

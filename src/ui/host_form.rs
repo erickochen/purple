@@ -193,11 +193,12 @@ fn render_field(frame: &mut Frame, area: Rect, field: FormField, form: &crate::a
     }
 }
 
-/// Truncate a comment string to `max_len` characters.
+/// Truncate a comment string to `max_len` characters (char-boundary safe).
 fn truncate_comment(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+    if s.chars().count() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
+        format!("{}...", truncated)
     }
 }

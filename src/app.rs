@@ -14,7 +14,7 @@ pub enum Screen {
     HostList,
     AddHost,
     EditHost { index: usize },
-    ConfirmDelete { index: usize },
+    ConfirmDelete { alias: String },
     Help,
     KeyList,
     KeyDetail { index: usize },

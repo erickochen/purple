@@ -85,7 +85,7 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
             }
         }
         KeyCode::Char('d') => {
-            if let (Some(index), Some(host)) = (app.selected_host_index(), app.selected_host()) {
+            if let Some(host) = app.selected_host() {
                 if let Some(ref source) = host.source_file {
                     let alias = host.alias.clone();
                     let path = source.display();
@@ -95,7 +95,8 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
                     );
                     return;
                 }
-                app.screen = Screen::ConfirmDelete { index };
+                let alias = host.alias.clone();
+                app.screen = Screen::ConfirmDelete { alias };
             }
         }
         KeyCode::Char('c') => {
@@ -465,27 +466,27 @@ fn submit_form(app: &mut App) {
 fn handle_confirm_delete(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-            if let Screen::ConfirmDelete { index } = app.screen {
-                if index < app.hosts.len() {
-                    let alias = app.hosts[index].alias.clone();
-                    if let Some((element, position)) = app.config.delete_host_undoable(&alias) {
-                        if let Err(e) = app.config.write() {
-                            // Restore the element on write failure
-                            app.config.insert_host_at(element, position);
-                            app.set_status(format!("Failed to save: {}", e), true);
-                        } else {
-                            app.deleted_host = Some(crate::app::DeletedHost {
-                                element,
-                                position,
-                            });
-                            app.update_last_modified();
-                            app.reload_hosts();
-                            app.set_status(
-                                format!("Goodbye, {}. We barely knew ye. (u to undo)", alias),
-                                false,
-                            );
-                        }
+            if let Screen::ConfirmDelete { ref alias } = app.screen {
+                let alias = alias.clone();
+                if let Some((element, position)) = app.config.delete_host_undoable(&alias) {
+                    if let Err(e) = app.config.write() {
+                        // Restore the element on write failure
+                        app.config.insert_host_at(element, position);
+                        app.set_status(format!("Failed to save: {}", e), true);
+                    } else {
+                        app.deleted_host = Some(crate::app::DeletedHost {
+                            element,
+                            position,
+                        });
+                        app.update_last_modified();
+                        app.reload_hosts();
+                        app.set_status(
+                            format!("Goodbye, {}. We barely knew ye. (u to undo)", alias),
+                            false,
+                        );
                     }
+                } else {
+                    app.set_status(format!("Host '{}' not found.", alias), true);
                 }
             }
             app.screen = Screen::HostList;

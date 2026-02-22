@@ -120,12 +120,12 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect) {
     frame.render_widget(Paragraph::new(footer), area);
 }
 
-/// Truncate a fingerprint to `max_len` display characters.
-/// Fingerprints are ASCII (SHA256:base64), so byte length == char count.
+/// Truncate a string to `max_len` characters (char-boundary safe).
 fn truncate_fingerprint(fp: &str, max_len: usize) -> String {
-    if fp.len() <= max_len {
+    if fp.chars().count() <= max_len {
         fp.to_string()
     } else {
-        format!("{}...", &fp[..max_len.saturating_sub(3)])
+        let truncated: String = fp.chars().take(max_len.saturating_sub(3)).collect();
+        format!("{}...", truncated)
     }
 }

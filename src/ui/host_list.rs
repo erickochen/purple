@@ -3,6 +3,7 @@ use ratatui::layout::{Constraint, Layout};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use unicode_width::UnicodeWidthStr;
 
 use super::theme;
 use crate::app::{App, HostListItem, PingStatus, SortMode};
@@ -97,7 +98,7 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
     let alias_col = app
         .hosts
         .iter()
-        .map(|h| h.alias.len())
+        .map(|h| h.alias.width())
         .max()
         .unwrap_or(8)
         .clamp(8, 20);
@@ -109,7 +110,7 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
         .map(|item| match item {
             HostListItem::GroupHeader(text) => {
                 let upper = text.to_uppercase();
-                let label_width = upper.len() + 4; // "── " + text + " "
+                let label_width = upper.width() + 4; // "── " + text + " "
                 let fill = content_width.saturating_sub(label_width);
                 let line = Line::from(vec![
                     Span::styled("── ", theme::muted()),
@@ -171,7 +172,7 @@ fn render_search_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::R
     let alias_col = app
         .hosts
         .iter()
-        .map(|h| h.alias.len())
+        .map(|h| h.alias.width())
         .max()
         .unwrap_or(8)
         .clamp(8, 20);
@@ -234,7 +235,7 @@ fn build_host_item<'a>(
         theme::bold()
     };
     let alias_display = format!(" {:<width$} ", host.alias, width = alias_col);
-    let mut left_len = alias_col + 2; // leading space + alias + trailing space
+    let mut left_len = alias_display.width();
     let mut left_spans = vec![Span::styled(alias_display, alias_style)];
 
     if !host.user.is_empty() {
@@ -244,7 +245,7 @@ fn build_host_item<'a>(
             theme::muted()
         };
         let s = format!("{}@", host.user);
-        left_len += s.len();
+        left_len += s.width();
         left_spans.push(Span::styled(s, user_style));
     }
 
@@ -253,12 +254,12 @@ fn build_host_item<'a>(
     } else {
         Style::default()
     };
-    left_len += host.hostname.len();
+    left_len += host.hostname.width();
     left_spans.push(Span::styled(host.hostname.as_str(), hostname_style));
 
     if host.port != 22 {
         let s = format!(":{}", host.port);
-        left_len += s.len();
+        left_len += s.width();
         left_spans.push(Span::styled(s, theme::muted()));
     }
 
@@ -272,7 +273,7 @@ fn build_host_item<'a>(
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_else(|| host.identity_file.clone());
         let s = format!(" [{}]", key_name);
-        right_len += s.len();
+        right_len += s.width();
         right_spans.push(Span::styled(s, theme::muted()));
     }
 
@@ -285,7 +286,7 @@ fn build_host_item<'a>(
             theme::accent()
         };
         let s = format!(" #{}", tag);
-        right_len += s.len();
+        right_len += s.width();
         right_spans.push(Span::styled(s, style));
     }
 
@@ -296,7 +297,7 @@ fn build_host_item<'a>(
             .unwrap_or_default();
         if !file_name.is_empty() {
             let s = format!(" ({})", file_name);
-            right_len += s.len();
+            right_len += s.width();
             right_spans.push(Span::styled(s, theme::muted()));
         }
     }
@@ -308,7 +309,7 @@ fn build_host_item<'a>(
             PingStatus::Unreachable => (" [--]", theme::error()),
             PingStatus::Skipped => (" [??]", theme::muted()),
         };
-        right_len += indicator.len();
+        right_len += indicator.width();
         right_spans.push(Span::styled(indicator, style));
     }
 
@@ -316,7 +317,7 @@ fn build_host_item<'a>(
         let ago = crate::history::ConnectionHistory::format_time_ago(entry.last_connected);
         if !ago.is_empty() {
             let s = format!(" {}", ago);
-            right_len += s.len();
+            right_len += s.width();
             right_spans.push(Span::styled(s, theme::muted()));
         }
     }

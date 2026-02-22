@@ -120,9 +120,25 @@ impl ConnectionHistory {
             .map(|e| format!("{}\t{}\t{}", e.alias, e.last_connected, e.count))
             .collect::<Vec<_>>()
             .join("\n");
-        // Atomic write: tmp file + rename
+        // Atomic write: tmp file (created with 0o600) + rename
         let tmp_path = self.path.with_extension(format!("tmp.{}", std::process::id()));
+
+        #[cfg(unix)]
+        {
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&tmp_path)?;
+            file.write_all(content.as_bytes())?;
+        }
+
+        #[cfg(not(unix))]
         fs::write(&tmp_path, &content)?;
+
         fs::rename(&tmp_path, &self.path)
     }
 
