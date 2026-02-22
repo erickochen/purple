@@ -241,6 +241,10 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
                 };
                 app.config.insert_host_at(deleted.element, deleted.position);
                 if let Err(e) = app.config.write() {
+                    // Rollback: remove re-inserted host and restore undo buffer
+                    if let Some((element, position)) = app.config.delete_host_undoable(&alias) {
+                        app.deleted_host = Some(crate::app::DeletedHost { element, position });
+                    }
                     app.set_status(format!("Failed to save: {}", e), true);
                 } else {
                     app.update_last_modified();
@@ -425,6 +429,7 @@ fn submit_form(app: &mut App) {
             }
             app.config.add_host(&entry);
             if let Err(e) = app.config.write() {
+                app.config.delete_host(&alias);
                 app.set_status(format!("Failed to save: {}", e), true);
                 return;
             }
@@ -459,8 +464,12 @@ fn submit_form(app: &mut App) {
                 );
                 return;
             }
+            // Snapshot old entry for rollback
+            let old_entry = app.hosts.iter().find(|h| h.alias == old_alias).cloned().unwrap_or_default();
             app.config.update_host(&old_alias, &entry);
             if let Err(e) = app.config.write() {
+                // Rollback: restore old entry
+                app.config.update_host(&entry.alias, &old_entry);
                 app.set_status(format!("Failed to save: {}", e), true);
                 return;
             }

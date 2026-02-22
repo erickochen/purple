@@ -290,6 +290,19 @@ fn handle_quick_add(
                 .to_string()
         });
 
+    if alias_str.trim().is_empty() {
+        eprintln!("Alias can't be empty. Use --alias to specify one.");
+        std::process::exit(1);
+    }
+    if alias_str.contains(' ') {
+        eprintln!("Alias can't contain spaces. Use --alias to pick a simpler name.");
+        std::process::exit(1);
+    }
+    if alias_str.contains('*') || alias_str.contains('?') {
+        eprintln!("Alias can't contain wildcards. Use --alias to pick a different name.");
+        std::process::exit(1);
+    }
+
     if config.has_host(&alias_str) {
         eprintln!("'{}' already exists. Use --alias to pick a different name.", alias_str);
         std::process::exit(1);

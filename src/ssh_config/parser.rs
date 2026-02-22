@@ -184,7 +184,7 @@ impl SshConfigFile {
     }
 
     /// Expand ~ to the home directory.
-    fn expand_tilde(pattern: &str) -> String {
+    pub(crate) fn expand_tilde(pattern: &str) -> String {
         if let Some(rest) = pattern.strip_prefix("~/") {
             if let Some(home) = dirs::home_dir() {
                 return format!("{}/{}", home.display(), rest);

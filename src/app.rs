@@ -292,6 +292,7 @@ pub struct App {
     pub config_path: PathBuf,
     pub last_modified: Option<SystemTime>,
     include_mtimes: Vec<(PathBuf, Option<SystemTime>)>,
+    include_dir_mtimes: Vec<(PathBuf, Option<SystemTime>)>,
 }
 
 impl App {
@@ -310,6 +311,7 @@ impl App {
         let config_path = config.path.clone();
         let last_modified = Self::get_mtime(&config_path);
         let include_mtimes = Self::snapshot_include_mtimes(&config);
+        let include_dir_mtimes = Self::snapshot_include_dir_mtimes(&config);
 
         Self {
             screen: Screen::HostList,
@@ -339,6 +341,7 @@ impl App {
             config_path,
             last_modified,
             include_mtimes,
+            include_dir_mtimes,
         }
     }
 
@@ -630,9 +633,6 @@ impl App {
     pub fn reload_hosts(&mut self) {
         let had_search = self.search_query.clone();
 
-        // Invalidate undo state — config structure may have changed
-        self.deleted_host = None;
-
         self.hosts = self.config.host_entries();
         if self.sort_mode == SortMode::Original {
             self.display_list = Self::build_display_list_from(&self.config, &self.hosts);
@@ -794,13 +794,19 @@ impl App {
         let changed = current_mtime != self.last_modified
             || self.include_mtimes.iter().any(|(path, old_mtime)| {
                 Self::get_mtime(path) != *old_mtime
+            })
+            || self.include_dir_mtimes.iter().any(|(path, old_mtime)| {
+                Self::get_mtime(path) != *old_mtime
             });
         if changed {
             if let Ok(new_config) = SshConfigFile::parse(&self.config_path) {
                 self.config = new_config;
+                // Invalidate undo state — config structure may have changed externally
+                self.deleted_host = None;
                 self.reload_hosts();
                 self.last_modified = current_mtime;
                 self.include_mtimes = Self::snapshot_include_mtimes(&self.config);
+                self.include_dir_mtimes = Self::snapshot_include_dir_mtimes(&self.config);
                 let count = self.hosts.len();
                 self.set_status(format!("Config reloaded. {} hosts.", count), false);
             }
@@ -811,12 +817,25 @@ impl App {
     pub fn update_last_modified(&mut self) {
         self.last_modified = Self::get_mtime(&self.config_path);
         self.include_mtimes = Self::snapshot_include_mtimes(&self.config);
+        self.include_dir_mtimes = Self::snapshot_include_dir_mtimes(&self.config);
     }
 
     /// Snapshot mtimes of all resolved Include files.
     fn snapshot_include_mtimes(config: &SshConfigFile) -> Vec<(PathBuf, Option<SystemTime>)> {
         config
             .include_paths()
+            .into_iter()
+            .map(|p| {
+                let mtime = Self::get_mtime(&p);
+                (p, mtime)
+            })
+            .collect()
+    }
+
+    /// Snapshot mtimes of parent directories of Include glob patterns.
+    fn snapshot_include_dir_mtimes(config: &SshConfigFile) -> Vec<(PathBuf, Option<SystemTime>)> {
+        config
+            .include_glob_dirs()
             .into_iter()
             .map(|p| {
                 let mtime = Self::get_mtime(&p);

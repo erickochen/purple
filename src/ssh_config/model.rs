@@ -216,6 +216,49 @@ impl SshConfigFile {
         }
     }
 
+    /// Collect parent directories of Include glob patterns.
+    /// When a file is added/removed under a glob dir, the directory's mtime changes.
+    pub fn include_glob_dirs(&self) -> Vec<PathBuf> {
+        let config_dir = self.path.parent();
+        let mut dirs = Vec::new();
+        Self::collect_include_glob_dirs(&self.elements, config_dir, &mut dirs);
+        dirs
+    }
+
+    fn collect_include_glob_dirs(
+        elements: &[ConfigElement],
+        config_dir: Option<&std::path::Path>,
+        dirs: &mut Vec<PathBuf>,
+    ) {
+        for e in elements {
+            if let ConfigElement::Include(include) = e {
+                let expanded = Self::expand_tilde(&include.pattern);
+                let resolved = if expanded.starts_with('/') {
+                    PathBuf::from(&expanded)
+                } else if let Some(dir) = config_dir {
+                    dir.join(&expanded)
+                } else {
+                    continue;
+                };
+                if let Some(parent) = resolved.parent() {
+                    let parent = parent.to_path_buf();
+                    if !dirs.contains(&parent) {
+                        dirs.push(parent);
+                    }
+                }
+                // Recurse into resolved files
+                for file in &include.resolved_files {
+                    Self::collect_include_glob_dirs(
+                        &file.elements,
+                        file.path.parent(),
+                        dirs,
+                    );
+                }
+            }
+        }
+    }
+
+
     /// Recursively collect host entries from a list of elements.
     fn collect_host_entries(elements: &[ConfigElement]) -> Vec<HostEntry> {
         let mut entries = Vec::new();
