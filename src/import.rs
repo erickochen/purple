@@ -5,18 +5,26 @@ use crate::quick_add;
 use crate::ssh_config::model::{HostEntry, SshConfigFile};
 
 /// Import hosts from a file with one `[user@]host[:port]` per line.
+/// Returns (imported, skipped, read_errors).
 pub fn import_from_file(
     config: &mut SshConfigFile,
     path: &Path,
     group: Option<&str>,
-) -> Result<(usize, usize), String> {
+) -> Result<(usize, usize, usize), String> {
     let file =
         std::fs::File::open(path).map_err(|e| format!("Can't open {}: {}", path.display(), e))?;
     let reader = std::io::BufReader::new(file);
 
+    let mut read_errors = 0;
     let entries: Vec<HostEntry> = reader
         .lines()
-        .map_while(Result::ok)
+        .filter_map(|r| match r {
+            Ok(line) => Some(line),
+            Err(_) => {
+                read_errors += 1;
+                None
+            }
+        })
         .filter(|line| {
             let trimmed = line.trim();
             !trimmed.is_empty() && !trimmed.starts_with('#')
@@ -43,14 +51,16 @@ pub fn import_from_file(
         })
         .collect();
 
-    add_entries(config, &entries, group)
+    let (imported, skipped) = add_entries(config, &entries, group)?;
+    Ok((imported, skipped, read_errors))
 }
 
 /// Import hosts from ~/.ssh/known_hosts.
+/// Returns (imported, skipped, read_errors).
 pub fn import_from_known_hosts(
     config: &mut SshConfigFile,
     group: Option<&str>,
-) -> Result<(usize, usize), String> {
+) -> Result<(usize, usize, usize), String> {
     let home = dirs::home_dir().ok_or("Could not determine home directory.")?;
     let known_hosts_path = home.join(".ssh").join("known_hosts");
 
@@ -62,9 +72,16 @@ pub fn import_from_known_hosts(
         .map_err(|e| format!("Can't open known_hosts: {}", e))?;
     let reader = std::io::BufReader::new(file);
 
+    let mut read_errors = 0;
     let entries: Vec<HostEntry> = reader
         .lines()
-        .map_while(Result::ok)
+        .filter_map(|r| match r {
+            Ok(line) => Some(line),
+            Err(_) => {
+                read_errors += 1;
+                None
+            }
+        })
         .filter(|line| {
             let trimmed = line.trim();
             !trimmed.is_empty() && !trimmed.starts_with('#')
@@ -72,7 +89,8 @@ pub fn import_from_known_hosts(
         .filter_map(|line| parse_known_hosts_line(&line))
         .collect();
 
-    add_entries(config, &entries, group)
+    let (imported, skipped) = add_entries(config, &entries, group)?;
+    Ok((imported, skipped, read_errors))
 }
 
 /// Parse a single known_hosts line into a HostEntry.

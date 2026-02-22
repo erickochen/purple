@@ -6,6 +6,8 @@ use std::path::PathBuf;
 pub struct SshConfigFile {
     pub elements: Vec<ConfigElement>,
     pub path: PathBuf,
+    /// Whether the original file used CRLF line endings.
+    pub crlf: bool,
 }
 
 /// An Include directive that references other config files.
@@ -194,6 +196,24 @@ impl SshConfigFile {
     /// Get all host entries as convenience views (including from Include files).
     pub fn host_entries(&self) -> Vec<HostEntry> {
         Self::collect_host_entries(&self.elements)
+    }
+
+    /// Collect all resolved Include file paths (recursively).
+    pub fn include_paths(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        Self::collect_include_paths(&self.elements, &mut paths);
+        paths
+    }
+
+    fn collect_include_paths(elements: &[ConfigElement], paths: &mut Vec<PathBuf>) {
+        for e in elements {
+            if let ConfigElement::Include(include) = e {
+                for file in &include.resolved_files {
+                    paths.push(file.path.clone());
+                    Self::collect_include_paths(&file.elements, paths);
+                }
+            }
+        }
     }
 
     /// Recursively collect host entries from a list of elements.

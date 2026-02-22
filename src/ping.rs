@@ -7,6 +7,14 @@ use crate::event::AppEvent;
 
 /// Ping a single host by attempting a TCP connection to port 22.
 /// Sends the result back via the channel.
+///
+/// DNS resolution runs in a nested thread with a 5s timeout via `recv_timeout`.
+/// If DNS hangs beyond 5s, the outer thread reports unreachable and exits,
+/// but the inner thread may linger until the OS DNS resolver times out
+/// (typically 30-60s). This is inherent to blocking `to_socket_addrs` with
+/// no cancellation support. Repeated pings to hosts with broken DNS can
+/// temporarily accumulate threads, but they will self-clean once the OS
+/// resolver gives up.
 pub fn ping_host(alias: String, hostname: String, port: u16, tx: mpsc::Sender<AppEvent>) {
     thread::spawn(move || {
         let addr_str = format!("{}:{}", hostname, port);

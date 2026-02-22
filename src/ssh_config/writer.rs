@@ -82,10 +82,11 @@ impl SshConfigFile {
             }
         }
 
-        let mut result = lines.join("\n");
+        let line_ending = if self.crlf { "\r\n" } else { "\n" };
+        let mut result = lines.join(line_ending);
         // Ensure file ends with a newline
         if !result.ends_with('\n') {
-            result.push('\n');
+            result.push_str(line_ending);
         }
         result
     }
@@ -143,6 +144,7 @@ mod tests {
         SshConfigFile {
             elements: SshConfigFile::parse_content(content),
             path: PathBuf::from("/tmp/test_config"),
+            crlf: content.contains("\r\n"),
         }
     }
 

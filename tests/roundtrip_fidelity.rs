@@ -15,6 +15,7 @@ fn parse_str(content: &str) -> SshConfigFile {
     SshConfigFile {
         elements: SshConfigFile::parse_content(content),
         path: PathBuf::from("/tmp/test_config"),
+        crlf: content.contains("\r\n"),
     }
 }
 
@@ -1159,14 +1160,12 @@ Host beta
     // Find the blank line position (should be AFTER tags, not before)
     let blank_after_hostname = lines.iter().position(|l| l.is_empty()).unwrap();
 
-    // If the bug is present, blank line comes BEFORE tags
-    if blank_after_hostname < tags_pos {
-        // BUG: tags are placed after the blank separator line
-        assert!(true, "BUG CONFIRMED: tags placed after blank separator line");
-    } else {
-        // Bug is fixed: tags are before the blank separator
-        assert!(true, "Bug is fixed: tags correctly placed before blank separator");
-    }
+    // Tags must appear before the blank separator line, not after
+    assert!(
+        tags_pos < blank_after_hostname,
+        "Tags should be placed before the blank separator line.\n{}",
+        visible(&output)
+    );
 }
 
 // ============================================================================
@@ -1414,14 +1413,15 @@ Host alpha
 fn windows_line_endings_crlf() {
     let input = "Host myserver\r\n  HostName 10.0.0.1\r\n  User admin\r\n";
     let config = parse_str(input);
+    assert!(config.crlf, "CRLF should be detected");
     let output = config.serialize();
     let entries = config.host_entries();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].alias, "myserver");
-    // Rust's .lines() strips \r\n correctly
+    // CRLF is preserved in serialized output
     assert!(
-        !output.contains('\r'),
-        "Serialized output should not contain \\r (CRLF is normalized to LF)"
+        output.contains("\r\n"),
+        "Serialized output should preserve CRLF line endings"
     );
 }
 
@@ -1621,6 +1621,7 @@ fn serialize_empty_elements_produces_just_newline() {
     let config = SshConfigFile {
         elements: Vec::new(),
         path: PathBuf::from("/tmp/test"),
+        crlf: false,
     };
     assert_eq!(config.serialize(), "\n");
 }
@@ -1938,9 +1939,11 @@ Host cache
 // ============================================================================
 
 #[test]
-fn crlf_normalized_to_lf() {
+fn crlf_preserved_in_round_trip() {
     let input = "Host myserver\r\n  HostName 10.0.0.1\r\n";
     let config = parse_str(input);
+    assert!(config.crlf, "CRLF should be detected");
+    // raw_line values are stored without \r (lines() strips it)
     if let ConfigElement::HostBlock(block) = &config.elements[0] {
         assert!(
             !block.raw_host_line.contains('\r'),
@@ -1950,8 +1953,12 @@ fn crlf_normalized_to_lf() {
             assert!(!d.raw_line.contains('\r'), "raw_line should not contain \\r");
         }
     }
+    // But serialize re-adds CRLF
     let output = config.serialize();
-    assert!(!output.contains('\r'), "Serialize should output LF only");
+    assert!(
+        output.contains("\r\n"),
+        "Serialize should preserve CRLF line endings"
+    );
 }
 
 // ============================================================================
@@ -2350,16 +2357,13 @@ Host beta
     let lines: Vec<&str> = output.lines().collect();
     let user_pos = lines.iter().position(|l| l.contains("User newuser"));
     let blank_pos = lines.iter().position(|l| l.is_empty());
+    // New directive must appear before the blank separator line
     if let (Some(up), Some(bp)) = (user_pos, blank_pos) {
-        if up > bp {
-            // BUG: new directive added AFTER blank separator
-            // This means the User line appears to be part of the next block visually
-            assert!(
-                true,
-                "BUG: new directive added after blank separator. Output:\n{}",
-                visible(&output)
-            );
-        }
+        assert!(
+            up < bp,
+            "New directive should be placed before the blank separator line.\n{}",
+            visible(&output)
+        );
     }
 }
 

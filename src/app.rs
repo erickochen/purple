@@ -291,6 +291,7 @@ pub struct App {
     // Auto-reload state
     pub config_path: PathBuf,
     pub last_modified: Option<SystemTime>,
+    include_mtimes: Vec<(PathBuf, Option<SystemTime>)>,
 }
 
 impl App {
@@ -308,6 +309,7 @@ impl App {
 
         let config_path = config.path.clone();
         let last_modified = Self::get_mtime(&config_path);
+        let include_mtimes = Self::snapshot_include_mtimes(&config);
 
         Self {
             screen: Screen::HostList,
@@ -336,6 +338,7 @@ impl App {
             has_pinged: false,
             config_path,
             last_modified,
+            include_mtimes,
         }
     }
 
@@ -785,14 +788,19 @@ impl App {
         std::fs::metadata(path).ok()?.modified().ok()
     }
 
-    /// Check if config has changed externally and reload if so.
+    /// Check if config or any Include file has changed externally and reload if so.
     pub fn check_config_changed(&mut self) {
         let current_mtime = Self::get_mtime(&self.config_path);
-        if current_mtime != self.last_modified {
+        let changed = current_mtime != self.last_modified
+            || self.include_mtimes.iter().any(|(path, old_mtime)| {
+                Self::get_mtime(path) != *old_mtime
+            });
+        if changed {
             if let Ok(new_config) = SshConfigFile::parse(&self.config_path) {
                 self.config = new_config;
                 self.reload_hosts();
                 self.last_modified = current_mtime;
+                self.include_mtimes = Self::snapshot_include_mtimes(&self.config);
                 let count = self.hosts.len();
                 self.set_status(format!("Config reloaded. {} hosts.", count), false);
             }
@@ -802,6 +810,19 @@ impl App {
     /// Update the last_modified timestamp (call after writing config).
     pub fn update_last_modified(&mut self) {
         self.last_modified = Self::get_mtime(&self.config_path);
+        self.include_mtimes = Self::snapshot_include_mtimes(&self.config);
+    }
+
+    /// Snapshot mtimes of all resolved Include files.
+    fn snapshot_include_mtimes(config: &SshConfigFile) -> Vec<(PathBuf, Option<SystemTime>)> {
+        config
+            .include_paths()
+            .into_iter()
+            .map(|p| {
+                let mtime = Self::get_mtime(&p);
+                (p, mtime)
+            })
+            .collect()
     }
 
     /// Scan SSH keys from ~/.ssh/ and cross-reference with hosts.
@@ -901,6 +922,7 @@ mod tests {
         let config = SshConfigFile {
             elements: SshConfigFile::parse_content(content),
             path: PathBuf::from("/tmp/test_config"),
+            crlf: false,
         };
         App::new(config)
     }

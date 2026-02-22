@@ -23,12 +23,14 @@ impl SshConfigFile {
             String::new()
         };
 
+        let crlf = content.contains("\r\n");
         let config_dir = path.parent().map(|p| p.to_path_buf());
         let elements = Self::parse_content_with_includes(&content, config_dir.as_deref(), depth);
 
         Ok(SshConfigFile {
             elements,
             path: path.to_path_buf(),
+            crlf,
         })
     }
 
@@ -124,9 +126,15 @@ impl SshConfigFile {
     }
 
     /// Parse an Include directive line. Returns the pattern if it matches.
+    /// Handles both space and tab between keyword and value (SSH allows either).
     fn parse_include_line(trimmed: &str) -> Option<&str> {
-        // Case-insensitive check: "Include" is 7 chars + space
-        if trimmed.len() > 8 && trimmed[..8].eq_ignore_ascii_case("include ") {
+        let bytes = trimmed.as_bytes();
+        // "include" is 7 ASCII bytes; byte 7 must be ASCII whitespace (space or tab)
+        if bytes.len() > 8
+            && bytes[..7].eq_ignore_ascii_case(b"include")
+            && bytes[7].is_ascii_whitespace()
+        {
+            // byte 8 is safe to slice at: bytes 0-7 are ASCII, so byte 8 is a char boundary
             let pattern = trimmed[8..].trim();
             if !pattern.is_empty() {
                 return Some(pattern);
@@ -187,13 +195,18 @@ impl SshConfigFile {
 
     /// Check if a line is a "Host <pattern>" line.
     /// Returns the pattern if it is.
+    /// Handles both space and tab between keyword and value (SSH allows either).
     fn parse_host_line(trimmed: &str) -> Option<String> {
-        let lower = trimmed.to_lowercase();
-        if lower.starts_with("host ") && !lower.starts_with("hostname") {
-            let pattern = trimmed[5..].trim().to_string();
-            if !pattern.is_empty() {
-                return Some(pattern);
-            }
+        // Split on first space or tab to isolate the keyword
+        let mut parts = trimmed.splitn(2, [' ', '\t']);
+        let keyword = parts.next()?;
+        if !keyword.eq_ignore_ascii_case("host") {
+            return None;
+        }
+        // "hostname" splits as keyword="hostname" which fails the check above
+        let pattern = parts.next()?.trim().to_string();
+        if !pattern.is_empty() {
+            return Some(pattern);
         }
         None
     }
@@ -229,6 +242,7 @@ mod tests {
         SshConfigFile {
             elements: SshConfigFile::parse_content(content),
             path: PathBuf::from("/tmp/test_config"),
+            crlf: content.contains("\r\n"),
         }
     }
 
@@ -378,5 +392,51 @@ Host myserver
             ..Default::default()
         };
         assert_eq!(entry.ssh_command(), "ssh myserver");
+    }
+
+    #[test]
+    fn test_unicode_comment_no_panic() {
+        // "# abcdeé" has byte 8 mid-character (é starts at byte 7, is 2 bytes)
+        // This must not panic in parse_include_line
+        let content = "# abcde\u{00e9} test\n\nHost myserver\n  HostName 10.0.0.1\n";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].alias, "myserver");
+    }
+
+    #[test]
+    fn test_unicode_multibyte_line_no_panic() {
+        // Three 3-byte CJK characters: byte 8 falls mid-character
+        let content = "# \u{3042}\u{3042}\u{3042}xyz\n\nHost myserver\n  HostName 10.0.0.1\n";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn test_host_with_tab_separator() {
+        let content = "Host\tmyserver\n  HostName 10.0.0.1\n";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].alias, "myserver");
+    }
+
+    #[test]
+    fn test_include_with_tab_separator() {
+        let content = "Include\tconfig.d/*\n\nHost myserver\n  HostName 10.0.0.1\n";
+        let config = parse_str(content);
+        assert!(matches!(&config.elements[0], ConfigElement::Include(inc) if inc.pattern == "config.d/*"));
+    }
+
+    #[test]
+    fn test_hostname_not_confused_with_host() {
+        // "HostName" should not be parsed as a Host line
+        let content = "Host myserver\n  HostName example.com\n";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].hostname, "example.com");
     }
 }

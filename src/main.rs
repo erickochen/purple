@@ -329,7 +329,7 @@ fn handle_import(
     };
 
     match result {
-        Ok((imported, skipped)) => {
+        Ok((imported, skipped, read_errors)) => {
             if imported > 0 {
                 config.write()?;
             }
@@ -340,6 +340,13 @@ fn handle_import(
                 skipped,
                 if skipped == 1 { "" } else { "s" },
             );
+            if read_errors > 0 {
+                eprintln!(
+                    "! {} line{} could not be read (encoding error).",
+                    read_errors,
+                    if read_errors == 1 { "" } else { "s" },
+                );
+            }
             Ok(())
         }
         Err(e) => {
