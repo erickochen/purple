@@ -36,7 +36,10 @@ impl Tui {
         });
 
         enable_raw_mode()?;
-        io::stdout().execute(EnterAlternateScreen)?;
+        if let Err(e) = io::stdout().execute(EnterAlternateScreen) {
+            disable_raw_mode()?;
+            return Err(e.into());
+        }
 
         self.terminal.hide_cursor()?;
         self.terminal.clear()?;

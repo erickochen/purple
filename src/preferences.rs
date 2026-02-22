@@ -90,6 +90,10 @@ pub fn save_sort_mode(mode: SortMode) -> io::Result<()> {
     #[cfg(not(unix))]
     std::fs::write(&tmp_path, &content)?;
 
-    std::fs::rename(&tmp_path, &path)?;
+    let result = std::fs::rename(&tmp_path, &path);
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    result?;
     Ok(())
 }

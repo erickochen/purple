@@ -114,9 +114,11 @@ impl ConnectionHistory {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let content: String = self
-            .entries
-            .values()
+        // Sort by alias for deterministic output
+        let mut sorted: Vec<_> = self.entries.values().collect();
+        sorted.sort_by(|a, b| a.alias.cmp(&b.alias));
+        let content: String = sorted
+            .iter()
             .map(|e| format!("{}\t{}\t{}", e.alias, e.last_connected, e.count))
             .collect::<Vec<_>>()
             .join("\n");
@@ -139,7 +141,11 @@ impl ConnectionHistory {
         #[cfg(not(unix))]
         fs::write(&tmp_path, &content)?;
 
-        fs::rename(&tmp_path, &self.path)
+        let result = fs::rename(&tmp_path, &self.path);
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp_path);
+        }
+        result
     }
 
     fn history_path() -> PathBuf {

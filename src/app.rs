@@ -524,9 +524,7 @@ impl App {
                     indices.sort_by(|a, b| {
                         let score_a = self.history.frecency_score(&self.hosts[*a].alias);
                         let score_b = self.history.frecency_score(&self.hosts[*b].alias);
-                        score_b
-                            .partial_cmp(&score_a)
-                            .unwrap_or(std::cmp::Ordering::Equal)
+                        score_b.total_cmp(&score_a)
                     });
                 }
                 SortMode::MostRecent => {
@@ -628,6 +626,9 @@ impl App {
     /// Reload hosts from config.
     pub fn reload_hosts(&mut self) {
         let had_search = self.search_query.clone();
+
+        // Invalidate undo state — config structure may have changed
+        self.deleted_host = None;
 
         self.hosts = self.config.host_entries();
         if self.sort_mode == SortMode::Original {

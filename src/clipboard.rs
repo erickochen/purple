@@ -57,6 +57,9 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
             .map_err(|_| format!("Failed to write to {}.", cmd))
     })();
 
+    // Drop stdin so the child process gets EOF before we wait
+    child.stdin.take();
+
     // Always reap the child process to prevent zombies
     let _ = child.wait();
 

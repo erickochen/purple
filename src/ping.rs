@@ -10,16 +10,29 @@ use crate::event::AppEvent;
 pub fn ping_host(alias: String, hostname: String, port: u16, tx: mpsc::Sender<AppEvent>) {
     thread::spawn(move || {
         let addr_str = format!("{}:{}", hostname, port);
-        let reachable = match addr_str.to_socket_addrs() {
-            Ok(mut addrs) => {
-                if let Some(addr) = addrs.next() {
-                    TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
-                } else {
-                    false
+
+        // Run DNS + TCP connect in a child thread with an overall 5s timeout
+        // (to_socket_addrs has no built-in timeout and can hang on bad DNS)
+        let (done_tx, done_rx) = mpsc::channel();
+        let addr_str_clone = addr_str.clone();
+        thread::spawn(move || {
+            let result = match addr_str_clone.to_socket_addrs() {
+                Ok(mut addrs) => {
+                    if let Some(addr) = addrs.next() {
+                        TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
+                    } else {
+                        false
+                    }
                 }
-            }
-            Err(_) => false,
-        };
+                Err(_) => false,
+            };
+            let _ = done_tx.send(result);
+        });
+
+        let reachable = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or(false);
+
         let _ = tx.send(AppEvent::PingResult { alias, reachable });
     });
 }
