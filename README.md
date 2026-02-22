@@ -42,7 +42,7 @@
 
 &nbsp;&nbsp;&nbsp;&nbsp;**Sort your way.** &nbsp; Config order, alphabetical, most used or most recent. purple remembers your preference.
 
-&nbsp;&nbsp;&nbsp;&nbsp;**SSH key browser.** &nbsp; Fingerprints, linked hosts, key types. Pick a key from the form with Ctrl+K.
+&nbsp;&nbsp;&nbsp;&nbsp;**SSH key browser.** &nbsp; Fingerprints, linked hosts, key types. Press `K` in the form to pick a key.
 
 &nbsp;&nbsp;&nbsp;&nbsp;**Quick-add and import.** &nbsp; `purple add user@host:port` from the CLI. Bulk import from a file or known_hosts.
 
@@ -144,7 +144,7 @@ purple --completions zsh            # Shell completions
 | Key | Action |
 |-----|--------|
 | `Tab` / `Shift+Tab` | Next / previous field |
-| `Ctrl+K` | Pick SSH key |
+| `K` | Pick SSH key |
 | `Enter` | Save |
 | `Esc` | Cancel |
 

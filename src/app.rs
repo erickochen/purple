@@ -56,7 +56,7 @@ impl FormField {
     pub fn label(self) -> &'static str {
         match self {
             FormField::Alias => "Alias",
-            FormField::Hostname => "Hostname",
+            FormField::Hostname => "Host / IP",
             FormField::User => "User",
             FormField::Port => "Port",
             FormField::IdentityFile => "Identity File",
@@ -710,7 +710,21 @@ impl App {
 
         if query.is_empty() {
             self.filtered_indices = (0..self.hosts.len()).collect();
+        } else if let Some(tag_exact) = query.strip_prefix("tag=") {
+            // Exact tag match (from tag picker)
+            self.filtered_indices = self
+                .hosts
+                .iter()
+                .enumerate()
+                .filter(|(_, host)| {
+                    host.tags
+                        .iter()
+                        .any(|t| t.to_lowercase() == tag_exact)
+                })
+                .map(|(i, _)| i)
+                .collect();
         } else if let Some(tag_query) = query.strip_prefix("tag:") {
+            // Fuzzy tag match (manual search)
             self.filtered_indices = self
                 .hosts
                 .iter()

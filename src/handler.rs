@@ -311,11 +311,8 @@ fn handle_form(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Ctrl+K opens key picker when on IdentityFile field
-    if key.modifiers.contains(KeyModifiers::CONTROL)
-        && key.code == KeyCode::Char('k')
-        && app.form.focused_field == FormField::IdentityFile
-    {
+    // K opens key picker from any field
+    if key.code == KeyCode::Char('K') {
         app.scan_keys();
         app.show_key_picker = true;
         app.key_picker_state = ratatui::widgets::ListState::default();
@@ -642,7 +639,7 @@ fn handle_tag_picker_screen(app: &mut App, key: KeyEvent) {
                     let tag = tag.clone();
                     app.screen = Screen::HostList;
                     app.start_search();
-                    app.search_query = Some(format!("tag:{}", tag));
+                    app.search_query = Some(format!("tag={}", tag));
                     app.apply_filter();
                 }
             }

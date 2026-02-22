@@ -42,7 +42,7 @@ pub fn render(frame: &mut Frame) {
         Line::from(""),
         Line::from(Span::styled("  Form", theme::section_header())),
         help_line("  Tab/S-Tab ", "Next / previous field"),
-        help_line("  Ctrl+K    ", "Pick SSH key"),
+        help_line("  K         ", "Pick SSH key"),
         help_line("  Enter     ", "Save"),
         help_line("  Esc       ", "Cancel"),
     ];

@@ -71,7 +71,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Span::styled(" save  ", theme::muted()),
             Span::styled("Tab/S-Tab", theme::accent_bold()),
             Span::styled(" navigate  ", theme::muted()),
-            Span::styled("Ctrl+K", theme::accent_bold()),
+            Span::styled("K", theme::accent_bold()),
             Span::styled(" pick key  ", theme::muted()),
             Span::styled("Esc", theme::accent_bold()),
             Span::styled(" cancel", theme::muted()),
@@ -104,7 +104,7 @@ fn render_key_picker(frame: &mut Frame, app: &mut App) {
     }
 
     let height = (app.keys.len() as u16 + 4).min(16);
-    let area = super::centered_rect_fixed(50, height, frame.area());
+    let area = super::centered_rect_fixed(68, height, frame.area());
     frame.render_widget(Clear, area);
 
     let items: Vec<ListItem> = app
@@ -112,9 +112,15 @@ fn render_key_picker(frame: &mut Frame, app: &mut App) {
         .iter()
         .map(|key| {
             let type_display = key.type_display();
+            let comment = if key.comment.is_empty() {
+                String::new()
+            } else {
+                truncate_comment(&key.comment, 22)
+            };
             let line = Line::from(vec![
                 Span::styled(format!(" {:<18}", key.name), theme::bold()),
-                Span::styled(type_display, theme::muted()),
+                Span::styled(format!("{:<12}", type_display), theme::muted()),
+                Span::styled(comment, theme::muted()),
             ]);
             ListItem::new(line)
         })
@@ -184,5 +190,14 @@ fn render_field(frame: &mut Frame, area: Rect, field: FormField, form: &crate::a
         if cursor_x < area.x + area.width - 1 {
             frame.set_cursor_position((cursor_x, cursor_y));
         }
+    }
+}
+
+/// Truncate a comment string to `max_len` characters.
+fn truncate_comment(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
     }
 }

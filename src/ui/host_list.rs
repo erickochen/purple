@@ -93,21 +93,41 @@ fn render_display_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::
         return;
     }
 
+    // Column widths for alignment
+    let alias_col = app
+        .hosts
+        .iter()
+        .map(|h| h.alias.len())
+        .max()
+        .unwrap_or(8)
+        .clamp(8, 20);
+    let content_width = (area.width as usize).saturating_sub(4);
+
     let items: Vec<ListItem> = app
         .display_list
         .iter()
         .map(|item| match item {
             HostListItem::GroupHeader(text) => {
+                let upper = text.to_uppercase();
+                let label_width = upper.len() + 4; // "── " + text + " "
+                let fill = content_width.saturating_sub(label_width);
                 let line = Line::from(vec![
-                    Span::styled("──", theme::muted()),
-                    Span::styled(format!(" {} ", text), theme::section_header()),
-                    Span::styled("─".repeat(50), theme::muted()),
+                    Span::styled("── ", theme::muted()),
+                    Span::styled(upper, theme::section_header()),
+                    Span::styled(format!(" {}", "─".repeat(fill)), theme::muted()),
                 ]);
                 ListItem::new(line)
             }
             HostListItem::Host { index } => {
                 let host = &app.hosts[*index];
-                build_host_item(host, &app.ping_status, &app.history, None)
+                build_host_item(
+                    host,
+                    &app.ping_status,
+                    &app.history,
+                    None,
+                    alias_col,
+                    content_width,
+                )
             }
         })
         .collect();
@@ -148,13 +168,29 @@ fn render_search_list(frame: &mut Frame, app: &mut App, area: ratatui::layout::R
         return;
     }
 
+    let alias_col = app
+        .hosts
+        .iter()
+        .map(|h| h.alias.len())
+        .max()
+        .unwrap_or(8)
+        .clamp(8, 20);
+    let content_width = (area.width as usize).saturating_sub(4);
+
     let query = app.search_query.as_deref();
     let items: Vec<ListItem> = app
         .filtered_indices
         .iter()
         .map(|&idx| {
             let host = &app.hosts[idx];
-            build_host_item(host, &app.ping_status, &app.history, query)
+            build_host_item(
+                host,
+                &app.ping_status,
+                &app.history,
+                query,
+                alias_col,
+                content_width,
+            )
         })
         .collect();
 
@@ -176,13 +212,14 @@ fn build_host_item<'a>(
     ping_status: &'a std::collections::HashMap<String, PingStatus>,
     history: &'a crate::history::ConnectionHistory,
     query: Option<&str>,
+    alias_col: usize,
+    content_width: usize,
 ) -> ListItem<'a> {
     let q = query.unwrap_or("");
     let q_lower = q.to_lowercase();
 
     // Determine which field matches for search highlighting
-    let alias_matches =
-        !q_lower.is_empty() && host.alias.to_lowercase().contains(&q_lower);
+    let alias_matches = !q_lower.is_empty() && host.alias.to_lowercase().contains(&q_lower);
     let host_matches =
         !alias_matches && !q_lower.is_empty() && host.hostname.to_lowercase().contains(&q_lower);
     let user_matches = !alias_matches
@@ -190,76 +227,80 @@ fn build_host_item<'a>(
         && !q_lower.is_empty()
         && host.user.to_lowercase().contains(&q_lower);
 
-    // Three-tier typography: Bold alias > Regular hostname > DIM metadata
+    // === LEFT: alias (fixed column) + user@hostname:port ===
     let alias_style = if alias_matches {
         theme::highlight_bold()
     } else {
         theme::bold()
     };
+    let alias_display = format!(" {:<width$} ", host.alias, width = alias_col);
+    let mut left_len = alias_col + 2; // leading space + alias + trailing space
+    let mut left_spans = vec![Span::styled(alias_display, alias_style)];
 
-    let mut spans = vec![Span::styled(format!(" {} ", host.alias), alias_style)];
-
-    // Arrow separator
-    spans.push(Span::styled(" -> ", theme::muted()));
-
-    // User@ (DIM, or accent if it's the matching field)
     if !host.user.is_empty() {
         let user_style = if user_matches {
             theme::highlight_bold()
         } else {
             theme::muted()
         };
-        spans.push(Span::styled(format!("{}@", host.user), user_style));
+        let s = format!("{}@", host.user);
+        left_len += s.len();
+        left_spans.push(Span::styled(s, user_style));
     }
 
-    // Hostname (regular weight - middle tier, or accent if matching)
     let hostname_style = if host_matches {
         theme::highlight_bold()
     } else {
         Style::default()
     };
-    spans.push(Span::styled(host.hostname.as_str(), hostname_style));
+    left_len += host.hostname.len();
+    left_spans.push(Span::styled(host.hostname.as_str(), hostname_style));
 
-    // Port (DIM)
     if host.port != 22 {
-        spans.push(Span::styled(format!(":{}", host.port), theme::muted()));
+        let s = format!(":{}", host.port);
+        left_len += s.len();
+        left_spans.push(Span::styled(s, theme::muted()));
     }
 
-    // Show key name if IdentityFile is set
+    // === RIGHT: key, tags, source, ping, history ===
+    let mut right_spans: Vec<Span> = Vec::new();
+    let mut right_len: usize = 0;
+
     if !host.identity_file.is_empty() {
         let key_name = std::path::Path::new(&host.identity_file)
             .file_name()
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_else(|| host.identity_file.clone());
-        spans.push(Span::styled(format!(" [{}]", key_name), theme::muted()));
+        let s = format!(" [{}]", key_name);
+        right_len += s.len();
+        right_spans.push(Span::styled(s, theme::muted()));
     }
 
-    // Show tags with # prefix (highlight matching tags during search)
-    let tag_matches = !q_lower.is_empty()
-        && !alias_matches
-        && !host_matches
-        && !user_matches;
+    let tag_matches =
+        !q_lower.is_empty() && !alias_matches && !host_matches && !user_matches;
     for tag in &host.tags {
         let style = if tag_matches && tag.to_lowercase().contains(&q_lower) {
             theme::highlight_bold()
         } else {
             theme::accent()
         };
-        spans.push(Span::styled(format!(" #{}", tag), style));
+        let s = format!(" #{}", tag);
+        right_len += s.len();
+        right_spans.push(Span::styled(s, style));
     }
 
-    // Show source file for included hosts
     if let Some(ref source) = host.source_file {
         let file_name = source
             .file_name()
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_default();
         if !file_name.is_empty() {
-            spans.push(Span::styled(format!(" ({})", file_name), theme::muted()));
+            let s = format!(" ({})", file_name);
+            right_len += s.len();
+            right_spans.push(Span::styled(s, theme::muted()));
         }
     }
 
-    // Ping indicator
     if let Some(status) = ping_status.get(&host.alias) {
         let (indicator, style) = match status {
             PingStatus::Checking => (" [..]", theme::muted()),
@@ -267,19 +308,28 @@ fn build_host_item<'a>(
             PingStatus::Unreachable => (" [--]", theme::error()),
             PingStatus::Skipped => (" [??]", theme::muted()),
         };
-        spans.push(Span::styled(indicator, style));
+        right_len += indicator.len();
+        right_spans.push(Span::styled(indicator, style));
     }
 
-    // Last connected time
     if let Some(entry) = history.entries.get(&host.alias) {
         let ago = crate::history::ConnectionHistory::format_time_ago(entry.last_connected);
         if !ago.is_empty() {
-            spans.push(Span::styled(format!(" ({})", ago), theme::muted()));
+            let s = format!(" {}", ago);
+            right_len += s.len();
+            right_spans.push(Span::styled(s, theme::muted()));
         }
     }
 
-    let line = Line::from(spans);
-    ListItem::new(line)
+    // === COMBINE: left + padding + right ===
+    let padding = content_width.saturating_sub(left_len + right_len);
+    let mut spans = left_spans;
+    if padding > 0 {
+        spans.push(Span::raw(" ".repeat(padding)));
+    }
+    spans.extend(right_spans);
+
+    ListItem::new(Line::from(spans))
 }
 
 fn render_search_bar(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
