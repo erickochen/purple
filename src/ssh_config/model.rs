@@ -382,9 +382,11 @@ impl SshConfigFile {
         let indent = block.detect_indent();
         for d in &mut block.directives {
             if !d.is_non_directive && d.key.to_lowercase() == key.to_lowercase() {
-                d.value = value.to_string();
-                // Preserve original key casing for round-trip fidelity
-                d.raw_line = format!("{}{} {}", indent, d.key, value);
+                // Only rebuild raw_line when value actually changed (preserves inline comments)
+                if d.value != value {
+                    d.value = value.to_string();
+                    d.raw_line = format!("{}{} {}", indent, d.key, value);
+                }
                 return;
             }
         }

@@ -100,15 +100,11 @@ fn parse_known_hosts_line(line: &str) -> Option<HostEntry> {
         return None;
     }
 
-    // Skip marker lines (@cert-authority, @revoked) — host field is parts[1]
-    let host_part = if parts[0].starts_with('@') {
-        if parts.len() < 3 {
-            return None;
-        }
-        parts[1]
-    } else {
-        parts[0]
-    };
+    // Skip marker lines (@cert-authority, @revoked)
+    if parts[0].starts_with('@') {
+        return None;
+    }
+    let host_part = parts[0];
 
     // Skip hashed entries (start with |)
     if host_part.starts_with('|') {
@@ -143,8 +139,11 @@ fn parse_known_hosts_line(line: &str) -> Option<HostEntry> {
         .unwrap_or(&hostname)
         .to_string();
 
-    // Skip numeric-only aliases (bare IPs)
+    // Skip numeric-only aliases (bare IPs) and wildcard patterns
     if alias.chars().all(|c| c.is_ascii_digit() || c == ':') {
+        return None;
+    }
+    if alias.contains('*') || alias.contains('?') {
         return None;
     }
 
