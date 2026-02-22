@@ -472,8 +472,9 @@ fn submit_form(app: &mut App) {
             app.config.update_host(&old_alias, &entry);
             app.config.set_host_tags(&entry.alias, &entry.tags);
             if let Err(e) = app.config.write() {
-                // Rollback: restore old entry
+                // Rollback: restore old entry and tags
                 app.config.update_host(&entry.alias, &old_entry);
+                app.config.set_host_tags(&old_entry.alias, &old_entry.tags);
                 app.set_status(format!("Failed to save: {}", e), true);
                 return;
             }

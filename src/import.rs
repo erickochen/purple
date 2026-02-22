@@ -169,13 +169,17 @@ fn add_entries(
 ) -> Result<(usize, usize), String> {
     let mut imported = 0;
     let mut skipped = 0;
+    let mut first_in_group = group.is_some();
 
     // Add group comment header if specified
     if let Some(group_name) = group {
         if !entries.is_empty() {
-            config.elements.push(
-                crate::ssh_config::model::ConfigElement::GlobalLine(String::new()),
-            );
+            // Blank separator before group comment (only if config isn't empty/already blank)
+            if !config.elements.is_empty() && !config.last_element_has_trailing_blank() {
+                config.elements.push(
+                    crate::ssh_config::model::ConfigElement::GlobalLine(String::new()),
+                );
+            }
             config.elements.push(
                 crate::ssh_config::model::ConfigElement::GlobalLine(format!("# {}", group_name)),
             );
@@ -190,7 +194,16 @@ fn add_entries(
         }
         let mut deduped = entry.clone();
         deduped.alias = alias;
-        config.add_host(&deduped);
+        if first_in_group {
+            // Push first host directly after group comment (no blank separator between them)
+            let block = SshConfigFile::entry_to_block(&deduped);
+            config.elements.push(
+                crate::ssh_config::model::ConfigElement::HostBlock(block),
+            );
+            first_in_group = false;
+        } else {
+            config.add_host(&deduped);
+        }
         imported += 1;
     }
 

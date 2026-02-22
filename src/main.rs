@@ -294,8 +294,8 @@ fn handle_quick_add(
         eprintln!("Alias can't be empty. Use --alias to specify one.");
         std::process::exit(1);
     }
-    if alias_str.contains(' ') {
-        eprintln!("Alias can't contain spaces. Use --alias to pick a simpler name.");
+    if alias_str.contains(char::is_whitespace) {
+        eprintln!("Alias can't contain whitespace. Use --alias to pick a simpler name.");
         std::process::exit(1);
     }
     if alias_str.contains('*') || alias_str.contains('?') {

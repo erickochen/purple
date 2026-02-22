@@ -265,10 +265,11 @@ impl SshConfigFile {
         for e in elements {
             match e {
                 ConfigElement::HostBlock(block) => {
-                    // Skip wildcard/multi patterns (*, ?, space-separated)
+                    // Skip wildcard/multi patterns (*, ?, whitespace-separated)
                     if block.host_pattern.contains('*')
                         || block.host_pattern.contains('?')
                         || block.host_pattern.contains(' ')
+                        || block.host_pattern.contains('\t')
                     {
                         continue;
                     }
@@ -330,7 +331,7 @@ impl SshConfigFile {
     }
 
     /// Check if the last element already ends with a blank line.
-    fn last_element_has_trailing_blank(&self) -> bool {
+    pub fn last_element_has_trailing_blank(&self) -> bool {
         match self.elements.last() {
             Some(ConfigElement::HostBlock(block)) => block
                 .directives
@@ -486,7 +487,7 @@ impl SshConfigFile {
     }
 
     /// Convert a HostEntry into a new HostBlock with clean formatting.
-    fn entry_to_block(entry: &HostEntry) -> HostBlock {
+    pub(crate) fn entry_to_block(entry: &HostEntry) -> HostBlock {
         let mut directives = Vec::new();
 
         if !entry.hostname.is_empty() {

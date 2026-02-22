@@ -126,8 +126,8 @@ impl HostForm {
         if self.alias.trim().is_empty() {
             return Err("Alias can't be empty. Every host needs a name!".to_string());
         }
-        if self.alias.contains(' ') {
-            return Err("Alias can't contain spaces. Keep it simple.".to_string());
+        if self.alias.contains(char::is_whitespace) {
+            return Err("Alias can't contain whitespace. Keep it simple.".to_string());
         }
         if self.alias.contains('*') || self.alias.contains('?') {
             return Err(
@@ -388,6 +388,7 @@ impl App {
                     if block.host_pattern.contains('*')
                         || block.host_pattern.contains('?')
                         || block.host_pattern.contains(' ')
+                        || block.host_pattern.contains('\t')
                     {
                         pending_comment = None;
                         continue;
@@ -463,6 +464,7 @@ impl App {
                     if !b.host_pattern.contains('*')
                     && !b.host_pattern.contains('?')
                     && !b.host_pattern.contains(' ')
+                    && !b.host_pattern.contains('\t')
                 )
             });
             if has_hosts {
@@ -487,6 +489,7 @@ impl App {
                     if block.host_pattern.contains('*')
                         || block.host_pattern.contains('?')
                         || block.host_pattern.contains(' ')
+                        || block.host_pattern.contains('\t')
                     {
                         pending_comment = None;
                         continue;
@@ -499,6 +502,9 @@ impl App {
                         display_list.push(HostListItem::Host { index: *host_index });
                         *host_index += 1;
                     }
+
+                    // Extract trailing comments from this block for the next host
+                    pending_comment = Self::extract_trailing_comment(&block.directives);
                 }
                 ConfigElement::Include(include) => {
                     pending_comment = None;
