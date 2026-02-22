@@ -46,7 +46,11 @@ impl SshConfigFile {
         fs::write(&tmp_path, &content)
             .with_context(|| format!("Failed to write temp file {}", tmp_path.display()))?;
 
-        fs::rename(&tmp_path, &self.path).with_context(|| {
+        let result = fs::rename(&tmp_path, &self.path);
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp_path);
+        }
+        result.with_context(|| {
             format!(
                 "Failed to rename {} to {}",
                 tmp_path.display(),

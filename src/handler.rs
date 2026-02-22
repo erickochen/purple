@@ -70,7 +70,7 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
             app.screen = Screen::AddHost;
         }
         KeyCode::Char('e') => {
-            if let (Some(index), Some(host)) = (app.selected_host_index(), app.selected_host()) {
+            if let Some(host) = app.selected_host() {
                 if let Some(ref source) = host.source_file {
                     let alias = host.alias.clone();
                     let path = source.display();
@@ -80,8 +80,9 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
                     );
                     return;
                 }
+                let alias = host.alias.clone();
                 app.form = HostForm::from_entry(host);
-                app.screen = Screen::EditHost { index };
+                app.screen = Screen::EditHost { alias };
             }
         }
         KeyCode::Char('d') => {
@@ -282,11 +283,21 @@ fn handle_host_list_search(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sende
             // Ctrl+P also for ping in search mode
             if let Some(host) = app.selected_host() {
                 let alias = host.alias.clone();
-                let hostname = host.hostname.clone();
-                let port = host.port;
-                app.ping_status
-                    .insert(alias.clone(), crate::app::PingStatus::Checking);
-                ping::ping_host(alias, hostname, port, events_tx.clone());
+                if !host.proxy_jump.is_empty() {
+                    app.ping_status
+                        .insert(alias.clone(), crate::app::PingStatus::Skipped);
+                    app.set_status(
+                        format!("{} uses ProxyJump. Can't ping directly.", alias),
+                        true,
+                    );
+                } else {
+                    let hostname = host.hostname.clone();
+                    let port = host.port;
+                    app.ping_status
+                        .insert(alias.clone(), crate::app::PingStatus::Checking);
+                    app.set_status(format!("Pinging {}...", alias), false);
+                    ping::ping_host(alias, hostname, port, events_tx.clone());
+                }
             }
         }
         KeyCode::Char(c) => {
@@ -430,13 +441,13 @@ fn submit_form(app: &mut App) {
             }
             app.set_status(format!("Welcome aboard, {}!", alias), false);
         }
-        Screen::EditHost { index } => {
-            let Some(old_host) = app.hosts.get(*index) else {
+        Screen::EditHost { alias: old_alias } => {
+            let old_alias = old_alias.clone();
+            if !app.config.has_host(&old_alias) {
                 app.set_status("Host no longer exists.", true);
                 app.screen = Screen::HostList;
                 return;
-            };
-            let old_alias = old_host.alias.clone();
+            }
             // Check for duplicate if alias changed
             if alias != old_alias && app.config.has_host(&alias) {
                 app.set_status(

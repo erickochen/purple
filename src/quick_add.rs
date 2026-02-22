@@ -36,8 +36,10 @@ pub fn parse_target(target: &str) -> Result<ParsedTarget, String> {
                 } else {
                     return Err("Invalid port after bracketed host.".to_string());
                 }
-            } else {
+            } else if after.is_empty() {
                 (host.to_string(), 22)
+            } else {
+                return Err("Unexpected text after closing bracket.".to_string());
             }
         } else {
             return Err("Missing closing bracket for IPv6 address.".to_string());

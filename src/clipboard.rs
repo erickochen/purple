@@ -60,10 +60,16 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
     // Drop stdin so the child process gets EOF before we wait
     child.stdin.take();
 
-    // Always reap the child process to prevent zombies
-    let _ = child.wait();
+    // Reap the child process and check exit status
+    let status = child
+        .wait()
+        .map_err(|_| format!("Failed to wait for {}.", cmd))?;
 
     write_result?;
+
+    if !status.success() {
+        return Err(format!("{} exited with error.", cmd));
+    }
 
     Ok(())
 }

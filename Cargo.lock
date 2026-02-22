@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "purple-ssh"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "anyhow",
  "clap",

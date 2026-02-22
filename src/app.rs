@@ -13,7 +13,7 @@ use crate::ssh_keys::{self, SshKeyInfo};
 pub enum Screen {
     HostList,
     AddHost,
-    EditHost { index: usize },
+    EditHost { alias: String },
     ConfirmDelete { alias: String },
     Help,
     KeyList,
