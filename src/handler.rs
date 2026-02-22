@@ -182,6 +182,12 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
                 .hosts
                 .iter()
                 .filter(|h| !h.hostname.is_empty() && h.proxy_jump.is_empty())
+                .filter(|h| {
+                    !matches!(
+                        app.ping_status.get(&h.alias),
+                        Some(crate::app::PingStatus::Checking)
+                    )
+                })
                 .map(|h| (h.alias.clone(), h.hostname.clone(), h.port))
                 .collect();
             // Mark ProxyJump hosts as skipped (can't ping directly)

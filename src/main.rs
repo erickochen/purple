@@ -127,9 +127,12 @@ fn main() -> Result<()> {
 
     // Direct connect mode (--connect)
     if let Some(alias) = cli.connect {
-        history::ConnectionHistory::load().record(&alias);
         let status = connection::connect(&alias)?;
-        std::process::exit(status.code().unwrap_or(1));
+        let code = status.code().unwrap_or(1);
+        if code != 255 {
+            history::ConnectionHistory::load().record(&alias);
+        }
+        std::process::exit(code);
     }
 
     // List mode
@@ -160,10 +163,13 @@ fn main() -> Result<()> {
         let entries = config.host_entries();
         if let Some(host) = entries.iter().find(|h| h.alias == *alias) {
             let alias = host.alias.clone();
-            history::ConnectionHistory::load().record(&alias);
             println!("Beaming you up to {}...\n", alias);
             let status = connection::connect(&alias)?;
-            std::process::exit(status.code().unwrap_or(1));
+            let code = status.code().unwrap_or(1);
+            if code != 255 {
+                history::ConnectionHistory::load().record(&alias);
+            }
+            std::process::exit(code);
         }
         // No exact match — open TUI with search pre-filled
         let mut app = App::new(config);
@@ -238,7 +244,6 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
 
         // Handle pending SSH connection
         if let Some(alias) = app.pending_connect.take() {
-            app.history.record(&alias);
             events.pause();
             terminal.exit()?;
             println!("Beaming you up to {}...\n", alias);
@@ -246,13 +251,15 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
             println!();
             match &status {
                 Ok(exit) => {
-                    if let Some(code) = exit.code() {
-                        if code != 0 {
-                            app.set_status(
-                                format!("SSH to {} exited with code {}.", alias, code),
-                                true,
-                            );
-                        }
+                    let code = exit.code().unwrap_or(1);
+                    if code != 255 {
+                        app.history.record(&alias);
+                    }
+                    if code != 0 {
+                        app.set_status(
+                            format!("SSH to {} exited with code {}.", alias, code),
+                            true,
+                        );
                     }
                 }
                 Err(e) => {
@@ -345,7 +352,7 @@ fn handle_import(
     };
 
     match result {
-        Ok((imported, skipped, read_errors)) => {
+        Ok((imported, skipped, parse_failures, read_errors)) => {
             if imported > 0 {
                 config.write()?;
             }
@@ -356,6 +363,13 @@ fn handle_import(
                 skipped,
                 if skipped == 1 { "" } else { "s" },
             );
+            if parse_failures > 0 {
+                eprintln!(
+                    "! {} line{} could not be parsed (invalid format).",
+                    parse_failures,
+                    if parse_failures == 1 { "" } else { "s" },
+                );
+            }
             if read_errors > 0 {
                 eprintln!(
                     "! {} line{} could not be read (encoding error).",

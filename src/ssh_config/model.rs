@@ -77,9 +77,11 @@ pub struct HostEntry {
 }
 
 impl HostEntry {
-    /// Build the SSH command string for this host (e.g. "ssh myserver").
+    /// Build the SSH command string for this host (e.g. "ssh -- 'myserver'").
+    /// Shell-quotes the alias to prevent injection when pasted into a terminal.
     pub fn ssh_command(&self) -> String {
-        format!("ssh {}", self.alias)
+        let escaped = self.alias.replace('\'', "'\\''");
+        format!("ssh -- '{}'", escaped)
     }
 }
 
@@ -182,7 +184,11 @@ impl HostBlock {
                 "hostname" => entry.hostname = d.value.clone(),
                 "user" => entry.user = d.value.clone(),
                 "port" => entry.port = d.value.parse().unwrap_or(22),
-                "identityfile" => entry.identity_file = d.value.clone(),
+                "identityfile" => {
+                    if entry.identity_file.is_empty() {
+                        entry.identity_file = d.value.clone();
+                    }
+                }
                 "proxyjump" => entry.proxy_jump = d.value.clone(),
                 _ => {}
             }
@@ -302,7 +308,7 @@ impl SshConfigFile {
         for e in elements {
             match e {
                 ConfigElement::HostBlock(block) => {
-                    if block.host_pattern == alias {
+                    if block.host_pattern.split_whitespace().any(|p| p == alias) {
                         return true;
                     }
                 }

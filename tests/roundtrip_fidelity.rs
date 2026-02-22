@@ -2227,6 +2227,43 @@ fn has_host_matches_wildcards() {
     assert!(config.has_host("*"));
 }
 
+#[test]
+fn has_host_detects_multi_pattern() {
+    let config = parse_str("Host prod staging\n  HostName 10.0.0.1\n");
+    assert!(config.has_host("prod"));
+    assert!(config.has_host("staging"));
+    assert!(!config.has_host("dev"));
+    // Exact full pattern still works
+    assert!(!config.has_host("prod staging"));
+}
+
+#[test]
+fn ssh_command_quotes_alias() {
+    let entry = HostEntry {
+        alias: "myserver".to_string(),
+        ..Default::default()
+    };
+    assert_eq!(entry.ssh_command(), "ssh -- 'myserver'");
+}
+
+#[test]
+fn ssh_command_escapes_single_quotes() {
+    let entry = HostEntry {
+        alias: "it's-a-host".to_string(),
+        ..Default::default()
+    };
+    assert_eq!(entry.ssh_command(), "ssh -- 'it'\\''s-a-host'");
+}
+
+#[test]
+fn ssh_command_escapes_shell_metacharacters() {
+    let entry = HostEntry {
+        alias: "prod;rm -rf /".to_string(),
+        ..Default::default()
+    };
+    assert_eq!(entry.ssh_command(), "ssh -- 'prod;rm -rf /'");
+}
+
 // ============================================================================
 // 22. INCLUDE DIRECTIVES PRESERVATION
 // ============================================================================
@@ -2404,4 +2441,106 @@ fn swap_same_host_is_noop() {
     let before = config.serialize();
     config.swap_hosts("alpha", "alpha");
     assert_eq_visible(&before, &config.serialize());
+}
+
+// ============================================================================
+// 25. MULTIPLE IDENTITYFILE PRESERVATION
+// ============================================================================
+
+/// Editing an unrelated field on a host with multiple IdentityFile directives
+/// must preserve all of them. Previously, to_host_entry() captured the LAST
+/// IdentityFile while upsert_directive() updated the FIRST, causing corruption.
+#[test]
+fn update_host_preserves_multiple_identity_files() {
+    let input = "\
+Host myserver
+  HostName 10.0.0.1
+  User admin
+  IdentityFile ~/.ssh/id_ed25519
+  IdentityFile ~/.ssh/id_rsa
+  IdentityFile ~/.ssh/company_key
+";
+    let config = parse_str(input);
+    let entries = config.host_entries();
+    assert_eq!(entries[0].identity_file, "~/.ssh/id_ed25519",
+        "to_host_entry should capture the FIRST IdentityFile");
+
+    // Edit hostname only (identity_file unchanged from to_host_entry)
+    let mut config = parse_str(input);
+    let mut entry = config.host_entries().remove(0);
+    entry.hostname = "10.0.0.2".to_string();
+    config.update_host("myserver", &entry);
+    let output = config.serialize();
+
+    // All three IdentityFile directives must survive
+    assert!(output.contains("IdentityFile ~/.ssh/id_ed25519"),
+        "First IdentityFile should be preserved");
+    assert!(output.contains("IdentityFile ~/.ssh/id_rsa"),
+        "Second IdentityFile should be preserved");
+    assert!(output.contains("IdentityFile ~/.ssh/company_key"),
+        "Third IdentityFile should be preserved");
+    assert!(output.contains("HostName 10.0.0.2"),
+        "Hostname should be updated");
+
+    // Count IdentityFile lines — must be exactly 3
+    let id_count = output.lines().filter(|l| l.trim().starts_with("IdentityFile")).count();
+    assert_eq!(id_count, 3,
+        "Should have exactly 3 IdentityFile directives. Got:\n{}",
+        output);
+}
+
+/// Changing the primary IdentityFile updates only the first directive.
+#[test]
+fn update_host_changes_first_identity_file_only() {
+    let input = "\
+Host myserver
+  HostName 10.0.0.1
+  IdentityFile ~/.ssh/id_ed25519
+  IdentityFile ~/.ssh/id_rsa
+";
+    let mut config = parse_str(input);
+    config.update_host(
+        "myserver",
+        &HostEntry {
+            alias: "myserver".to_string(),
+            hostname: "10.0.0.1".to_string(),
+            identity_file: "~/.ssh/new_key".to_string(),
+            port: 22,
+            ..Default::default()
+        },
+    );
+    let output = config.serialize();
+    let id_lines: Vec<&str> = output.lines()
+        .filter(|l| l.trim().starts_with("IdentityFile"))
+        .collect();
+    assert_eq!(id_lines.len(), 2, "Should still have 2 IdentityFile directives");
+    assert!(id_lines[0].contains("~/.ssh/new_key"),
+        "First IdentityFile should be updated");
+    assert!(id_lines[1].contains("~/.ssh/id_rsa"),
+        "Second IdentityFile should be untouched");
+}
+
+/// Clearing IdentityFile removes all IdentityFile directives.
+#[test]
+fn update_host_clear_identity_file_removes_all() {
+    let input = "\
+Host myserver
+  HostName 10.0.0.1
+  IdentityFile ~/.ssh/id_ed25519
+  IdentityFile ~/.ssh/id_rsa
+";
+    let mut config = parse_str(input);
+    config.update_host(
+        "myserver",
+        &HostEntry {
+            alias: "myserver".to_string(),
+            hostname: "10.0.0.1".to_string(),
+            identity_file: "".to_string(),
+            port: 22,
+            ..Default::default()
+        },
+    );
+    let output = config.serialize();
+    assert!(!output.contains("IdentityFile"),
+        "All IdentityFile directives should be removed when cleared");
 }

@@ -5,18 +5,19 @@ use crate::quick_add;
 use crate::ssh_config::model::{HostEntry, SshConfigFile};
 
 /// Import hosts from a file with one `[user@]host[:port]` per line.
-/// Returns (imported, skipped, read_errors).
+/// Returns (imported, skipped, parse_failures, read_errors).
 pub fn import_from_file(
     config: &mut SshConfigFile,
     path: &Path,
     group: Option<&str>,
-) -> Result<(usize, usize, usize), String> {
+) -> Result<(usize, usize, usize, usize), String> {
     let file =
         std::fs::File::open(path).map_err(|e| format!("Can't open {}: {}", path.display(), e))?;
     let reader = std::io::BufReader::new(file);
 
     let mut read_errors = 0;
-    let entries: Vec<HostEntry> = reader
+    let mut parse_failures = 0;
+    let lines: Vec<String> = reader
         .lines()
         .filter_map(|r| match r {
             Ok(line) => Some(line),
@@ -29,38 +30,46 @@ pub fn import_from_file(
             let trimmed = line.trim();
             !trimmed.is_empty() && !trimmed.starts_with('#')
         })
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            let parsed = quick_add::parse_target(trimmed).ok()?;
-            let alias = parsed
-                .hostname
-                .split('.')
-                .next()
-                .unwrap_or(&parsed.hostname)
-                .to_string();
-            Some(HostEntry {
-                alias,
-                hostname: parsed.hostname,
-                user: parsed.user,
-                port: parsed.port,
-                identity_file: String::new(),
-                proxy_jump: String::new(),
-                source_file: None,
-                tags: Vec::new(),
-            })
-        })
         .collect();
 
+    let mut entries = Vec::new();
+    for line in &lines {
+        let trimmed = line.trim();
+        match quick_add::parse_target(trimmed) {
+            Ok(parsed) => {
+                let alias = parsed
+                    .hostname
+                    .split('.')
+                    .next()
+                    .unwrap_or(&parsed.hostname)
+                    .to_string();
+                entries.push(HostEntry {
+                    alias,
+                    hostname: parsed.hostname,
+                    user: parsed.user,
+                    port: parsed.port,
+                    identity_file: String::new(),
+                    proxy_jump: String::new(),
+                    source_file: None,
+                    tags: Vec::new(),
+                });
+            }
+            Err(_) => {
+                parse_failures += 1;
+            }
+        }
+    }
+
     let (imported, skipped) = add_entries(config, &entries, group)?;
-    Ok((imported, skipped, read_errors))
+    Ok((imported, skipped, parse_failures, read_errors))
 }
 
 /// Import hosts from ~/.ssh/known_hosts.
-/// Returns (imported, skipped, read_errors).
+/// Returns (imported, skipped, parse_failures, read_errors).
 pub fn import_from_known_hosts(
     config: &mut SshConfigFile,
     group: Option<&str>,
-) -> Result<(usize, usize, usize), String> {
+) -> Result<(usize, usize, usize, usize), String> {
     let home = dirs::home_dir().ok_or("Could not determine home directory.")?;
     let known_hosts_path = home.join(".ssh").join("known_hosts");
 
@@ -90,7 +99,7 @@ pub fn import_from_known_hosts(
         .collect();
 
     let (imported, skipped) = add_entries(config, &entries, group)?;
-    Ok((imported, skipped, read_errors))
+    Ok((imported, skipped, 0, read_errors))
 }
 
 /// Parse a single known_hosts line into a HostEntry.

@@ -809,7 +809,12 @@ impl App {
     }
 
     /// Check if config or any Include file has changed externally and reload if so.
+    /// Skips reload when the user is in a form (AddHost/EditHost) to avoid
+    /// overwriting in-memory config while the user is editing.
     pub fn check_config_changed(&mut self) {
+        if matches!(self.screen, Screen::AddHost | Screen::EditHost { .. }) {
+            return;
+        }
         let current_mtime = Self::get_mtime(&self.config_path);
         let changed = current_mtime != self.last_modified
             || self.include_mtimes.iter().any(|(path, old_mtime)| {

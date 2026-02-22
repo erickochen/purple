@@ -8,7 +8,11 @@ use super::model::{ConfigElement, SshConfigFile};
 impl SshConfigFile {
     /// Write the config back to disk.
     /// Creates a backup before writing and uses atomic write (temp file + rename).
+    /// Resolves symlinks so the rename targets the real file, not the link.
     pub fn write(&self) -> Result<()> {
+        // Resolve symlinks so we write through to the real file
+        let target_path = fs::canonicalize(&self.path).unwrap_or_else(|_| self.path.clone());
+
         // Create backup if the file exists, keep only last 5
         if self.path.exists() {
             self.create_backup()
@@ -19,13 +23,14 @@ impl SshConfigFile {
         let content = self.serialize();
 
         // Ensure parent directory exists
-        if let Some(parent) = self.path.parent() {
+        if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create directory {}", parent.display()))?;
         }
 
         // Atomic write: write to temp file (created with 0o600), then rename
-        let tmp_path = self.path.with_extension(format!("purple_tmp.{}", std::process::id()));
+        let tmp_path =
+            target_path.with_extension(format!("purple_tmp.{}", std::process::id()));
 
         #[cfg(unix)]
         {
@@ -46,7 +51,7 @@ impl SshConfigFile {
         fs::write(&tmp_path, &content)
             .with_context(|| format!("Failed to write temp file {}", tmp_path.display()))?;
 
-        let result = fs::rename(&tmp_path, &self.path);
+        let result = fs::rename(&tmp_path, &target_path);
         if result.is_err() {
             let _ = fs::remove_file(&tmp_path);
         }
@@ -54,7 +59,7 @@ impl SshConfigFile {
             format!(
                 "Failed to rename {} to {}",
                 tmp_path.display(),
-                self.path.display()
+                target_path.display()
             )
         })?;
 

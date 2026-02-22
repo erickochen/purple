@@ -217,33 +217,47 @@ impl SshConfigFile {
     }
 
     /// Parse a "Key Value" directive line.
+    /// Matches OpenSSH behavior: keyword ends at first whitespace or `=`.
+    /// An `=` in the value portion (e.g. `IdentityFile ~/.ssh/id=prod`) is
+    /// NOT treated as a separator.
     fn parse_directive(trimmed: &str) -> Option<(String, String)> {
-        // SSH config format: Key Value (space-separated) or Key=Value
-        let (key, value) = if let Some(eq_pos) = trimmed.find('=') {
-            let key = trimmed[..eq_pos].trim();
-            let value = trimmed[eq_pos + 1..].trim();
-            (key, value)
-        } else {
-            let mut parts = trimmed.splitn(2, char::is_whitespace);
-            let key = parts.next()?;
-            let value = parts.next().unwrap_or("").trim();
-            (key, value)
-        };
-
+        // Find end of keyword: first whitespace or '='
+        let key_end = trimmed.find(|c: char| c.is_whitespace() || c == '=')?;
+        let key = &trimmed[..key_end];
         if key.is_empty() {
             return None;
         }
 
-        // Strip inline comments (# preceded by whitespace) from parsed value.
-        // Don't strip from raw_line — that preserves round-trip fidelity.
-        let value = if let Some(pos) = value.find(" #").or_else(|| value.find("\t#")) {
-            value[..pos].trim_end()
-        } else {
-            value
-        };
+        // Skip whitespace, optional '=', and more whitespace after the keyword
+        let rest = trimmed[key_end..].trim_start();
+        let rest = rest.strip_prefix('=').unwrap_or(rest);
+        let value = rest.trim_start();
+
+        // Strip inline comments (# preceded by whitespace) from parsed value,
+        // but only outside quoted strings. Raw_line is untouched for round-trip fidelity.
+        let value = strip_inline_comment(value);
 
         Some((key.to_string(), value.to_string()))
     }
+}
+
+/// Strip an inline comment (`# ...` preceded by whitespace) from a parsed value,
+/// respecting double-quoted strings.
+fn strip_inline_comment(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    let mut in_quote = false;
+    for i in 0..bytes.len() {
+        if bytes[i] == b'"' {
+            in_quote = !in_quote;
+        } else if !in_quote
+            && bytes[i] == b'#'
+            && i > 0
+            && (bytes[i - 1] == b' ' || bytes[i - 1] == b'\t')
+        {
+            return value[..i].trim_end();
+        }
+    }
+    value
 }
 
 #[cfg(test)]
@@ -404,7 +418,7 @@ Host myserver
             hostname: "10.0.0.1".to_string(),
             ..Default::default()
         };
-        assert_eq!(entry.ssh_command(), "ssh myserver");
+        assert_eq!(entry.ssh_command(), "ssh -- 'myserver'");
     }
 
     #[test]
@@ -451,5 +465,47 @@ Host myserver
         let entries = config.host_entries();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].hostname, "example.com");
+    }
+
+    #[test]
+    fn test_equals_in_value_not_treated_as_separator() {
+        let content = "Host myserver\n  IdentityFile ~/.ssh/id=prod\n";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].identity_file, "~/.ssh/id=prod");
+    }
+
+    #[test]
+    fn test_equals_syntax_key_value() {
+        let content = "Host myserver\n  HostName=10.0.0.1\n  User = admin\n";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].hostname, "10.0.0.1");
+        assert_eq!(entries[0].user, "admin");
+    }
+
+    #[test]
+    fn test_inline_comment_inside_quotes_preserved() {
+        let content = "Host myserver\n  ProxyCommand ssh -W \"%h #test\" gateway\n";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 1);
+        // The value should preserve the # inside quotes
+        if let ConfigElement::HostBlock(block) = &config.elements[0] {
+            let proxy_cmd = block.directives.iter().find(|d| d.key == "ProxyCommand").unwrap();
+            assert_eq!(proxy_cmd.value, "ssh -W \"%h #test\" gateway");
+        } else {
+            panic!("Expected HostBlock");
+        }
+    }
+
+    #[test]
+    fn test_inline_comment_outside_quotes_stripped() {
+        let content = "Host myserver\n  HostName 10.0.0.1 # production\n";
+        let config = parse_str(content);
+        let entries = config.host_entries();
+        assert_eq!(entries[0].hostname, "10.0.0.1");
     }
 }
