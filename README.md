@@ -1,6 +1,6 @@
-<h1 align="center">🟣 purple.</h1>
+<h1 align="center">🟣 purple (purple-ssh) — Rust TUI SSH Config Manager for OpenSSH</h1>
 
-<p align="center"><strong>Your SSH config, supercharged.</strong></p>
+<p align="center"><strong>SSH host launcher and <code>~/.ssh/config</code> editor with cloud sync.</strong></p>
 
 <p align="center">
   <a href="https://crates.io/crates/purple-ssh"><img src="https://img.shields.io/crates/v/purple-ssh.svg" alt="Crates.io"></a>
@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  A keyboard-driven TUI for managing your SSH hosts.<br>
-  Search, tag, sync from cloud providers and connect. All without leaving the terminal.<br>
-  Reads and writes <code>~/.ssh/config</code> with round-trip fidelity.<br>
+  A keyboard-driven terminal UI (TUI) for managing OpenSSH hosts and editing <code>~/.ssh/config</code>.<br>
+  Search, tag, ping, sync from DigitalOcean, Vultr, Linode and Hetzner, and connect without leaving the terminal.<br>
+  Reads and writes SSH config files with round-trip fidelity.<br>
   Your comments, formatting and unknown directives stay exactly where they are.
 </p>
 
