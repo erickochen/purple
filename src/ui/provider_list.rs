@@ -196,9 +196,10 @@ fn render_provider_field(
 
     // Mask token except last 4 chars
     let display_value: String = if field == ProviderFormField::Token && !value.is_empty() && !is_focused {
-        let len = value.len();
-        if len > 4 {
-            format!("{}{}", "*".repeat(len - 4), &value[len - 4..])
+        let char_count = value.chars().count();
+        if char_count > 4 {
+            let last4: String = value.chars().skip(char_count - 4).collect();
+            format!("{}{}", "*".repeat(char_count - 4), last4)
         } else {
             value.clone()
         }

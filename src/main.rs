@@ -158,10 +158,15 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Provider subcommand doesn't need SSH config
+    if let Some(Commands::Provider { command }) = cli.command {
+        return handle_provider_command(command);
+    }
+
     let config_path = resolve_config_path(&cli.config)?;
     let config = SshConfigFile::parse(&config_path)?;
 
-    // Handle subcommands
+    // Handle subcommands that need SSH config
     match cli.command {
         Some(Commands::Add { target, alias, key }) => {
             return handle_quick_add(config, &target, alias.as_deref(), key.as_deref());
@@ -180,9 +185,7 @@ fn main() -> Result<()> {
         }) => {
             return handle_sync(config, provider.as_deref(), dry_run, remove);
         }
-        Some(Commands::Provider { command }) => {
-            return handle_provider_command(command);
-        }
+        Some(Commands::Provider { .. }) => unreachable!(),
         None => {}
     }
 

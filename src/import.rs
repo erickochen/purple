@@ -150,7 +150,10 @@ fn parse_known_hosts_line(line: &str) -> KnownHostResult {
         };
         let h = &host[1..end];
         let p = if host.len() > end + 2 && host.as_bytes()[end + 1] == b':' {
-            host[end + 2..].parse::<u16>().unwrap_or(22)
+            match host[end + 2..].parse::<u16>() {
+                Ok(port) if port > 0 => port,
+                _ => return KnownHostResult::Failed,
+            }
         } else {
             22
         };
@@ -170,8 +173,10 @@ fn parse_known_hosts_line(line: &str) -> KnownHostResult {
         .unwrap_or(&hostname)
         .to_string();
 
-    // Skip bare IP aliases (IPv4: digits+dots, IPv6: hex+colons) and wildcard patterns
-    if alias.chars().all(|c| c.is_ascii_hexdigit() || c == ':') {
+    // Skip bare IP aliases (IPv4: digits only, IPv6: hex+colons with at least one colon)
+    // and wildcard patterns. Require colon for IPv6 to avoid false positives on hex hostnames
+    // like "deadbeef" or "cafe".
+    if alias.chars().all(|c| c.is_ascii_digit()) || (alias.contains(':') && alias.chars().all(|c| c.is_ascii_hexdigit() || c == ':')) {
         return KnownHostResult::Skipped;
     }
     if alias.contains('*') || alias.contains('?') {
@@ -218,22 +223,19 @@ fn add_entries(
     }
 
     for entry in entries {
-        let alias = config.deduplicate_alias(&entry.alias);
-        if alias == entry.alias && config.has_host(&alias) {
+        if config.has_host(&entry.alias) {
             skipped += 1;
             continue;
         }
-        let mut deduped = entry.clone();
-        deduped.alias = alias;
         if first_in_group {
             // Push first host directly after group comment (no blank separator between them)
-            let block = SshConfigFile::entry_to_block(&deduped);
+            let block = SshConfigFile::entry_to_block(entry);
             config.elements.push(
                 crate::ssh_config::model::ConfigElement::HostBlock(block),
             );
             first_in_group = false;
         } else {
-            config.add_host(&deduped);
+            config.add_host(entry);
         }
         imported += 1;
     }
@@ -296,6 +298,43 @@ mod tests {
         assert!(matches!(
             parse_known_hosts_line("fe80::1 ssh-ed25519 AAAA..."),
             KnownHostResult::Skipped
+        ));
+    }
+
+    #[test]
+    fn test_parse_known_hosts_hex_hostname_not_skipped() {
+        // Pure hex hostnames without colons are valid hostnames, not IPs
+        let KnownHostResult::Parsed(entry) =
+            parse_known_hosts_line("deadbeef ssh-rsa AAAA...")
+        else {
+            panic!("expected Parsed");
+        };
+        assert_eq!(entry.alias, "deadbeef");
+
+        let KnownHostResult::Parsed(entry) =
+            parse_known_hosts_line("cafe.example.com ssh-rsa AAAA...")
+        else {
+            panic!("expected Parsed");
+        };
+        assert_eq!(entry.alias, "cafe");
+    }
+
+    #[test]
+    fn test_parse_known_hosts_invalid_port() {
+        // Non-numeric port
+        assert!(matches!(
+            parse_known_hosts_line("[myhost]:abc ssh-rsa AAAA..."),
+            KnownHostResult::Failed
+        ));
+        // Port out of u16 range
+        assert!(matches!(
+            parse_known_hosts_line("[myhost]:70000 ssh-rsa AAAA..."),
+            KnownHostResult::Failed
+        ));
+        // Port 0
+        assert!(matches!(
+            parse_known_hosts_line("[myhost]:0 ssh-rsa AAAA..."),
+            KnownHostResult::Failed
         ));
     }
 
