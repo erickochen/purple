@@ -53,11 +53,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     n => format!("{} hosts", n),
                 };
 
+                let comment_display = if key.comment.is_empty() {
+                    String::new()
+                } else {
+                    truncate_fingerprint(&key.comment, 20)
+                };
+
                 let line = Line::from(vec![
                     Span::styled(format!(" {:<18}", key.name), theme::bold()),
                     Span::styled(format!("{:<12}", type_display), theme::muted()),
-                    Span::styled(format!("{:<24}", truncate_fingerprint(&key.fingerprint, 22)), theme::muted()),
-                    Span::styled(host_label, theme::muted()),
+                    Span::styled(format!("{:<22}", comment_display), theme::muted()),
+                    Span::styled(format!("{:<10}", host_label), theme::muted()),
                 ]);
                 ListItem::new(line)
             })
@@ -82,8 +88,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let header = Line::from(vec![
             Span::styled(format!(" {:<18}", "NAME"), theme::muted()),
             Span::styled(format!("{:<12}", "TYPE"), theme::muted()),
-            Span::styled(format!("{:<24}", "FINGERPRINT"), theme::muted()),
-            Span::styled("HOSTS", theme::muted()),
+            Span::styled(format!("{:<22}", "COMMENT"), theme::muted()),
+            Span::styled(format!("{:<10}", "HOSTS"), theme::muted()),
         ]);
         frame.render_widget(Paragraph::new(header), inner_chunks[0]);
 

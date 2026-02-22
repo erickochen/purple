@@ -150,12 +150,14 @@ fn parse_keygen_output(line: &str) -> Option<(String, String, String, String)> {
 }
 
 /// Find host aliases that reference a given key path via IdentityFile.
+/// Hosts without an explicit IdentityFile are linked to all keys (SSH tries them all).
 fn find_linked_hosts(full_path: &Path, display_path: &str, hosts: &[HostEntry]) -> Vec<String> {
     hosts
         .iter()
         .filter(|h| {
             if h.identity_file.is_empty() {
-                return false;
+                // No explicit IdentityFile — SSH tries all available keys
+                return true;
             }
             // Match against both the display path (~/.ssh/...) and the full path
             h.identity_file == display_path
@@ -263,10 +265,25 @@ mod tests {
     }
 
     #[test]
-    fn test_find_linked_hosts_empty() {
+    fn test_find_linked_hosts_no_identity_file_links_to_all() {
         let hosts = vec![HostEntry {
             alias: "server".to_string(),
             identity_file: String::new(),
+            ..Default::default()
+        }];
+        let linked = find_linked_hosts(
+            Path::new("/home/user/.ssh/id_rsa"),
+            "~/.ssh/id_rsa",
+            &hosts,
+        );
+        assert_eq!(linked, vec!["server"]);
+    }
+
+    #[test]
+    fn test_find_linked_hosts_wrong_identity_file() {
+        let hosts = vec![HostEntry {
+            alias: "server".to_string(),
+            identity_file: "~/.ssh/other_key".to_string(),
             ..Default::default()
         }];
         let linked = find_linked_hosts(

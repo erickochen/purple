@@ -37,6 +37,7 @@ pub fn handle_key_event(
         Screen::KeyList => handle_key_list(app, key),
         Screen::KeyDetail { .. } => handle_key_detail(app, key),
         Screen::HostDetail { .. } => handle_host_detail(app, key),
+        Screen::TagPicker => handle_tag_picker_screen(app, key),
     }
     Ok(())
 }
@@ -247,6 +248,9 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
             } else {
                 app.set_status("Nothing to undo.", true);
             }
+        }
+        KeyCode::Char('#') => {
+            app.open_tag_picker();
         }
         KeyCode::Char('?') => {
             app.screen = Screen::Help;
@@ -616,6 +620,32 @@ fn handle_host_detail(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('i') => {
             app.screen = Screen::HostList;
+        }
+        _ => {}
+    }
+}
+
+fn handle_tag_picker_screen(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('#') => {
+            app.screen = Screen::HostList;
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            app.select_next_tag();
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            app.select_prev_tag();
+        }
+        KeyCode::Enter => {
+            if let Some(index) = app.tag_picker_state.selected() {
+                if let Some(tag) = app.tag_list.get(index) {
+                    let tag = tag.clone();
+                    app.screen = Screen::HostList;
+                    app.start_search();
+                    app.search_query = Some(format!("tag:{}", tag));
+                    app.apply_filter();
+                }
+            }
         }
         _ => {}
     }

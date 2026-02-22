@@ -5,6 +5,7 @@ mod host_form;
 mod host_list;
 mod key_detail;
 mod key_list;
+mod tag_picker;
 pub mod theme;
 
 use ratatui::Frame;
@@ -51,6 +52,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             let index = *index;
             host_list::render(frame, app);
             host_detail::render(frame, app, index);
+        }
+        Screen::TagPicker => {
+            host_list::render(frame, app);
+            tag_picker::render(frame, app);
         }
     }
 }

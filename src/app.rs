@@ -19,6 +19,7 @@ pub enum Screen {
     KeyList,
     KeyDetail { index: usize },
     HostDetail { index: usize },
+    TagPicker,
 }
 
 /// Which form field is focused.
@@ -271,6 +272,10 @@ pub struct App {
     // Tag input
     pub tag_input: Option<String>,
 
+    // Tag picker
+    pub tag_list: Vec<String>,
+    pub tag_picker_state: ListState,
+
     // Connection history
     pub history: ConnectionHistory,
 
@@ -323,6 +328,8 @@ impl App {
             key_picker_state: ListState::default(),
             ping_status: HashMap::new(),
             tag_input: None,
+            tag_list: Vec::new(),
+            tag_picker_state: ListState::default(),
             history: ConnectionHistory::load(),
             sort_mode: SortMode::Original,
             deleted_host: None,
@@ -724,6 +731,7 @@ impl App {
                     host.alias.to_lowercase().contains(&query)
                         || host.hostname.to_lowercase().contains(&query)
                         || host.user.to_lowercase().contains(&query)
+                        || host.tags.iter().any(|t| t.to_lowercase().contains(&query))
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -810,6 +818,41 @@ impl App {
     /// Move key picker selection down.
     pub fn select_next_picker_key(&mut self) {
         cycle_selection(&mut self.key_picker_state, self.keys.len(), true);
+    }
+
+    /// Collect all unique tags from hosts, sorted alphabetically.
+    pub fn collect_unique_tags(&self) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut tags = Vec::new();
+        for host in &self.hosts {
+            for tag in &host.tags {
+                if seen.insert(tag.clone()) {
+                    tags.push(tag.clone());
+                }
+            }
+        }
+        tags.sort_by_key(|a| a.to_lowercase());
+        tags
+    }
+
+    /// Open the tag picker overlay.
+    pub fn open_tag_picker(&mut self) {
+        self.tag_list = self.collect_unique_tags();
+        self.tag_picker_state = ListState::default();
+        if !self.tag_list.is_empty() {
+            self.tag_picker_state.select(Some(0));
+        }
+        self.screen = Screen::TagPicker;
+    }
+
+    /// Move tag picker selection up.
+    pub fn select_prev_tag(&mut self) {
+        cycle_selection(&mut self.tag_picker_state, self.tag_list.len(), false);
+    }
+
+    /// Move tag picker selection down.
+    pub fn select_next_tag(&mut self) {
+        cycle_selection(&mut self.tag_picker_state, self.tag_list.len(), true);
     }
 }
 

@@ -234,9 +234,18 @@ fn build_host_item<'a>(
         spans.push(Span::styled(format!(" [{}]", key_name), theme::muted()));
     }
 
-    // Show tags with # prefix
+    // Show tags with # prefix (highlight matching tags during search)
+    let tag_matches = !q_lower.is_empty()
+        && !alias_matches
+        && !host_matches
+        && !user_matches;
     for tag in &host.tags {
-        spans.push(Span::styled(format!(" #{}", tag), theme::accent()));
+        let style = if tag_matches && tag.to_lowercase().contains(&q_lower) {
+            theme::highlight_bold()
+        } else {
+            theme::accent()
+        };
+        spans.push(Span::styled(format!(" #{}", tag), style));
     }
 
     // Show source file for included hosts

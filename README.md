@@ -34,11 +34,11 @@
 
 &nbsp;&nbsp;&nbsp;&nbsp;**Launch fast.** &nbsp; `purple` opens the TUI. `purple myserver` connects directly. `purple prod` opens pre-filtered.
 
-&nbsp;&nbsp;&nbsp;&nbsp;**Search everything.** &nbsp; Matches alias, hostname and user as you type. Match count updates live.
+&nbsp;&nbsp;&nbsp;&nbsp;**Search everything.** &nbsp; Matches alias, hostname, user and tags as you type. Match count updates live.
 
 &nbsp;&nbsp;&nbsp;&nbsp;**Ping before you connect.** &nbsp; TCP reachability check. One host or all of them.
 
-&nbsp;&nbsp;&nbsp;&nbsp;**Tags and groups.** &nbsp; Tag hosts with labels. Filter with `tag:prod`. Comments become visual group headers.
+&nbsp;&nbsp;&nbsp;&nbsp;**Tags and groups.** &nbsp; Tag hosts with labels. Press `#` to filter by tag. Comments become visual group headers.
 
 &nbsp;&nbsp;&nbsp;&nbsp;**Sort your way.** &nbsp; Config order, alphabetical, most used or most recent. purple remembers your preference.
 
@@ -61,7 +61,7 @@
 | **Round-trip fidelity** | Comments, formatting, unknown directives. All preserved. |
 | **Atomic writes** | Temp file, chmod 600, rename. No half-written configs. |
 | **Automatic backups** | Every write creates a backup. Keeps the last 5. |
-| **Works everywhere** | ANSI 16 colors. Any terminal, any theme, any monospace font. |
+| **Works everywhere** | Monochrome UI with purple brand badge. Any terminal, any monospace font. |
 | **NO_COLOR** | Respects the [NO_COLOR](https://no-color.org/) standard. |
 | **Shell completions** | Bash, zsh and fish. |
 
@@ -119,6 +119,7 @@ purple --completions zsh            # Shell completions
 | `y` | Copy SSH command |
 | `x` | Export config block to clipboard |
 | `/` | Search and filter |
+| `#` | Filter by tag |
 | `t` | Tag host |
 | `s` | Cycle sort mode |
 | `i` | Inspect host details |
