@@ -25,13 +25,9 @@ pub fn ping_host(alias: String, hostname: String, port: u16, tx: mpsc::Sender<Ap
         let addr_str_clone = addr_str.clone();
         thread::spawn(move || {
             let result = match addr_str_clone.to_socket_addrs() {
-                Ok(mut addrs) => {
-                    if let Some(addr) = addrs.next() {
-                        TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()
-                    } else {
-                        false
-                    }
-                }
+                Ok(addrs) => addrs
+                    .into_iter()
+                    .any(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()),
                 Err(_) => false,
             };
             let _ = done_tx.send(result);

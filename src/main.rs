@@ -231,6 +231,9 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
                 };
                 app.ping_status.insert(alias, status);
             }
+            AppEvent::PollError => {
+                app.running = false;
+            }
         }
 
         // Handle pending SSH connection

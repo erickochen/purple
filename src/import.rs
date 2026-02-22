@@ -96,7 +96,7 @@ pub fn import_from_known_hosts(
 /// Parse a single known_hosts line into a HostEntry.
 fn parse_known_hosts_line(line: &str) -> Option<HostEntry> {
     let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() < 2 {
+    if parts.len() < 3 {
         return None;
     }
 

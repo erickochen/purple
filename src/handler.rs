@@ -427,12 +427,13 @@ fn submit_form(app: &mut App) {
                 );
                 return;
             }
+            let len_before = app.config.elements.len();
             app.config.add_host(&entry);
             if !entry.tags.is_empty() {
                 app.config.set_host_tags(&alias, &entry.tags);
             }
             if let Err(e) = app.config.write() {
-                app.config.delete_host_undoable(&alias);
+                app.config.elements.truncate(len_before);
                 app.set_status(format!("Failed to save: {}", e), true);
                 return;
             }

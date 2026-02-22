@@ -11,6 +11,7 @@ pub enum AppEvent {
     Key(KeyEvent),
     Tick,
     PingResult { alias: String, reachable: bool },
+    PollError,
 }
 
 /// Polls crossterm events in a background thread.
@@ -68,7 +69,8 @@ impl EventHandler {
                     }
                     Ok(false) => {}
                     Err(_) => {
-                        // Poll error (e.g. stdin closed). Exit the loop.
+                        // Poll error (e.g. stdin closed). Notify main loop and exit.
+                        let _ = event_tx.send(AppEvent::PollError);
                         return;
                     }
                 }
