@@ -84,11 +84,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     // Key picker popup overlay
     if app.show_key_picker {
-        render_key_picker(frame, app);
+        render_key_picker_overlay(frame, app);
     }
 }
 
-fn render_key_picker(frame: &mut Frame, app: &mut App) {
+/// Render the key picker popup overlay. Public for reuse from provider form.
+pub fn render_key_picker_overlay(frame: &mut Frame, app: &mut App) {
     if app.keys.is_empty() {
         // Small popup saying no keys found
         let area = super::centered_rect_fixed(44, 5, frame.area());

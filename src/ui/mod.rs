@@ -1,10 +1,11 @@
 mod confirm_dialog;
 mod help;
 mod host_detail;
-mod host_form;
+pub mod host_form;
 mod host_list;
 mod key_detail;
 mod key_list;
+mod provider_list;
 mod tag_picker;
 pub mod theme;
 
@@ -56,6 +57,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         Screen::TagPicker => {
             host_list::render(frame, app);
             tag_picker::render(frame, app);
+        }
+        Screen::Providers => {
+            provider_list::render_provider_list(frame, app);
+        }
+        Screen::ProviderForm { provider } => {
+            let provider = provider.clone();
+            provider_list::render_provider_form(frame, app, &provider);
         }
     }
 }

@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use ratatui::widgets::ListState;
 
 use crate::history::ConnectionHistory;
+use crate::providers::config::ProviderConfig;
 use crate::ssh_config::model::{ConfigElement, HostEntry, SshConfigFile};
 use crate::ssh_keys::{self, SshKeyInfo};
 
@@ -20,6 +21,8 @@ pub enum Screen {
     KeyDetail { index: usize },
     HostDetail { index: usize },
     TagPicker,
+    Providers,
+    ProviderForm { provider: String },
 }
 
 /// Which form field is focused.
@@ -159,6 +162,75 @@ impl HostForm {
             proxy_jump: self.proxy_jump.trim().to_string(),
             source_file: None,
             tags: self.tags.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect(),
+            provider: None,
+        }
+    }
+}
+
+/// Which provider form field is focused.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProviderFormField {
+    Token,
+    AliasPrefix,
+    User,
+    IdentityFile,
+}
+
+impl ProviderFormField {
+    pub const ALL: [ProviderFormField; 4] = [
+        ProviderFormField::Token,
+        ProviderFormField::AliasPrefix,
+        ProviderFormField::User,
+        ProviderFormField::IdentityFile,
+    ];
+
+    pub fn next(self) -> Self {
+        let idx = Self::ALL.iter().position(|f| *f == self).unwrap_or(0);
+        Self::ALL[(idx + 1) % Self::ALL.len()]
+    }
+
+    pub fn prev(self) -> Self {
+        let idx = Self::ALL.iter().position(|f| *f == self).unwrap_or(0);
+        Self::ALL[(idx + Self::ALL.len() - 1) % Self::ALL.len()]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ProviderFormField::Token => "Token",
+            ProviderFormField::AliasPrefix => "Alias Prefix",
+            ProviderFormField::User => "User",
+            ProviderFormField::IdentityFile => "Identity File",
+        }
+    }
+}
+
+/// Form state for configuring a provider.
+#[derive(Debug, Clone)]
+pub struct ProviderFormFields {
+    pub token: String,
+    pub alias_prefix: String,
+    pub user: String,
+    pub identity_file: String,
+    pub focused_field: ProviderFormField,
+}
+
+impl ProviderFormFields {
+    pub fn new() -> Self {
+        Self {
+            token: String::new(),
+            alias_prefix: String::new(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            focused_field: ProviderFormField::Token,
+        }
+    }
+
+    pub fn focused_value_mut(&mut self) -> &mut String {
+        match self.focused_field {
+            ProviderFormField::Token => &mut self.token,
+            ProviderFormField::AliasPrefix => &mut self.alias_prefix,
+            ProviderFormField::User => &mut self.user,
+            ProviderFormField::IdentityFile => &mut self.identity_file,
         }
     }
 }
@@ -298,6 +370,12 @@ pub struct App {
     // Undo state
     pub deleted_host: Option<DeletedHost>,
 
+    // Provider management
+    pub provider_config: ProviderConfig,
+    pub provider_list_state: ListState,
+    pub provider_form: ProviderFormFields,
+    pub syncing_providers: std::collections::HashSet<String>,
+
     // Learning hints
     pub has_pinged: bool,
 
@@ -347,6 +425,10 @@ impl App {
             tag_input: None,
             tag_list: Vec::new(),
             tag_picker_state: ListState::default(),
+            provider_config: ProviderConfig::load(),
+            provider_list_state: ListState::default(),
+            provider_form: ProviderFormFields::new(),
+            syncing_providers: std::collections::HashSet::new(),
             history: ConnectionHistory::load(),
             sort_mode: SortMode::Original,
             deleted_host: None,
@@ -735,7 +817,7 @@ impl App {
         if query.is_empty() {
             self.filtered_indices = (0..self.hosts.len()).collect();
         } else if let Some(tag_exact) = query.strip_prefix("tag=") {
-            // Exact tag match (from tag picker)
+            // Exact tag match (from tag picker), includes provider name
             self.filtered_indices = self
                 .hosts
                 .iter()
@@ -744,11 +826,12 @@ impl App {
                     host.tags
                         .iter()
                         .any(|t| t.to_lowercase() == tag_exact)
+                        || host.provider.as_ref().is_some_and(|p| p.to_lowercase() == tag_exact)
                 })
                 .map(|(i, _)| i)
                 .collect();
         } else if let Some(tag_query) = query.strip_prefix("tag:") {
-            // Fuzzy tag match (manual search)
+            // Fuzzy tag match (manual search), includes provider name
             self.filtered_indices = self
                 .hosts
                 .iter()
@@ -757,6 +840,7 @@ impl App {
                     host.tags
                         .iter()
                         .any(|t| t.to_lowercase().contains(tag_query))
+                        || host.provider.as_ref().is_some_and(|p| p.to_lowercase().contains(tag_query))
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -770,6 +854,7 @@ impl App {
                         || host.hostname.to_lowercase().contains(&query)
                         || host.user.to_lowercase().contains(&query)
                         || host.tags.iter().any(|t| t.to_lowercase().contains(&query))
+                        || host.provider.as_ref().is_some_and(|p| p.to_lowercase().contains(&query))
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -812,7 +897,10 @@ impl App {
     /// Skips reload when the user is in a form (AddHost/EditHost) to avoid
     /// overwriting in-memory config while the user is editing.
     pub fn check_config_changed(&mut self) {
-        if matches!(self.screen, Screen::AddHost | Screen::EditHost { .. }) {
+        if matches!(
+            self.screen,
+            Screen::AddHost | Screen::EditHost { .. } | Screen::ProviderForm { .. }
+        ) {
             return;
         }
         let current_mtime = Self::get_mtime(&self.config_path);
@@ -910,6 +998,11 @@ impl App {
                     tags.push(tag.clone());
                 }
             }
+            if let Some(ref provider) = host.provider {
+                if seen.insert(provider.clone()) {
+                    tags.push(provider.clone());
+                }
+            }
         }
         tags.sort_by_key(|a| a.to_lowercase());
         tags
@@ -937,7 +1030,7 @@ impl App {
 }
 
 /// Cycle list selection forward or backward with wraparound.
-fn cycle_selection(state: &mut ListState, len: usize, forward: bool) {
+pub fn cycle_selection(state: &mut ListState, len: usize, forward: bool) {
     if len == 0 {
         return;
     }

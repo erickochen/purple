@@ -267,16 +267,6 @@ fn build_host_item<'a>(
     let mut right_spans: Vec<Span> = Vec::new();
     let mut right_len: usize = 0;
 
-    if !host.identity_file.is_empty() {
-        let key_name = std::path::Path::new(&host.identity_file)
-            .file_name()
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or_else(|| host.identity_file.clone());
-        let s = format!(" [{}]", key_name);
-        right_len += s.width();
-        right_spans.push(Span::styled(s, theme::muted()));
-    }
-
     let tag_matches =
         !q_lower.is_empty() && !alias_matches && !host_matches && !user_matches;
     for tag in &host.tags {
@@ -286,6 +276,17 @@ fn build_host_item<'a>(
             theme::accent()
         };
         let s = format!(" #{}", tag);
+        right_len += s.width();
+        right_spans.push(Span::styled(s, style));
+    }
+
+    if let Some(ref label) = host.provider {
+        let style = if tag_matches && label.to_lowercase().contains(&q_lower) {
+            theme::highlight_bold()
+        } else {
+            theme::accent()
+        };
+        let s = format!(" #{}", label);
         right_len += s.width();
         right_spans.push(Span::styled(s, style));
     }
@@ -362,8 +363,8 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect) {
         Span::styled(" edit  ", theme::muted()),
         Span::styled("d", theme::accent_bold()),
         Span::styled(" delete  ", theme::muted()),
-        Span::styled("y", theme::accent_bold()),
-        Span::styled(" yank  ", theme::muted()),
+        Span::styled("S", theme::accent_bold()),
+        Span::styled(" sync  ", theme::muted()),
         Span::styled("Enter", theme::primary_action()),
         Span::styled(" connect  ", theme::muted()),
         Span::styled("/", theme::accent_bold()),

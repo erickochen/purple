@@ -3,11 +3,12 @@ use std::sync::mpsc;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::{App, FormField, HostForm, Screen};
+use crate::app::{App, FormField, HostForm, ProviderFormFields, Screen};
 use crate::clipboard;
 use crate::event::AppEvent;
 use crate::ping;
 use crate::preferences;
+use crate::providers;
 use crate::quick_add;
 use crate::ssh_config::model::ConfigElement;
 
@@ -38,6 +39,8 @@ pub fn handle_key_event(
         Screen::KeyDetail { .. } => handle_key_detail(app, key),
         Screen::HostDetail { .. } => handle_host_detail(app, key),
         Screen::TagPicker => handle_tag_picker_screen(app, key),
+        Screen::Providers => handle_provider_list(app, key, events_tx),
+        Screen::ProviderForm { .. } => handle_provider_form(app, key, events_tx),
     }
     Ok(())
 }
@@ -263,6 +266,12 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
         }
         KeyCode::Char('#') => {
             app.open_tag_picker();
+        }
+        KeyCode::Char('S') => {
+            app.provider_config = crate::providers::config::ProviderConfig::load();
+            app.provider_list_state = ratatui::widgets::ListState::default();
+            app.provider_list_state.select(Some(0));
+            app.screen = Screen::Providers;
         }
         KeyCode::Char('?') => {
             app.screen = Screen::Help;
@@ -681,6 +690,223 @@ fn handle_tag_picker_screen(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEvent>) {
+    let provider_count = providers::PROVIDER_NAMES.len();
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.screen = Screen::HostList;
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            crate::app::cycle_selection(&mut app.provider_list_state, provider_count, true);
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            crate::app::cycle_selection(&mut app.provider_list_state, provider_count, false);
+        }
+        KeyCode::Enter => {
+            if let Some(index) = app.provider_list_state.selected() {
+                if let Some(&name) = providers::PROVIDER_NAMES.get(index) {
+                    let provider_impl = providers::get_provider(name);
+                    let short_label = provider_impl
+                        .as_ref()
+                        .map(|p| p.short_label().to_string())
+                        .unwrap_or_else(|| name.to_string());
+
+                    // Pre-fill form from existing config or defaults
+                    app.provider_form = if let Some(section) =
+                        app.provider_config.section(name)
+                    {
+                        ProviderFormFields {
+                            token: section.token.clone(),
+                            alias_prefix: section.alias_prefix.clone(),
+                            user: section.user.clone(),
+                            identity_file: section.identity_file.clone(),
+                            focused_field: crate::app::ProviderFormField::Token,
+                        }
+                    } else {
+                        ProviderFormFields {
+                            token: String::new(),
+                            alias_prefix: short_label,
+                            user: "root".to_string(),
+                            identity_file: String::new(),
+                            focused_field: crate::app::ProviderFormField::Token,
+                        }
+                    };
+                    app.screen = Screen::ProviderForm {
+                        provider: name.to_string(),
+                    };
+                }
+            }
+        }
+        KeyCode::Char('s') => {
+            if let Some(index) = app.provider_list_state.selected() {
+                if let Some(&name) = providers::PROVIDER_NAMES.get(index) {
+                    if app.syncing_providers.contains(name) {
+                        return;
+                    }
+                    if let Some(section) = app.provider_config.section(name) {
+                        let token = section.token.clone();
+                        let display_name = match name {
+                            "digitalocean" => "DigitalOcean",
+                            "vultr" => "Vultr",
+                            "linode" => "Linode",
+                            "hetzner" => "Hetzner",
+                            n => n,
+                        };
+                        app.syncing_providers.insert(name.to_string());
+                        app.set_status(format!("Syncing {}...", display_name), false);
+                        spawn_provider_sync(name, &token, events_tx.clone());
+                    }
+                }
+            }
+        }
+        KeyCode::Char('d') => {
+            if let Some(index) = app.provider_list_state.selected() {
+                if let Some(&name) = providers::PROVIDER_NAMES.get(index) {
+                    if app.provider_config.section(name).is_some() {
+                        app.provider_config.remove_section(name);
+                        if let Err(e) = app.provider_config.save() {
+                            app.set_status(format!("Failed to save: {}", e), true);
+                        } else {
+                            let display_name = match name {
+                                "digitalocean" => "DigitalOcean",
+                                "vultr" => "Vultr",
+                                "linode" => "Linode",
+                                "hetzner" => "Hetzner",
+                                n => n,
+                            };
+                            app.set_status(
+                                format!("Removed {} configuration.", display_name),
+                                false,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_provider_form(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEvent>) {
+    // Dispatch to key picker if open
+    if app.show_key_picker {
+        handle_provider_key_picker(app, key);
+        return;
+    }
+
+    // K opens key picker from any field
+    if key.code == KeyCode::Char('K') {
+        app.scan_keys();
+        app.show_key_picker = true;
+        app.key_picker_state = ratatui::widgets::ListState::default();
+        if !app.keys.is_empty() {
+            app.key_picker_state.select(Some(0));
+        }
+        return;
+    }
+
+    match key.code {
+        KeyCode::Esc => {
+            app.screen = Screen::Providers;
+        }
+        KeyCode::Tab | KeyCode::Down => {
+            app.provider_form.focused_field = app.provider_form.focused_field.next();
+        }
+        KeyCode::BackTab | KeyCode::Up => {
+            app.provider_form.focused_field = app.provider_form.focused_field.prev();
+        }
+        KeyCode::Enter => {
+            submit_provider_form(app, events_tx);
+        }
+        KeyCode::Char(c) => {
+            app.provider_form.focused_value_mut().push(c);
+        }
+        KeyCode::Backspace => {
+            app.provider_form.focused_value_mut().pop();
+        }
+        _ => {}
+    }
+}
+
+fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
+    let provider_name = match &app.screen {
+        Screen::ProviderForm { provider } => provider.clone(),
+        _ => return,
+    };
+
+    if app.provider_form.token.trim().is_empty() {
+        let display_name = match provider_name.as_str() {
+            "digitalocean" => "DigitalOcean",
+            "vultr" => "Vultr",
+            "linode" => "Linode",
+            "hetzner" => "Hetzner",
+            n => n,
+        };
+        app.set_status(
+            format!(
+                "Token can't be empty. Grab one from your {} dashboard.",
+                display_name
+            ),
+            true,
+        );
+        return;
+    }
+
+    let token = app.provider_form.token.trim().to_string();
+    let section = providers::config::ProviderSection {
+        provider: provider_name.clone(),
+        token: token.clone(),
+        alias_prefix: app.provider_form.alias_prefix.trim().to_string(),
+        user: app.provider_form.user.trim().to_string(),
+        identity_file: app.provider_form.identity_file.trim().to_string(),
+    };
+
+    app.provider_config.set_section(section);
+    if let Err(e) = app.provider_config.save() {
+        app.set_status(format!("Failed to save: {}", e), true);
+        return;
+    }
+
+    let display_name = match provider_name.as_str() {
+        "digitalocean" => "DigitalOcean",
+        "vultr" => "Vultr",
+        "linode" => "Linode",
+        "hetzner" => "Hetzner",
+        n => n,
+    };
+    app.syncing_providers.insert(provider_name.clone());
+    app.set_status(format!("Saved {} configuration. Syncing...", display_name), false);
+    spawn_provider_sync(&provider_name, &token, events_tx.clone());
+    app.screen = Screen::Providers;
+}
+
+fn handle_provider_key_picker(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.show_key_picker = false;
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            app.select_next_picker_key();
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            app.select_prev_picker_key();
+        }
+        KeyCode::Enter => {
+            if let Some(index) = app.key_picker_state.selected() {
+                if let Some(key_info) = app.keys.get(index) {
+                    app.provider_form.identity_file = key_info.display_path.clone();
+                    app.set_status(
+                        format!("Locked and loaded with {}.", key_info.name),
+                        false,
+                    );
+                }
+            }
+            app.show_key_picker = false;
+        }
+        _ => {}
+    }
+}
+
 fn handle_key_picker(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
@@ -703,4 +929,36 @@ fn handle_key_picker(app: &mut App, key: KeyEvent) {
         }
         _ => {}
     }
+}
+
+/// Spawn a background thread to fetch hosts from a cloud provider.
+pub fn spawn_provider_sync(name: &str, token: &str, tx: mpsc::Sender<AppEvent>) {
+    let name = name.to_string();
+    let token = token.to_string();
+    std::thread::spawn(move || {
+        let provider = match crate::providers::get_provider(&name) {
+            Some(p) => p,
+            None => {
+                let _ = tx.send(AppEvent::SyncError {
+                    provider: name,
+                    message: "Unknown provider.".to_string(),
+                });
+                return;
+            }
+        };
+        match provider.fetch_hosts(&token) {
+            Ok(hosts) => {
+                let _ = tx.send(AppEvent::SyncComplete {
+                    provider: name,
+                    hosts,
+                });
+            }
+            Err(e) => {
+                let _ = tx.send(AppEvent::SyncError {
+                    provider: name,
+                    message: e.to_string(),
+                });
+            }
+        }
+    });
 }

@@ -7,6 +7,7 @@ mod history;
 mod import;
 mod ping;
 mod preferences;
+mod providers;
 mod quick_add;
 mod ssh_config;
 mod ssh_keys;
@@ -85,6 +86,56 @@ enum Commands {
         #[arg(short, long)]
         group: Option<String>,
     },
+    /// Sync hosts from cloud providers (DigitalOcean, Vultr, Linode, Hetzner)
+    Sync {
+        /// Sync a specific provider (default: all configured)
+        provider: Option<String>,
+
+        /// Preview changes without modifying config
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Remove hosts that no longer exist on the provider
+        #[arg(long)]
+        remove: bool,
+    },
+    /// Manage cloud provider configurations
+    Provider {
+        #[command(subcommand)]
+        command: ProviderCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProviderCommands {
+    /// Add or update a provider configuration
+    Add {
+        /// Provider name (digitalocean, vultr, linode, hetzner)
+        provider: String,
+
+        /// API token
+        #[arg(long)]
+        token: String,
+
+        /// Alias prefix (default: provider short label)
+        #[arg(long)]
+        prefix: Option<String>,
+
+        /// Default SSH user (default: root)
+        #[arg(long)]
+        user: Option<String>,
+
+        /// Default identity file
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// List configured providers
+    List,
+    /// Remove a provider configuration
+    Remove {
+        /// Provider name to remove
+        provider: String,
+    },
 }
 
 fn resolve_config_path(path: &str) -> Result<PathBuf> {
@@ -121,6 +172,16 @@ fn main() -> Result<()> {
             group,
         }) => {
             return handle_import(config, file.as_deref(), known_hosts, group.as_deref());
+        }
+        Some(Commands::Sync {
+            provider,
+            dry_run,
+            remove,
+        }) => {
+            return handle_sync(config, provider.as_deref(), dry_run, remove);
+        }
+        Some(Commands::Provider { command }) => {
+            return handle_provider_command(command);
         }
         None => {}
     }
@@ -216,6 +277,14 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
     let events_tx = events.sender();
     let mut last_config_check = std::time::Instant::now();
 
+    // Auto-sync all configured providers on startup
+    for section in app.provider_config.configured_providers().to_vec() {
+        if !app.syncing_providers.contains(&section.provider) {
+            app.syncing_providers.insert(section.provider.clone());
+            handler::spawn_provider_sync(&section.provider, &section.token, events_tx.clone());
+        }
+    }
+
     while app.running {
         terminal.draw(&mut app)?;
 
@@ -236,6 +305,59 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
                     app::PingStatus::Unreachable
                 };
                 app.ping_status.insert(alias, status);
+            }
+            AppEvent::SyncComplete { provider, hosts } => {
+                let section = app.provider_config.section(&provider).cloned();
+                if let Some(section) = section {
+                    if let Some(provider_impl) = providers::get_provider(&provider) {
+                        let result = providers::sync::sync_provider(
+                            &mut app.config,
+                            &*provider_impl,
+                            &hosts,
+                            &section,
+                            false,
+                            false,
+                        );
+                        if result.added > 0 || result.updated > 0 {
+                            if let Err(e) = app.config.write() {
+                                app.set_status(format!("Sync failed to save: {}", e), true);
+                                app.syncing_providers.remove(&provider);
+                                continue;
+                            }
+                            app.update_last_modified();
+                            app.reload_hosts();
+                        }
+                        let display_name = match provider.as_str() {
+                            "digitalocean" => "DigitalOcean",
+                            "vultr" => "Vultr",
+                            "linode" => "Linode",
+                            "hetzner" => "Hetzner",
+                            name => name,
+                        };
+                        app.set_status(
+                            format!(
+                                "Synced {}: added {}, updated {}, unchanged {}.",
+                                display_name, result.added, result.updated, result.unchanged
+                            ),
+                            false,
+                        );
+                    }
+                }
+                app.syncing_providers.remove(&provider);
+            }
+            AppEvent::SyncError { provider, message } => {
+                let display_name = match provider.as_str() {
+                    "digitalocean" => "DigitalOcean",
+                    "vultr" => "Vultr",
+                    "linode" => "Linode",
+                    "hetzner" => "Hetzner",
+                    name => name,
+                };
+                app.set_status(
+                    format!("! {} sync failed: {}", display_name, message),
+                    true,
+                );
+                app.syncing_providers.remove(&provider);
             }
             AppEvent::PollError => {
                 app.running = false;
@@ -327,6 +449,7 @@ fn handle_quick_add(
         proxy_jump: String::new(),
         source_file: None,
         tags: Vec::new(),
+        provider: None,
     };
 
     config.add_host(&entry);
@@ -382,6 +505,175 @@ fn handle_import(
         Err(e) => {
             eprintln!("{}", e);
             std::process::exit(1);
+        }
+    }
+}
+
+fn handle_sync(
+    mut config: SshConfigFile,
+    provider_name: Option<&str>,
+    dry_run: bool,
+    remove: bool,
+) -> Result<()> {
+    let provider_config = providers::config::ProviderConfig::load();
+    let sections: Vec<&providers::config::ProviderSection> = if let Some(name) = provider_name {
+        if providers::get_provider(name).is_none() {
+            eprintln!(
+                "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner.",
+                name
+            );
+            std::process::exit(1);
+        }
+        match provider_config.section(name) {
+            Some(s) => vec![s],
+            None => {
+                eprintln!(
+                    "No configuration for {}. Run 'purple provider add {}' first.",
+                    name, name
+                );
+                std::process::exit(1);
+            }
+        }
+    } else {
+        let configured = provider_config.configured_providers();
+        if configured.is_empty() {
+            eprintln!("No providers configured. Run 'purple provider add' to set one up.");
+            std::process::exit(1);
+        }
+        configured.iter().collect()
+    };
+
+    let mut any_changes = false;
+    let mut any_failures = false;
+
+    for section in &sections {
+        let provider = match providers::get_provider(&section.provider) {
+            Some(p) => p,
+            None => {
+                eprintln!(
+                    "Skipping unknown provider '{}'. Try: digitalocean, vultr, linode, hetzner.",
+                    section.provider
+                );
+                any_failures = true;
+                continue;
+            }
+        };
+        let display_name = match section.provider.as_str() {
+            "digitalocean" => "DigitalOcean",
+            "vultr" => "Vultr",
+            "linode" => "Linode",
+            "hetzner" => "Hetzner",
+            name => name,
+        };
+        print!("Syncing {}... ", display_name);
+
+        match provider.fetch_hosts(&section.token) {
+            Ok(hosts) => {
+                println!("{} servers found.", hosts.len());
+                let result = providers::sync::sync_provider(
+                    &mut config, &*provider, &hosts, section, remove, dry_run,
+                );
+                let prefix = if dry_run { "  Would have: " } else { "  " };
+                println!(
+                    "{}Added {}, updated {}, unchanged {}.",
+                    prefix, result.added, result.updated, result.unchanged
+                );
+                if result.removed > 0 {
+                    println!("  Removed {}.", result.removed);
+                }
+                if result.added > 0 || result.updated > 0 || result.removed > 0 {
+                    any_changes = true;
+                }
+            }
+            Err(e) => {
+                println!("failed.");
+                eprintln!("! {}: {}", display_name, e);
+                any_failures = true;
+            }
+        }
+    }
+
+    if any_changes && !dry_run {
+        config.write()?;
+    }
+
+    if any_failures {
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+fn handle_provider_command(command: ProviderCommands) -> Result<()> {
+    match command {
+        ProviderCommands::Add {
+            provider,
+            token,
+            prefix,
+            user,
+            key,
+        } => {
+            let p = match providers::get_provider(&provider) {
+                Some(p) => p,
+                None => {
+                    eprintln!(
+                        "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner.",
+                        provider
+                    );
+                    std::process::exit(1);
+                }
+            };
+
+            let section = providers::config::ProviderSection {
+                provider: provider.clone(),
+                token,
+                alias_prefix: prefix.unwrap_or_else(|| p.short_label().to_string()),
+                user: user.unwrap_or_else(|| "root".to_string()),
+                identity_file: key.unwrap_or_default(),
+            };
+
+            let mut config = providers::config::ProviderConfig::load();
+            config.set_section(section);
+            config
+                .save()
+                .map_err(|e| anyhow::anyhow!("Failed to save: {}", e))?;
+            println!("Saved {} configuration.", provider);
+            Ok(())
+        }
+        ProviderCommands::List => {
+            let config = providers::config::ProviderConfig::load();
+            let sections = config.configured_providers();
+            if sections.is_empty() {
+                println!("No providers configured. Run 'purple provider add' to set one up.");
+            } else {
+                for s in sections {
+                    let display_name = match s.provider.as_str() {
+                        "digitalocean" => "DigitalOcean",
+                        "vultr" => "Vultr",
+                        "linode" => "Linode",
+                        "hetzner" => "Hetzner",
+                        name => name,
+                    };
+                    println!(
+                        "  {:<16} {}-*{:>8}",
+                        display_name, s.alias_prefix, s.user
+                    );
+                }
+            }
+            Ok(())
+        }
+        ProviderCommands::Remove { provider } => {
+            let mut config = providers::config::ProviderConfig::load();
+            if config.section(&provider).is_none() {
+                eprintln!("No configuration for '{}'. Nothing to remove.", provider);
+                std::process::exit(1);
+            }
+            config.remove_section(&provider);
+            config
+                .save()
+                .map_err(|e| anyhow::anyhow!("Failed to save: {}", e))?;
+            println!("Removed {} configuration.", provider);
+            Ok(())
         }
     }
 }

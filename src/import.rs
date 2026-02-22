@@ -52,6 +52,7 @@ pub fn import_from_file(
                     proxy_jump: String::new(),
                     source_file: None,
                     tags: Vec::new(),
+                    provider: None,
                 });
             }
             Err(_) => {
@@ -82,7 +83,8 @@ pub fn import_from_known_hosts(
     let reader = std::io::BufReader::new(file);
 
     let mut read_errors = 0;
-    let entries: Vec<HostEntry> = reader
+    let mut parse_failures = 0;
+    let lines: Vec<String> = reader
         .lines()
         .filter_map(|r| match r {
             Ok(line) => Some(line),
@@ -95,29 +97,47 @@ pub fn import_from_known_hosts(
             let trimmed = line.trim();
             !trimmed.is_empty() && !trimmed.starts_with('#')
         })
-        .filter_map(|line| parse_known_hosts_line(&line))
         .collect();
 
+    let mut entries = Vec::new();
+    for line in &lines {
+        match parse_known_hosts_line(line) {
+            KnownHostResult::Parsed(entry) => entries.push(entry),
+            KnownHostResult::Skipped => {} // Intentional skip (hashed, marker, IP-only, wildcard)
+            KnownHostResult::Failed => parse_failures += 1,
+        }
+    }
+
     let (imported, skipped) = add_entries(config, &entries, group)?;
-    Ok((imported, skipped, 0, read_errors))
+    Ok((imported, skipped, parse_failures, read_errors))
+}
+
+/// Result of parsing a known_hosts line.
+enum KnownHostResult {
+    /// Successfully parsed into a HostEntry.
+    Parsed(HostEntry),
+    /// Intentionally skipped (hashed, marker, IP-only, wildcard).
+    Skipped,
+    /// Failed to parse (malformed line).
+    Failed,
 }
 
 /// Parse a single known_hosts line into a HostEntry.
-fn parse_known_hosts_line(line: &str) -> Option<HostEntry> {
+fn parse_known_hosts_line(line: &str) -> KnownHostResult {
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.len() < 3 {
-        return None;
+        return KnownHostResult::Failed;
     }
 
     // Skip marker lines (@cert-authority, @revoked)
     if parts[0].starts_with('@') {
-        return None;
+        return KnownHostResult::Skipped;
     }
     let host_part = parts[0];
 
     // Skip hashed entries (start with |)
     if host_part.starts_with('|') {
-        return None;
+        return KnownHostResult::Skipped;
     }
 
     // Take the first host if comma-separated
@@ -125,7 +145,9 @@ fn parse_known_hosts_line(line: &str) -> Option<HostEntry> {
 
     // Handle [host]:port format
     let (hostname, port) = if host.starts_with('[') {
-        let end = host.find(']')?;
+        let Some(end) = host.find(']') else {
+            return KnownHostResult::Failed;
+        };
         let h = &host[1..end];
         let p = if host.len() > end + 2 && host.as_bytes()[end + 1] == b':' {
             host[end + 2..].parse::<u16>().unwrap_or(22)
@@ -137,9 +159,9 @@ fn parse_known_hosts_line(line: &str) -> Option<HostEntry> {
         (host.to_string(), 22)
     };
 
-    // Skip IP-only entries that look messy as aliases
+    // Skip empty hostname
     if hostname.is_empty() {
-        return None;
+        return KnownHostResult::Failed;
     }
 
     let alias = hostname
@@ -148,15 +170,15 @@ fn parse_known_hosts_line(line: &str) -> Option<HostEntry> {
         .unwrap_or(&hostname)
         .to_string();
 
-    // Skip numeric-only aliases (bare IPs) and wildcard patterns
-    if alias.chars().all(|c| c.is_ascii_digit() || c == ':') {
-        return None;
+    // Skip bare IP aliases (IPv4: digits+dots, IPv6: hex+colons) and wildcard patterns
+    if alias.chars().all(|c| c.is_ascii_hexdigit() || c == ':') {
+        return KnownHostResult::Skipped;
     }
     if alias.contains('*') || alias.contains('?') {
-        return None;
+        return KnownHostResult::Skipped;
     }
 
-    Some(HostEntry {
+    KnownHostResult::Parsed(HostEntry {
         alias,
         hostname,
         user: String::new(),
@@ -165,6 +187,7 @@ fn parse_known_hosts_line(line: &str) -> Option<HostEntry> {
         proxy_jump: String::new(),
         source_file: None,
         tags: Vec::new(),
+        provider: None,
     })
 }
 
@@ -195,7 +218,7 @@ fn add_entries(
     }
 
     for entry in entries {
-        let alias = deduplicate_alias(config, &entry.alias);
+        let alias = config.deduplicate_alias(&entry.alias);
         if alias == entry.alias && config.has_host(&alias) {
             skipped += 1;
             continue;
@@ -218,19 +241,6 @@ fn add_entries(
     Ok((imported, skipped))
 }
 
-/// Generate a unique alias by appending -2, -3, etc. if the base alias is taken.
-fn deduplicate_alias(config: &SshConfigFile, base: &str) -> String {
-    if !config.has_host(base) {
-        return base.to_string();
-    }
-    for n in 2..=99 {
-        let candidate = format!("{}-{}", base, n);
-        if !config.has_host(&candidate) {
-            return candidate;
-        }
-    }
-    base.to_string()
-}
 
 #[cfg(test)]
 mod tests {
@@ -238,7 +248,11 @@ mod tests {
 
     #[test]
     fn test_parse_known_hosts_simple() {
-        let entry = parse_known_hosts_line("example.com ssh-rsa AAAA...").unwrap();
+        let KnownHostResult::Parsed(entry) =
+            parse_known_hosts_line("example.com ssh-rsa AAAA...")
+        else {
+            panic!("expected Parsed");
+        };
         assert_eq!(entry.hostname, "example.com");
         assert_eq!(entry.alias, "example");
         assert_eq!(entry.port, 22);
@@ -246,7 +260,11 @@ mod tests {
 
     #[test]
     fn test_parse_known_hosts_with_port() {
-        let entry = parse_known_hosts_line("[myhost.com]:2222 ssh-ed25519 AAAA...").unwrap();
+        let KnownHostResult::Parsed(entry) =
+            parse_known_hosts_line("[myhost.com]:2222 ssh-ed25519 AAAA...")
+        else {
+            panic!("expected Parsed");
+        };
         assert_eq!(entry.hostname, "myhost.com");
         assert_eq!(entry.alias, "myhost");
         assert_eq!(entry.port, 2222);
@@ -254,21 +272,75 @@ mod tests {
 
     #[test]
     fn test_parse_known_hosts_hashed() {
-        let result = parse_known_hosts_line("|1|abc=|def= ssh-rsa AAAA...");
-        assert!(result.is_none());
+        assert!(matches!(
+            parse_known_hosts_line("|1|abc=|def= ssh-rsa AAAA..."),
+            KnownHostResult::Skipped
+        ));
     }
 
     #[test]
     fn test_parse_known_hosts_ip_only() {
-        let result = parse_known_hosts_line("192.168.1.1 ssh-rsa AAAA...");
-        assert!(result.is_none());
+        assert!(matches!(
+            parse_known_hosts_line("192.168.1.1 ssh-rsa AAAA..."),
+            KnownHostResult::Skipped
+        ));
+    }
+
+    #[test]
+    fn test_parse_known_hosts_ipv6_skipped() {
+        // Bare IPv6 addresses should be skipped (hex digits + colons)
+        assert!(matches!(
+            parse_known_hosts_line("2001:db8::1 ssh-rsa AAAA..."),
+            KnownHostResult::Skipped
+        ));
+        assert!(matches!(
+            parse_known_hosts_line("fe80::1 ssh-ed25519 AAAA..."),
+            KnownHostResult::Skipped
+        ));
     }
 
     #[test]
     fn test_parse_known_hosts_comma_separated() {
-        let entry =
-            parse_known_hosts_line("myserver.com,192.168.1.1 ssh-ed25519 AAAA...").unwrap();
+        let KnownHostResult::Parsed(entry) =
+            parse_known_hosts_line("myserver.com,192.168.1.1 ssh-ed25519 AAAA...")
+        else {
+            panic!("expected Parsed");
+        };
         assert_eq!(entry.hostname, "myserver.com");
         assert_eq!(entry.alias, "myserver");
+    }
+
+    #[test]
+    fn test_parse_known_hosts_malformed_is_failure() {
+        // Too few fields = parse failure
+        assert!(matches!(
+            parse_known_hosts_line("onlyhost ssh-rsa"),
+            KnownHostResult::Failed
+        ));
+        // Unclosed bracket = parse failure
+        assert!(matches!(
+            parse_known_hosts_line("[broken ssh-rsa AAAA..."),
+            KnownHostResult::Failed
+        ));
+    }
+
+    #[test]
+    fn test_parse_known_hosts_marker_is_skipped() {
+        assert!(matches!(
+            parse_known_hosts_line("@cert-authority *.example.com ssh-rsa AAAA..."),
+            KnownHostResult::Skipped
+        ));
+        assert!(matches!(
+            parse_known_hosts_line("@revoked host.com ssh-rsa AAAA..."),
+            KnownHostResult::Skipped
+        ));
+    }
+
+    #[test]
+    fn test_parse_known_hosts_wildcard_is_skipped() {
+        assert!(matches!(
+            parse_known_hosts_line("*.example.com ssh-rsa AAAA..."),
+            KnownHostResult::Skipped
+        ));
     }
 }

@@ -22,12 +22,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         return;
     }
 
-    // Count hosts per tag
+    // Count hosts per tag (including provider as virtual tag)
     let tag_counts: std::collections::HashMap<&str, usize> = {
         let mut counts = std::collections::HashMap::new();
         for host in &app.hosts {
             for tag in &host.tags {
                 *counts.entry(tag.as_str()).or_insert(0) += 1;
+            }
+            if let Some(ref provider) = host.provider {
+                *counts.entry(provider.as_str()).or_insert(0) += 1;
             }
         }
         counts

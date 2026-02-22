@@ -74,6 +74,8 @@ pub struct HostEntry {
     pub source_file: Option<PathBuf>,
     /// Tags from purple:tags comment.
     pub tags: Vec<String>,
+    /// Cloud provider label from purple:provider comment (e.g. "do", "vultr").
+    pub provider: Option<String>,
 }
 
 impl HostEntry {
@@ -149,6 +151,40 @@ impl HostBlock {
         Vec::new()
     }
 
+    /// Extract provider info from purple:provider comment in directives.
+    /// Returns (provider_name, server_id), e.g. ("digitalocean", "412345678").
+    pub fn provider(&self) -> Option<(String, String)> {
+        for d in &self.directives {
+            if d.is_non_directive {
+                let trimmed = d.raw_line.trim();
+                if let Some(rest) = trimmed.strip_prefix("# purple:provider ") {
+                    if let Some((name, id)) = rest.split_once(':') {
+                        return Some((name.trim().to_string(), id.trim().to_string()));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Set provider on a host block. Replaces existing purple:provider comment or adds one.
+    pub fn set_provider(&mut self, provider_name: &str, server_id: &str) {
+        let indent = self.detect_indent();
+        self.directives.retain(|d| {
+            !(d.is_non_directive && d.raw_line.trim().starts_with("# purple:provider"))
+        });
+        let pos = self.content_end();
+        self.directives.insert(
+            pos,
+            Directive {
+                key: String::new(),
+                value: String::new(),
+                raw_line: format!("{}# purple:provider {}:{}", indent, provider_name, server_id),
+                is_non_directive: true,
+            },
+        );
+    }
+
     /// Set tags on a host block. Replaces existing purple:tags comment or adds one.
     pub fn set_tags(&mut self, tags: &[String]) {
         let indent = self.detect_indent();
@@ -194,6 +230,7 @@ impl HostBlock {
             }
         }
         entry.tags = self.tags();
+        entry.provider = self.provider().map(|(name, _)| name);
         entry
     }
 }
@@ -407,6 +444,66 @@ impl SshConfigFile {
                 is_non_directive: false,
             },
         );
+    }
+
+    /// Set provider on a host block by alias.
+    pub fn set_host_provider(&mut self, alias: &str, provider_name: &str, server_id: &str) {
+        for element in &mut self.elements {
+            if let ConfigElement::HostBlock(block) = element {
+                if block.host_pattern == alias {
+                    block.set_provider(provider_name, server_id);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Find all hosts with a specific provider, returning (alias, server_id) pairs.
+    /// Searches both top-level elements and Include files so that provider hosts
+    /// in included configs are recognized during sync (prevents duplicate additions).
+    pub fn find_hosts_by_provider(&self, provider_name: &str) -> Vec<(String, String)> {
+        let mut results = Vec::new();
+        Self::collect_provider_hosts(&self.elements, provider_name, &mut results);
+        results
+    }
+
+    fn collect_provider_hosts(
+        elements: &[ConfigElement],
+        provider_name: &str,
+        results: &mut Vec<(String, String)>,
+    ) {
+        for element in elements {
+            match element {
+                ConfigElement::HostBlock(block) => {
+                    if let Some((name, id)) = block.provider() {
+                        if name == provider_name {
+                            results.push((block.host_pattern.clone(), id));
+                        }
+                    }
+                }
+                ConfigElement::Include(include) => {
+                    for file in &include.resolved_files {
+                        Self::collect_provider_hosts(&file.elements, provider_name, results);
+                    }
+                }
+                ConfigElement::GlobalLine(_) => {}
+            }
+        }
+    }
+
+    /// Generate a unique alias by appending -2, -3, etc. if the base alias is taken.
+    pub fn deduplicate_alias(&self, base: &str) -> String {
+        if !self.has_host(base) {
+            return base.to_string();
+        }
+        for n in 2..=9999 {
+            let candidate = format!("{}-{}", base, n);
+            if !self.has_host(&candidate) {
+                return candidate;
+            }
+        }
+        // Practically unreachable: fall back to PID-based suffix
+        format!("{}-{}", base, std::process::id())
     }
 
     /// Set tags on a host block by alias.

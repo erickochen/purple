@@ -11,6 +11,14 @@ pub enum AppEvent {
     Key(KeyEvent),
     Tick,
     PingResult { alias: String, reachable: bool },
+    SyncComplete {
+        provider: String,
+        hosts: Vec<crate::providers::ProviderHost>,
+    },
+    SyncError {
+        provider: String,
+        message: String,
+    },
     PollError,
 }
 
@@ -109,15 +117,18 @@ impl EventHandler {
 
     /// Resume event polling (call after SSH exits).
     pub fn resume(&self) {
-        // Drain stale events, but keep PingResult events
-        let mut ping_results = Vec::new();
+        // Drain stale events, but keep background result events
+        let mut preserved = Vec::new();
         while let Ok(event) = self.rx.try_recv() {
-            if let AppEvent::PingResult { alias, reachable } = event {
-                ping_results.push(AppEvent::PingResult { alias, reachable });
+            match event {
+                AppEvent::PingResult { .. }
+                | AppEvent::SyncComplete { .. }
+                | AppEvent::SyncError { .. } => preserved.push(event),
+                _ => {}
             }
         }
-        // Re-send preserved PingResult events
-        for event in ping_results {
+        // Re-send preserved events
+        for event in preserved {
             let _ = self.tx.send(event);
         }
         self.paused.store(false, Ordering::Release);
