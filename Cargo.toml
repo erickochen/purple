@@ -1,8 +1,8 @@
 [package]
 name = "purple-ssh"
-version = "1.1.1"
+version = "1.2.0"
 edition = "2024"
-description = "Rust TUI SSH config manager and host launcher for OpenSSH (~/.ssh/config), with cloud provider sync for DigitalOcean, Vultr, Linode and Hetzner."
+description = "Rust TUI SSH config manager and host launcher for OpenSSH (~/.ssh/config), with cloud provider sync for DigitalOcean, Vultr, Linode, Hetzner and UpCloud."
 license = "MIT"
 repository = "https://github.com/erickochen/purple"
 homepage = "https://github.com/erickochen/purple"

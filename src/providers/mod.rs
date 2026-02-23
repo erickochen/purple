@@ -3,6 +3,7 @@ mod digitalocean;
 mod hetzner;
 mod linode;
 pub mod sync;
+mod upcloud;
 mod vultr;
 
 use thiserror::Error;
@@ -15,7 +16,7 @@ pub struct ProviderHost {
     pub server_id: String,
     /// Server name/label.
     pub name: String,
-    /// Public IPv4 address.
+    /// Public IP address (IPv4 or IPv6).
     pub ip: String,
     /// Provider tags/labels.
     pub tags: Vec<String>,
@@ -45,7 +46,7 @@ pub trait Provider {
 }
 
 /// All known provider names.
-pub const PROVIDER_NAMES: &[&str] = &["digitalocean", "vultr", "linode", "hetzner"];
+pub const PROVIDER_NAMES: &[&str] = &["digitalocean", "vultr", "linode", "hetzner", "upcloud"];
 
 /// Get a provider implementation by name.
 pub fn get_provider(name: &str) -> Option<Box<dyn Provider>> {
@@ -54,6 +55,7 @@ pub fn get_provider(name: &str) -> Option<Box<dyn Provider>> {
         "vultr" => Some(Box::new(vultr::Vultr)),
         "linode" => Some(Box::new(linode::Linode)),
         "hetzner" => Some(Box::new(hetzner::Hetzner)),
+        "upcloud" => Some(Box::new(upcloud::UpCloud)),
         _ => None,
     }
 }

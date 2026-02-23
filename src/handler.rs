@@ -750,6 +750,7 @@ fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
                             "vultr" => "Vultr",
                             "linode" => "Linode",
                             "hetzner" => "Hetzner",
+                            "upcloud" => "UpCloud",
                             n => n,
                         };
                         app.syncing_providers.insert(name.to_string());
@@ -772,6 +773,7 @@ fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
                                 "vultr" => "Vultr",
                                 "linode" => "Linode",
                                 "hetzner" => "Hetzner",
+                                "upcloud" => "UpCloud",
                                 n => n,
                             };
                             app.set_status(
@@ -840,6 +842,7 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
             "vultr" => "Vultr",
             "linode" => "Linode",
             "hetzner" => "Hetzner",
+            "upcloud" => "UpCloud",
             n => n,
         };
         app.set_status(
@@ -872,6 +875,7 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         "vultr" => "Vultr",
         "linode" => "Linode",
         "hetzner" => "Hetzner",
+        "upcloud" => "UpCloud",
         n => n,
     };
     app.syncing_providers.insert(provider_name.clone());

@@ -86,7 +86,7 @@ enum Commands {
         #[arg(short, long)]
         group: Option<String>,
     },
-    /// Sync hosts from cloud providers (DigitalOcean, Vultr, Linode, Hetzner)
+    /// Sync hosts from cloud providers (DigitalOcean, Vultr, Linode, Hetzner, UpCloud)
     Sync {
         /// Sync a specific provider (default: all configured)
         provider: Option<String>,
@@ -110,7 +110,7 @@ enum Commands {
 enum ProviderCommands {
     /// Add or update a provider configuration
     Add {
-        /// Provider name (digitalocean, vultr, linode, hetzner)
+        /// Provider name (digitalocean, vultr, linode, hetzner, upcloud)
         provider: String,
 
         /// API token
@@ -335,6 +335,7 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
                             "vultr" => "Vultr",
                             "linode" => "Linode",
                             "hetzner" => "Hetzner",
+                            "upcloud" => "UpCloud",
                             name => name,
                         };
                         app.set_status(
@@ -354,6 +355,7 @@ fn run_tui(mut app: App, config_str: &str) -> Result<()> {
                     "vultr" => "Vultr",
                     "linode" => "Linode",
                     "hetzner" => "Hetzner",
+                    "upcloud" => "UpCloud",
                     name => name,
                 };
                 app.set_status(
@@ -522,7 +524,7 @@ fn handle_sync(
     let sections: Vec<&providers::config::ProviderSection> = if let Some(name) = provider_name {
         if providers::get_provider(name).is_none() {
             eprintln!(
-                "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner.",
+                "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner, upcloud.",
                 name
             );
             std::process::exit(1);
@@ -554,7 +556,7 @@ fn handle_sync(
             Some(p) => p,
             None => {
                 eprintln!(
-                    "Skipping unknown provider '{}'. Try: digitalocean, vultr, linode, hetzner.",
+                    "Skipping unknown provider '{}'. Try: digitalocean, vultr, linode, hetzner, upcloud.",
                     section.provider
                 );
                 any_failures = true;
@@ -566,6 +568,7 @@ fn handle_sync(
             "vultr" => "Vultr",
             "linode" => "Linode",
             "hetzner" => "Hetzner",
+            "upcloud" => "UpCloud",
             name => name,
         };
         print!("Syncing {}... ", display_name);
@@ -620,7 +623,7 @@ fn handle_provider_command(command: ProviderCommands) -> Result<()> {
                 Some(p) => p,
                 None => {
                     eprintln!(
-                        "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner.",
+                        "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner, upcloud.",
                         provider
                     );
                     std::process::exit(1);
@@ -655,6 +658,7 @@ fn handle_provider_command(command: ProviderCommands) -> Result<()> {
                         "vultr" => "Vultr",
                         "linode" => "Linode",
                         "hetzner" => "Hetzner",
+                        "upcloud" => "UpCloud",
                         name => name,
                     };
                     println!(

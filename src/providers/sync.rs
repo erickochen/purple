@@ -41,6 +41,7 @@ fn provider_header(name: &str) -> &str {
         "vultr" => "Vultr",
         "linode" => "Linode",
         "hetzner" => "Hetzner",
+        "upcloud" => "UpCloud",
         other => other,
     }
 }

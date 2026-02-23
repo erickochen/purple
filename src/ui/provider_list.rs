@@ -25,6 +25,7 @@ pub fn render_provider_list(frame: &mut Frame, app: &mut App) {
                 "vultr" => "Vultr",
                 "linode" => "Linode",
                 "hetzner" => "Hetzner",
+                "upcloud" => "UpCloud",
                 n => n,
             };
             let configured = app.provider_config.section(name).is_some();
@@ -99,6 +100,7 @@ pub fn render_provider_form(frame: &mut Frame, app: &mut App, provider_name: &st
         "vultr" => "Vultr",
         "linode" => "Linode",
         "hetzner" => "Hetzner",
+        "upcloud" => "UpCloud",
         n => n,
     };
     let title = format!(" Configure {} ", display_name);

@@ -10,7 +10,7 @@
 
 <p align="center">
   A keyboard-driven terminal UI (TUI) for managing OpenSSH hosts and editing <code>~/.ssh/config</code>.<br>
-  Search, tag, ping, sync from DigitalOcean, Vultr, Linode and Hetzner, and connect without leaving the terminal.<br>
+  Search, tag, ping, sync from DigitalOcean, Vultr, Linode, Hetzner and UpCloud, and connect without leaving the terminal.<br>
   Reads and writes SSH config files with round-trip fidelity.<br>
   Your comments, formatting and unknown directives stay exactly where they are.
 </p>
@@ -27,7 +27,7 @@
 
 🏷️ **Tags** — label hosts with #tags, filter with tag picker or search
 
-☁️ **Cloud provider sync** — pull servers from DigitalOcean, Vultr, Linode and Hetzner into your SSH config
+☁️ **Cloud provider sync** — pull servers from DigitalOcean, Vultr, Linode, Hetzner and UpCloud into your SSH config
 
 📂 **Include support** — displays hosts from Include files (read-only)
 
