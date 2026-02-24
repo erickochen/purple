@@ -18,7 +18,7 @@
   directly into your config. No browser, no YAML files, no context switching.
 </p>
 
-<p align="center"><img src="demo.gif" alt="purple SSH config manager TUI demo showing host search, connect and cloud sync" width="700"></p>
+<p align="center"><img src="demo.gif" alt="purple SSH config manager TUI demo showing host search, connect and cloud sync" width="800"></p>
 
 ## Launch, search and connect
 
