@@ -20,6 +20,38 @@
 
 <p align="center"><img src="demo.gif" alt="purple SSH config manager TUI demo showing host search, connect and cloud sync" width="800"></p>
 
+## Install
+
+```bash
+curl -fsSL getpurple.sh | sh
+```
+
+<details>
+<summary>Other install methods</summary>
+
+<br>
+
+**Homebrew (macOS)**
+
+```bash
+brew install erickochen/purple/purple
+```
+
+**Cargo** (crate name: `purple-ssh`)
+
+```bash
+cargo install purple-ssh
+```
+
+**From source**
+
+```bash
+git clone https://github.com/erickochen/purple.git
+cd purple && cargo build --release
+```
+
+</details>
+
 ## Launch, search and connect
 
 🚀 **Instant search.** Filter on alias, hostname, user, tags or provider as you type
@@ -64,28 +96,6 @@ Synced hosts are tagged by provider and appear alongside your manual hosts.
 🎨 **Monochrome UI.** Works in any terminal, any font. One splash of color (the purple badge). Respects [NO_COLOR](https://no-color.org/).
 
 🐚 **Shell completions.** Bash, zsh and fish.
-
-## Install
-
-**Homebrew (macOS)**
-
-```bash
-brew install erickochen/purple/purple
-```
-
-**Cargo** (crate name: `purple-ssh`)
-
-```bash
-cargo install purple-ssh
-```
-
-**From source**
-
-```bash
-git clone https://github.com/erickochen/purple.git
-cd purple
-cargo build --release
-```
 
 ## Get started
 
