@@ -80,7 +80,7 @@ Downloads the latest release from GitHub, verifies the checksum and replaces the
 
 ## Cloud provider sync
 
-Pull your servers from DigitalOcean, Vultr, Linode, Hetzner and UpCloud directly into `~/.ssh/config`. Sync adds new hosts, updates changed IPs and tags, and optionally removes deleted servers. Preview with `--dry-run`.
+Pull your servers from DigitalOcean, Vultr, Linode, Hetzner and UpCloud directly into `~/.ssh/config`. Sync adds new hosts, updates changed IPs and merges tags. Tags you add manually are preserved across syncs. Use `--reset-tags` to replace local tags with provider tags. Preview with `--dry-run`.
 
 ```bash
 purple provider add digitalocean --token YOUR_TOKEN   # or use PURPLE_TOKEN env var
@@ -126,6 +126,7 @@ purple import --known-hosts         # Import from known_hosts
 purple provider add digitalocean    # Configure cloud provider
 purple sync                         # Sync all providers
 purple sync --dry-run               # Preview sync changes
+purple sync --reset-tags            # Replace local tags with provider tags
 purple tunnel list                  # List configured tunnels
 purple tunnel add myserver L:8080:localhost:80  # Add forward
 purple tunnel start myserver        # Start tunnel (Ctrl+C to stop)
@@ -210,7 +211,7 @@ purple --completions zsh            # Shell completions
 
 **It edits your real SSH config.** Most SSH config tools only read. purple reads, edits and writes `~/.ssh/config` directly.
 
-**It doesn't break anything.** Comments, indentation, unknown directives. All preserved through every edit. Tested with 719 tests including round-trip integration.
+**It doesn't break anything.** Comments, indentation, unknown directives. All preserved through every edit. Tested with 736 tests including round-trip integration.
 
 **It syncs your cloud servers.** purple is the only SSH config manager we know of that pulls hosts from DigitalOcean, Vultr, Linode, Hetzner and UpCloud directly into your config. Configure once, sync anytime.
 
@@ -237,7 +238,7 @@ The name `purple` was taken on crates.io. The binary is still called `purple`.
 
 ## Built with
 
-Rust. 719 tests. Zero clippy warnings. No async runtime. Single binary.
+Rust. 736 tests. Zero clippy warnings. No async runtime. Single binary.
 
 <p align="center">
   💜 <a href="LICENSE">MIT License</a>

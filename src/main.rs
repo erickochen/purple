@@ -101,6 +101,10 @@ enum Commands {
         /// Remove hosts that no longer exist on the provider
         #[arg(long)]
         remove: bool,
+
+        /// Replace local tags with provider tags instead of merging
+        #[arg(long)]
+        reset_tags: bool,
     },
     /// Manage cloud provider configurations
     Provider {
@@ -244,8 +248,9 @@ fn main() -> Result<()> {
             provider,
             dry_run,
             remove,
+            reset_tags,
         }) => {
-            return handle_sync(config, provider.as_deref(), dry_run, remove);
+            return handle_sync(config, provider.as_deref(), dry_run, remove, reset_tags);
         }
         Some(Commands::Tunnel { command }) => {
             return handle_tunnel_command(config, command);
@@ -591,6 +596,7 @@ fn handle_sync(
     provider_name: Option<&str>,
     dry_run: bool,
     remove: bool,
+    reset_tags: bool,
 ) -> Result<()> {
     let provider_config = providers::config::ProviderConfig::load();
     let sections: Vec<&providers::config::ProviderSection> = if let Some(name) = provider_name {
@@ -641,8 +647,8 @@ fn handle_sync(
         match provider.fetch_hosts(&section.token) {
             Ok(hosts) => {
                 println!("{} servers found.", hosts.len());
-                let result = providers::sync::sync_provider(
-                    &mut config, &*provider, &hosts, section, remove, dry_run,
+                let result = providers::sync::sync_provider_with_options(
+                    &mut config, &*provider, &hosts, section, remove, dry_run, reset_tags,
                 );
                 let prefix = if dry_run { "  Would have: " } else { "  " };
                 println!(

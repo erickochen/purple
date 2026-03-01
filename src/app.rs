@@ -1497,13 +1497,23 @@ impl App {
         Ok(format!("{} got a makeover.", alias))
     }
 
-    /// Select a host in the display list by alias.
-    fn select_host_by_alias(&mut self, alias: &str) {
-        for (i, item) in self.display_list.iter().enumerate() {
-            if let HostListItem::Host { index } = item {
-                if self.hosts.get(*index).is_some_and(|h| h.alias == *alias) {
+    /// Select a host in the display list (or filtered list) by alias.
+    pub fn select_host_by_alias(&mut self, alias: &str) {
+        if self.search.query.is_some() {
+            // In search mode, list_state indexes into filtered_indices
+            for (i, &host_idx) in self.search.filtered_indices.iter().enumerate() {
+                if self.hosts.get(host_idx).is_some_and(|h| h.alias == alias) {
                     self.ui.list_state.select(Some(i));
                     return;
+                }
+            }
+        } else {
+            for (i, item) in self.display_list.iter().enumerate() {
+                if let HostListItem::Host { index } = item {
+                    if self.hosts.get(*index).is_some_and(|h| h.alias == alias) {
+                        self.ui.list_state.select(Some(i));
+                        return;
+                    }
                 }
             }
         }
@@ -2304,5 +2314,49 @@ Host vultr-app
         };
         let err = form.validate().unwrap_err();
         assert!(err.contains("0"), "got: {}", err);
+    }
+
+    #[test]
+    fn select_host_by_alias_normal_mode() {
+        let mut app =
+            make_app("Host alpha\n  HostName a.com\n\nHost beta\n  HostName b.com\n");
+        app.select_host_by_alias("beta");
+        let selected = app.selected_host().unwrap();
+        assert_eq!(selected.alias, "beta");
+    }
+
+    #[test]
+    fn select_host_by_alias_search_mode() {
+        let mut app = make_app(
+            "Host alpha\n  HostName a.com\n\nHost beta\n  HostName b.com\n\nHost gamma\n  HostName g.com\n",
+        );
+        app.start_search();
+        // Filter to beta and gamma (both contain letter 'a' in hostname or alias)
+        app.search.query = Some("a".to_string());
+        app.apply_filter();
+        // filtered_indices should contain alpha (0) and gamma (2)
+        assert!(app.search.filtered_indices.contains(&0));
+        assert!(app.search.filtered_indices.contains(&2));
+
+        // Select gamma by alias — should find it in filtered_indices
+        app.select_host_by_alias("gamma");
+        let selected = app.selected_host().unwrap();
+        assert_eq!(selected.alias, "gamma");
+    }
+
+    #[test]
+    fn select_host_by_alias_search_mode_not_in_results() {
+        let mut app = make_app(
+            "Host alpha\n  HostName a.com\n\nHost beta\n  HostName b.com\n",
+        );
+        app.start_search();
+        app.search.query = Some("alpha".to_string());
+        app.apply_filter();
+        assert_eq!(app.search.filtered_indices, vec![0]);
+
+        // "beta" is not in filtered results — selection should not change
+        let before = app.ui.list_state.selected();
+        app.select_host_by_alias("beta");
+        assert_eq!(app.ui.list_state.selected(), before);
     }
 }

@@ -56,6 +56,29 @@ pub fn sync_provider(
     remove_deleted: bool,
     dry_run: bool,
 ) -> SyncResult {
+    sync_provider_with_options(
+        config,
+        provider,
+        remote_hosts,
+        section,
+        remove_deleted,
+        dry_run,
+        false,
+    )
+}
+
+/// Sync hosts from a cloud provider into the SSH config.
+/// When `reset_tags` is true, local tags are replaced with provider tags
+/// instead of being merged (cleans up stale tags).
+pub fn sync_provider_with_options(
+    config: &mut SshConfigFile,
+    provider: &dyn Provider,
+    remote_hosts: &[ProviderHost],
+    section: &ProviderSection,
+    remove_deleted: bool,
+    dry_run: bool,
+    reset_tags: bool,
+) -> SyncResult {
     let mut result = SyncResult::default();
 
     // Build map of server_id -> alias (top-level only, no Include files).
@@ -101,12 +124,26 @@ pub fn sync_provider(
                 let alias_changed = *existing_alias != expected_alias;
 
                 let ip_changed = entry.hostname != remote.ip;
-                let mut sorted_local = entry.tags.clone();
-                sorted_local.sort();
-                let mut sorted_remote: Vec<String> =
+                let trimmed_remote: Vec<String> =
                     remote.tags.iter().map(|t| t.trim().to_string()).collect();
-                sorted_remote.sort();
-                let tags_changed = sorted_local != sorted_remote;
+                let tags_changed = if reset_tags {
+                    // Exact comparison (case-insensitive): replace local tags with provider tags
+                    let mut sorted_local: Vec<String> =
+                        entry.tags.iter().map(|t| t.to_lowercase()).collect();
+                    sorted_local.sort();
+                    let mut sorted_remote: Vec<String> =
+                        trimmed_remote.iter().map(|t| t.to_lowercase()).collect();
+                    sorted_remote.sort();
+                    sorted_local != sorted_remote
+                } else {
+                    // Subset check (case-insensitive): only trigger when provider tags are missing locally
+                    trimmed_remote.iter().any(|rt| {
+                        !entry
+                            .tags
+                            .iter()
+                            .any(|lt| lt.eq_ignore_ascii_case(rt))
+                    })
+                };
                 if alias_changed || ip_changed || tags_changed {
                     if dry_run {
                         result.updated += 1;
@@ -137,7 +174,18 @@ pub fn sync_provider(
                             let tags_alias =
                                 if alias_changed { &new_alias } else { existing_alias };
                             if tags_changed {
-                                config.set_host_tags(tags_alias, &remote.tags);
+                                if reset_tags {
+                                    config.set_host_tags(tags_alias, &trimmed_remote);
+                                } else {
+                                    // Merge (case-insensitive): keep existing local tags, add missing remote tags
+                                    let mut merged = entry.tags.clone();
+                                    for rt in &trimmed_remote {
+                                        if !merged.iter().any(|t| t.eq_ignore_ascii_case(rt)) {
+                                            merged.push(rt.clone());
+                                        }
+                                    }
+                                    config.set_host_tags(tags_alias, &merged);
+                                }
                             }
                             // Update provider marker with new alias
                             if alias_changed {
@@ -605,7 +653,7 @@ Host do-web-1-copy
         sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
         assert_eq!(config.host_entries()[0].tags, vec!["staging"]);
 
-        // Second sync: tags changed (IP same)
+        // Second sync: new provider tags added — existing tags are preserved (merge)
         let remote = vec![ProviderHost {
             server_id: "123".to_string(),
             name: "web-1".to_string(),
@@ -616,7 +664,7 @@ Host do-web-1-copy
         assert_eq!(result.updated, 1);
         assert_eq!(
             config.host_entries()[0].tags,
-            vec!["production", "us-east"]
+            vec!["staging", "production", "us-east"]
         );
     }
 
@@ -782,7 +830,7 @@ Host do-web-1-copy
     }
 
     #[test]
-    fn test_sync_tags_cleared() {
+    fn test_sync_tags_cleared_remotely_preserved_locally() {
         let mut config = empty_config();
         let section = make_section();
 
@@ -796,7 +844,7 @@ Host do-web-1-copy
         sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
         assert_eq!(config.host_entries()[0].tags, vec!["production"]);
 
-        // Second sync: tags removed
+        // Second sync: remote tags empty — local tags preserved (may be user-added)
         let remote = vec![ProviderHost {
             server_id: "123".to_string(),
             name: "web-1".to_string(),
@@ -804,8 +852,8 @@ Host do-web-1-copy
             tags: Vec::new(),
         }];
         let result = sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
-        assert_eq!(result.updated, 1);
-        assert!(config.host_entries()[0].tags.is_empty());
+        assert_eq!(result.unchanged, 1);
+        assert_eq!(config.host_entries()[0].tags, vec!["production"]);
     }
 
     #[test]
@@ -1032,5 +1080,197 @@ Host do-web-1-copy
         let entries = config.host_entries();
         let provider_host = entries.iter().find(|e| e.hostname == "1.2.3.4").unwrap();
         assert_eq!(provider_host.alias, "ocean-web-1-2", "Alias should be stable across syncs");
+    }
+
+    #[test]
+    fn test_sync_preserves_user_tags() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // First sync: add host with provider tag
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["nyc1".to_string()],
+        }];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(config.host_entries()[0].tags, vec!["nyc1"]);
+
+        // User manually adds a tag via the TUI
+        config.set_host_tags("do-web-1", &["nyc1".to_string(), "prod".to_string()]);
+        assert_eq!(config.host_entries()[0].tags, vec!["nyc1", "prod"]);
+
+        // Second sync: same provider tags — user tag "prod" must survive
+        let result = sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(result.unchanged, 1);
+        assert_eq!(config.host_entries()[0].tags, vec!["nyc1", "prod"]);
+    }
+
+    #[test]
+    fn test_sync_merges_new_provider_tag_with_user_tags() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // First sync: add host with provider tag
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["nyc1".to_string()],
+        }];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+
+        // User manually adds a tag
+        config.set_host_tags("do-web-1", &["nyc1".to_string(), "critical".to_string()]);
+
+        // Second sync: provider adds a new tag — user tag must be preserved
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["nyc1".to_string(), "v2".to_string()],
+        }];
+        let result = sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(result.updated, 1);
+        let tags = &config.host_entries()[0].tags;
+        assert!(tags.contains(&"nyc1".to_string()));
+        assert!(tags.contains(&"critical".to_string()));
+        assert!(tags.contains(&"v2".to_string()));
+    }
+
+    #[test]
+    fn test_sync_reset_tags_replaces_local_tags() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // First sync: add host with provider tag
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["nyc1".to_string()],
+        }];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+
+        // User manually adds a tag
+        config.set_host_tags("do-web-1", &["nyc1".to_string(), "prod".to_string()]);
+        assert_eq!(config.host_entries()[0].tags, vec!["nyc1", "prod"]);
+
+        // Sync with reset_tags: user tag "prod" is removed
+        let result = sync_provider_with_options(
+            &mut config, &MockProvider, &remote, &section, false, false, true,
+        );
+        assert_eq!(result.updated, 1);
+        assert_eq!(config.host_entries()[0].tags, vec!["nyc1"]);
+    }
+
+    #[test]
+    fn test_sync_reset_tags_clears_stale_tags() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // First sync: host with tags
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["staging".to_string()],
+        }];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+
+        // Second sync with reset_tags: provider removed all tags
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: Vec::new(),
+        }];
+        let result = sync_provider_with_options(
+            &mut config, &MockProvider, &remote, &section, false, false, true,
+        );
+        assert_eq!(result.updated, 1);
+        assert!(config.host_entries()[0].tags.is_empty());
+    }
+
+    #[test]
+    fn test_sync_reset_tags_unchanged_when_matching() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // Sync: add host with tags
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["prod".to_string(), "nyc1".to_string()],
+        }];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+
+        // Reset-tags sync with same tags (different order): unchanged
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["nyc1".to_string(), "prod".to_string()],
+        }];
+        let result = sync_provider_with_options(
+            &mut config, &MockProvider, &remote, &section, false, false, true,
+        );
+        assert_eq!(result.unchanged, 1);
+    }
+
+    #[test]
+    fn test_sync_merge_case_insensitive() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // First sync: add host with lowercase tag
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["prod".to_string()],
+        }];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(config.host_entries()[0].tags, vec!["prod"]);
+
+        // Second sync: provider returns same tag with different casing — no duplicate
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["Prod".to_string()],
+        }];
+        let result = sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(result.unchanged, 1);
+        assert_eq!(config.host_entries()[0].tags, vec!["prod"]);
+    }
+
+    #[test]
+    fn test_sync_reset_tags_case_insensitive_unchanged() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // Sync: add host with tag
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["prod".to_string()],
+        }];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+
+        // Reset-tags sync with different casing: unchanged (case-insensitive comparison)
+        let remote = vec![ProviderHost {
+            server_id: "123".to_string(),
+            name: "web-1".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: vec!["Prod".to_string()],
+        }];
+        let result = sync_provider_with_options(
+            &mut config, &MockProvider, &remote, &section, false, false, true,
+        );
+        assert_eq!(result.unchanged, 1);
     }
 }

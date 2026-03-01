@@ -582,6 +582,7 @@ fn handle_tag_input(app: &mut App, key: KeyEvent) {
                         app.update_last_modified();
                         let count = tags.len();
                         app.reload_hosts();
+                        app.select_host_by_alias(&alias);
                         app.set_status(
                             format!(
                                 "Tagged {} with {} label{}.",
