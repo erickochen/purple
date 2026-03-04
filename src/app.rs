@@ -222,36 +222,60 @@ impl HostForm {
 /// Which provider form field is focused.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ProviderFormField {
+    Url,
     Token,
     AliasPrefix,
     User,
     IdentityFile,
+    VerifyTls,
+    AutoSync,
 }
 
 impl ProviderFormField {
-    pub const ALL: [ProviderFormField; 4] = [
+    const CLOUD_FIELDS: &[ProviderFormField] = &[
         ProviderFormField::Token,
         ProviderFormField::AliasPrefix,
         ProviderFormField::User,
         ProviderFormField::IdentityFile,
+        ProviderFormField::AutoSync,
     ];
 
-    pub fn next(self) -> Self {
-        let idx = Self::ALL.iter().position(|f| *f == self).unwrap_or(0);
-        Self::ALL[(idx + 1) % Self::ALL.len()]
+    const PROXMOX_FIELDS: &[ProviderFormField] = &[
+        ProviderFormField::Url,
+        ProviderFormField::Token,
+        ProviderFormField::AliasPrefix,
+        ProviderFormField::User,
+        ProviderFormField::IdentityFile,
+        ProviderFormField::VerifyTls,
+        ProviderFormField::AutoSync,
+    ];
+
+    pub fn fields_for(provider: &str) -> &'static [ProviderFormField] {
+        match provider {
+            "proxmox" => Self::PROXMOX_FIELDS,
+            _ => Self::CLOUD_FIELDS,
+        }
     }
 
-    pub fn prev(self) -> Self {
-        let idx = Self::ALL.iter().position(|f| *f == self).unwrap_or(0);
-        Self::ALL[(idx + Self::ALL.len() - 1) % Self::ALL.len()]
+    pub fn next(self, fields: &[Self]) -> Self {
+        let idx = fields.iter().position(|f| *f == self).unwrap_or(0);
+        fields[(idx + 1) % fields.len()]
+    }
+
+    pub fn prev(self, fields: &[Self]) -> Self {
+        let idx = fields.iter().position(|f| *f == self).unwrap_or(0);
+        fields[(idx + fields.len() - 1) % fields.len()]
     }
 
     pub fn label(self) -> &'static str {
         match self {
+            ProviderFormField::Url => "URL",
             ProviderFormField::Token => "Token",
             ProviderFormField::AliasPrefix => "Alias Prefix",
             ProviderFormField::User => "User",
             ProviderFormField::IdentityFile => "Identity File",
+            ProviderFormField::VerifyTls => "Verify TLS",
+            ProviderFormField::AutoSync => "Auto Sync",
         }
     }
 }
@@ -259,30 +283,39 @@ impl ProviderFormField {
 /// Form state for configuring a provider.
 #[derive(Debug, Clone)]
 pub struct ProviderFormFields {
+    pub url: String,
     pub token: String,
     pub alias_prefix: String,
     pub user: String,
     pub identity_file: String,
+    pub verify_tls: bool,
+    pub auto_sync: bool,
     pub focused_field: ProviderFormField,
 }
 
 impl ProviderFormFields {
     pub fn new() -> Self {
         Self {
+            url: String::new(),
             token: String::new(),
             alias_prefix: String::new(),
             user: "root".to_string(),
             identity_file: String::new(),
+            verify_tls: true,
+            auto_sync: true,
             focused_field: ProviderFormField::Token,
         }
     }
 
     pub fn focused_value_mut(&mut self) -> &mut String {
         match self.focused_field {
+            ProviderFormField::Url => &mut self.url,
             ProviderFormField::Token => &mut self.token,
             ProviderFormField::AliasPrefix => &mut self.alias_prefix,
             ProviderFormField::User => &mut self.user,
             ProviderFormField::IdentityFile => &mut self.identity_file,
+            ProviderFormField::VerifyTls => unreachable!("VerifyTls is a toggle, not a text field"),
+            ProviderFormField::AutoSync => unreachable!("AutoSync is a toggle, not a text field"),
         }
     }
 }
@@ -1168,14 +1201,21 @@ impl App {
     }
 
     /// Provider names sorted by last sync (most recent first), then configured, then unconfigured.
-    pub fn sorted_provider_names(&self) -> Vec<&'static str> {
+    /// Includes any unknown provider names found in the config file (e.g. typos or future providers).
+    pub fn sorted_provider_names(&self) -> Vec<String> {
         use crate::providers;
-        let mut names: Vec<&str> = providers::PROVIDER_NAMES.to_vec();
+        let mut names: Vec<String> = providers::PROVIDER_NAMES.iter().map(|s| s.to_string()).collect();
+        // Append configured providers not in the known list so they are visible and removable
+        for section in &self.provider_config.sections {
+            if !names.contains(&section.provider) {
+                names.push(section.provider.clone());
+            }
+        }
         names.sort_by(|a, b| {
-            let ts_a = self.sync_history.get(*a).map_or(0, |r| r.timestamp);
-            let ts_b = self.sync_history.get(*b).map_or(0, |r| r.timestamp);
-            let conf_a = self.provider_config.section(a).is_some();
-            let conf_b = self.provider_config.section(b).is_some();
+            let ts_a = self.sync_history.get(a.as_str()).map_or(0, |r| r.timestamp);
+            let ts_b = self.sync_history.get(b.as_str()).map_or(0, |r| r.timestamp);
+            let conf_a = self.provider_config.section(a.as_str()).is_some();
+            let conf_b = self.provider_config.section(b.as_str()).is_some();
             ts_b.cmp(&ts_a).then(conf_b.cmp(&conf_a))
         });
         names
@@ -1556,7 +1596,7 @@ impl App {
             Some(s) => s,
             None => return (format!("{} sync skipped: no config.", provider), true, 0),
         };
-        let provider_impl = match crate::providers::get_provider(provider) {
+        let provider_impl = match crate::providers::get_provider_with_config(provider, &section) {
             Some(p) => p,
             None => return (format!("Unknown provider: {}.", provider), true, 0),
         };
@@ -2396,6 +2436,9 @@ Host vultr-app
             alias_prefix: "do".to_string(),
             user: "root".to_string(),
             identity_file: String::new(),
+            url: String::new(),
+            verify_tls: true,
+            auto_sync: true,
         });
         app
     }
@@ -2480,6 +2523,9 @@ Host vultr-app
             alias_prefix: "nope".to_string(),
             user: "root".to_string(),
             identity_file: String::new(),
+            url: String::new(),
+            verify_tls: true,
+            auto_sync: true,
         });
         let (msg, is_err, total) = app.apply_sync_result("nonexistent", vec![]);
         assert!(is_err);
@@ -2524,5 +2570,106 @@ Host vultr-app
         assert_eq!(record.timestamp, 200);
         assert!(!record.is_error);
         assert_eq!(record.message, "5 servers");
+    }
+
+    // --- auto_sync tests ---
+
+    fn make_section(provider: &str, auto_sync: bool) -> crate::providers::config::ProviderSection {
+        crate::providers::config::ProviderSection {
+            provider: provider.to_string(),
+            token: "tok".to_string(),
+            alias_prefix: provider[..2].to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            url: if provider == "proxmox" { "https://pve:8006".to_string() } else { String::new() },
+            verify_tls: true,
+            auto_sync,
+        }
+    }
+
+    #[test]
+    fn test_startup_auto_sync_filter_skips_disabled_providers() {
+        // Simuleert de startup-loop in main.rs: providers met auto_sync=false worden overgeslagen.
+        let mut config = crate::providers::config::ProviderConfig::default();
+        config.set_section(make_section("digitalocean", true));
+        config.set_section(make_section("proxmox", false));
+        let auto_synced: Vec<&str> = config
+            .configured_providers()
+            .iter()
+            .filter(|s| s.auto_sync)
+            .map(|s| s.provider.as_str())
+            .collect();
+        assert_eq!(auto_synced, vec!["digitalocean"]);
+        assert!(!auto_synced.contains(&"proxmox"));
+    }
+
+    #[test]
+    fn test_startup_auto_sync_filter_all_enabled() {
+        let mut config = crate::providers::config::ProviderConfig::default();
+        config.set_section(make_section("digitalocean", true));
+        config.set_section(make_section("vu", true)); // vultr-achtig
+        let skipped: Vec<&str> = config
+            .configured_providers()
+            .iter()
+            .filter(|s| !s.auto_sync)
+            .map(|s| s.provider.as_str())
+            .collect();
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn test_startup_auto_sync_filter_explicit_false_skips() {
+        // Niet-Proxmox provider met expliciete auto_sync=false wordt ook overgeslagen.
+        let mut config = crate::providers::config::ProviderConfig::default();
+        config.set_section(make_section("digitalocean", false));
+        let s = &config.configured_providers()[0];
+        assert!(!s.auto_sync);
+    }
+
+    #[test]
+    fn test_provider_form_fields_new_defaults() {
+        let form = ProviderFormFields::new();
+        assert!(form.auto_sync, "new() should default auto_sync to true");
+        assert!(form.verify_tls);
+        assert_eq!(form.focused_field, ProviderFormField::Token);
+    }
+
+    #[test]
+    fn test_provider_form_field_cloud_fields_include_auto_sync() {
+        let fields = ProviderFormField::fields_for("digitalocean");
+        assert!(
+            fields.contains(&ProviderFormField::AutoSync),
+            "CLOUD_FIELDS should contain AutoSync"
+        );
+        assert!(!fields.contains(&ProviderFormField::VerifyTls),
+            "CLOUD_FIELDS should not contain VerifyTls"
+        );
+    }
+
+    #[test]
+    fn test_provider_form_field_proxmox_fields_include_auto_sync_and_verify_tls() {
+        let fields = ProviderFormField::fields_for("proxmox");
+        assert!(
+            fields.contains(&ProviderFormField::AutoSync),
+            "PROXMOX_FIELDS should contain AutoSync"
+        );
+        assert!(
+            fields.contains(&ProviderFormField::VerifyTls),
+            "PROXMOX_FIELDS should contain VerifyTls"
+        );
+    }
+
+    #[test]
+    fn test_provider_form_field_auto_sync_is_last_in_both_field_lists() {
+        let cloud = ProviderFormField::fields_for("digitalocean");
+        assert_eq!(*cloud.last().unwrap(), ProviderFormField::AutoSync);
+
+        let proxmox = ProviderFormField::fields_for("proxmox");
+        assert_eq!(*proxmox.last().unwrap(), ProviderFormField::AutoSync);
+    }
+
+    #[test]
+    fn test_provider_form_field_label_auto_sync() {
+        assert_eq!(ProviderFormField::AutoSync.label(), "Auto Sync");
     }
 }

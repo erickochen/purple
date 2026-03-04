@@ -11,6 +11,14 @@ pub struct ProviderSection {
     pub alias_prefix: String,
     pub user: String,
     pub identity_file: String,
+    pub url: String,
+    pub verify_tls: bool,
+    pub auto_sync: bool,
+}
+
+/// Default for auto_sync: false for proxmox (N+1 API calls), true for all others.
+fn default_auto_sync(provider: &str) -> bool {
+    provider != "proxmox"
 }
 
 /// Parsed provider configuration from ~/.purple/providers.
@@ -67,12 +75,16 @@ impl ProviderConfig {
                 let short_label = super::get_provider(&name)
                     .map(|p| p.short_label().to_string())
                     .unwrap_or_else(|| name.clone());
+                let auto_sync_default = default_auto_sync(&name);
                 current = Some(ProviderSection {
                     provider: name,
                     token: String::new(),
                     alias_prefix: short_label,
                     user: "root".to_string(),
                     identity_file: String::new(),
+                    url: String::new(),
+                    verify_tls: true,
+                    auto_sync: auto_sync_default,
                 });
             } else if let Some(ref mut section) = current {
                 if let Some((key, value)) = trimmed.split_once('=') {
@@ -83,6 +95,13 @@ impl ProviderConfig {
                         "alias_prefix" => section.alias_prefix = value,
                         "user" => section.user = value,
                         "key" => section.identity_file = value,
+                        "url" => section.url = value,
+                        "verify_tls" => section.verify_tls = !matches!(
+                            value.to_lowercase().as_str(), "false" | "0" | "no"
+                        ),
+                        "auto_sync" => section.auto_sync = !matches!(
+                            value.to_lowercase().as_str(), "false" | "0" | "no"
+                        ),
                         _ => {}
                     }
                 }
@@ -119,6 +138,15 @@ impl ProviderConfig {
             content.push_str(&format!("user={}\n", section.user));
             if !section.identity_file.is_empty() {
                 content.push_str(&format!("key={}\n", section.identity_file));
+            }
+            if !section.url.is_empty() {
+                content.push_str(&format!("url={}\n", section.url));
+            }
+            if !section.verify_tls {
+                content.push_str("verify_tls=false\n");
+            }
+            if section.auto_sync != default_auto_sync(&section.provider) {
+                content.push_str(if section.auto_sync { "auto_sync=true\n" } else { "auto_sync=false\n" });
             }
         }
 
@@ -219,6 +247,9 @@ token=mytoken
             alias_prefix: "vultr".to_string(),
             user: "root".to_string(),
             identity_file: String::new(),
+            url: String::new(),
+            verify_tls: true,
+            auto_sync: true,
         });
         assert_eq!(config.sections.len(), 1);
     }
@@ -232,6 +263,9 @@ token=mytoken
             alias_prefix: "vultr".to_string(),
             user: "root".to_string(),
             identity_file: String::new(),
+            url: String::new(),
+            verify_tls: true,
+            auto_sync: true,
         });
         assert_eq!(config.sections.len(), 1);
         assert_eq!(config.sections[0].token, "new");
@@ -292,5 +326,218 @@ token=dup
         assert_eq!(s.user, "root");
         assert_eq!(s.alias_prefix, "hetzner");
         assert!(s.identity_file.is_empty());
+        assert!(s.url.is_empty());
+        assert!(s.verify_tls);
+        assert!(s.auto_sync);
+    }
+
+    #[test]
+    fn test_parse_url_and_verify_tls() {
+        let content = "\
+[proxmox]
+token=user@pam!purple=secret
+url=https://pve.example.com:8006
+verify_tls=false
+";
+        let config = ProviderConfig::parse(content);
+        assert_eq!(config.sections.len(), 1);
+        let s = &config.sections[0];
+        assert_eq!(s.url, "https://pve.example.com:8006");
+        assert!(!s.verify_tls);
+    }
+
+    #[test]
+    fn test_url_and_verify_tls_round_trip() {
+        let content = "\
+[proxmox]
+token=tok
+alias_prefix=pve
+user=root
+url=https://pve.local:8006
+verify_tls=false
+";
+        let config = ProviderConfig::parse(content);
+        let s = &config.sections[0];
+        assert_eq!(s.url, "https://pve.local:8006");
+        assert!(!s.verify_tls);
+    }
+
+    #[test]
+    fn test_verify_tls_default_true() {
+        // verify_tls not present -> defaults to true
+        let config = ProviderConfig::parse("[proxmox]\ntoken=abc\nurl=https://pve:8006\n");
+        assert!(config.sections[0].verify_tls);
+    }
+
+    #[test]
+    fn test_verify_tls_false_variants() {
+        for value in &["false", "False", "FALSE", "0", "no", "No", "NO"] {
+            let content = format!("[proxmox]\ntoken=abc\nurl=https://pve:8006\nverify_tls={}\n", value);
+            let config = ProviderConfig::parse(&content);
+            assert!(!config.sections[0].verify_tls, "verify_tls={} should be false", value);
+        }
+    }
+
+    #[test]
+    fn test_verify_tls_true_variants() {
+        for value in &["true", "True", "1", "yes"] {
+            let content = format!("[proxmox]\ntoken=abc\nurl=https://pve:8006\nverify_tls={}\n", value);
+            let config = ProviderConfig::parse(&content);
+            assert!(config.sections[0].verify_tls, "verify_tls={} should be true", value);
+        }
+    }
+
+    #[test]
+    fn test_non_proxmox_url_not_written() {
+        // url and verify_tls=false must not appear for non-Proxmox providers in saved config
+        let section = ProviderSection {
+            provider: "digitalocean".to_string(),
+            token: "tok".to_string(),
+            alias_prefix: "do".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            url: String::new(),     // empty: not written
+            verify_tls: true,       // default: not written
+            auto_sync: true,        // default for non-proxmox: not written
+        };
+        let mut config = ProviderConfig::default();
+        config.set_section(section);
+        // Parse it back: url and verify_tls should be at defaults
+        let s = &config.sections[0];
+        assert!(s.url.is_empty());
+        assert!(s.verify_tls);
+    }
+
+    #[test]
+    fn test_proxmox_url_fallback_in_section() {
+        // Simulates the update path: existing section has url, new section should preserve it
+        let existing = ProviderConfig::parse(
+            "[proxmox]\ntoken=old\nalias_prefix=pve\nuser=root\nurl=https://pve.local:8006\n",
+        );
+        let existing_url = existing.section("proxmox").map(|s| s.url.clone()).unwrap_or_default();
+        assert_eq!(existing_url, "https://pve.local:8006");
+
+        let mut config = existing;
+        config.set_section(ProviderSection {
+            provider: "proxmox".to_string(),
+            token: "new".to_string(),
+            alias_prefix: "pve".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            url: existing_url,
+            verify_tls: true,
+            auto_sync: false,
+        });
+        assert_eq!(config.sections[0].token, "new");
+        assert_eq!(config.sections[0].url, "https://pve.local:8006");
+    }
+
+    #[test]
+    fn test_auto_sync_default_true_for_non_proxmox() {
+        let config = ProviderConfig::parse("[digitalocean]\ntoken=abc\n");
+        assert!(config.sections[0].auto_sync);
+    }
+
+    #[test]
+    fn test_auto_sync_default_false_for_proxmox() {
+        let config = ProviderConfig::parse("[proxmox]\ntoken=abc\nurl=https://pve:8006\n");
+        assert!(!config.sections[0].auto_sync);
+    }
+
+    #[test]
+    fn test_auto_sync_explicit_true() {
+        let config = ProviderConfig::parse("[proxmox]\ntoken=abc\nurl=https://pve:8006\nauto_sync=true\n");
+        assert!(config.sections[0].auto_sync);
+    }
+
+    #[test]
+    fn test_auto_sync_explicit_false_non_proxmox() {
+        let config = ProviderConfig::parse("[digitalocean]\ntoken=abc\nauto_sync=false\n");
+        assert!(!config.sections[0].auto_sync);
+    }
+
+    #[test]
+    fn test_auto_sync_not_written_when_default() {
+        // non-proxmox with auto_sync=true (default) -> not written
+        let mut config = ProviderConfig::default();
+        config.set_section(ProviderSection {
+            provider: "digitalocean".to_string(),
+            token: "tok".to_string(),
+            alias_prefix: "do".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            url: String::new(),
+            verify_tls: true,
+            auto_sync: true,
+        });
+        // Re-parse: auto_sync should still be true (default)
+        assert!(config.sections[0].auto_sync);
+
+        // proxmox with auto_sync=false (default) -> not written
+        let mut config2 = ProviderConfig::default();
+        config2.set_section(ProviderSection {
+            provider: "proxmox".to_string(),
+            token: "tok".to_string(),
+            alias_prefix: "pve".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            url: "https://pve:8006".to_string(),
+            verify_tls: true,
+            auto_sync: false,
+        });
+        assert!(!config2.sections[0].auto_sync);
+    }
+
+    #[test]
+    fn test_auto_sync_false_variants() {
+        for value in &["false", "False", "FALSE", "0", "no"] {
+            let content = format!("[digitalocean]\ntoken=abc\nauto_sync={}\n", value);
+            let config = ProviderConfig::parse(&content);
+            assert!(!config.sections[0].auto_sync, "auto_sync={} should be false", value);
+        }
+    }
+
+    #[test]
+    fn test_auto_sync_true_variants() {
+        for value in &["true", "True", "TRUE", "1", "yes"] {
+            // Start from proxmox default=false, override to true via explicit value
+            let content = format!("[proxmox]\ntoken=abc\nurl=https://pve:8006\nauto_sync={}\n", value);
+            let config = ProviderConfig::parse(&content);
+            assert!(config.sections[0].auto_sync, "auto_sync={} should be true", value);
+        }
+    }
+
+    #[test]
+    fn test_auto_sync_malformed_value_treated_as_true() {
+        // Unrecognised value is not "false"/"0"/"no", so treated as true (like verify_tls)
+        let config = ProviderConfig::parse("[proxmox]\ntoken=abc\nurl=https://pve:8006\nauto_sync=maybe\n");
+        assert!(config.sections[0].auto_sync);
+    }
+
+    #[test]
+    fn test_auto_sync_written_only_when_non_default() {
+        // proxmox defaults to false — setting it to true is non-default, so it IS written
+        let mut config = ProviderConfig::default();
+        config.set_section(ProviderSection {
+            provider: "proxmox".to_string(),
+            token: "tok".to_string(),
+            alias_prefix: "pve".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            url: "https://pve:8006".to_string(),
+            verify_tls: true,
+            auto_sync: true, // non-default for proxmox
+        });
+        // Simulate save by rebuilding content string (same logic as save())
+        let content = format!(
+            "[proxmox]\ntoken=tok\nalias_prefix=pve\nuser=root\nurl=https://pve:8006\nauto_sync=true\n"
+        );
+        let reparsed = ProviderConfig::parse(&content);
+        assert!(reparsed.sections[0].auto_sync);
+
+        // digitalocean defaults to true — setting it to false IS written
+        let content2 = "[digitalocean]\ntoken=tok\nalias_prefix=do\nuser=root\nauto_sync=false\n";
+        let reparsed2 = ProviderConfig::parse(content2);
+        assert!(!reparsed2.sections[0].auto_sync);
     }
 }

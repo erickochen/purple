@@ -89,7 +89,7 @@ enum Commands {
         #[arg(short, long)]
         group: Option<String>,
     },
-    /// Sync hosts from cloud providers (DigitalOcean, Vultr, Linode, Hetzner, UpCloud)
+    /// Sync hosts from cloud providers (DigitalOcean, Vultr, Linode, Hetzner, UpCloud, Proxmox VE)
     Sync {
         /// Sync a specific provider (default: all configured)
         provider: Option<String>,
@@ -124,7 +124,7 @@ enum Commands {
 enum ProviderCommands {
     /// Add or update a provider configuration
     Add {
-        /// Provider name (digitalocean, vultr, linode, hetzner, upcloud)
+        /// Provider name (digitalocean, vultr, linode, hetzner, upcloud, proxmox)
         provider: String,
 
         /// API token (or set PURPLE_TOKEN env var, or use --token-stdin)
@@ -146,6 +146,18 @@ enum ProviderCommands {
         /// Default identity file
         #[arg(long)]
         key: Option<String>,
+
+        /// Base URL for self-hosted providers (required for Proxmox)
+        #[arg(long)]
+        url: Option<String>,
+
+        /// Skip TLS certificate verification (for self-signed certs)
+        #[arg(long, conflicts_with = "verify_tls")]
+        no_verify_tls: bool,
+
+        /// Explicitly enable TLS certificate verification (overrides stored setting)
+        #[arg(long, conflicts_with = "no_verify_tls")]
+        verify_tls: bool,
     },
     /// List configured providers
     List,
@@ -360,12 +372,15 @@ fn run_tui(mut app: App) -> Result<()> {
     let events_tx = events.sender();
     let mut last_config_check = std::time::Instant::now();
 
-    // Auto-sync all configured providers on startup
+    // Auto-sync configured providers on startup (skipped when auto_sync=false)
     for section in app.provider_config.configured_providers().to_vec() {
+        if !section.auto_sync {
+            continue;
+        }
         if !app.syncing_providers.contains_key(&section.provider) {
             let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             app.syncing_providers.insert(section.provider.clone(), cancel.clone());
-            handler::spawn_provider_sync(&section.provider, &section.token, events_tx.clone(), cancel);
+            handler::spawn_provider_sync(&section, events_tx.clone(), cancel);
         }
     }
 
@@ -398,6 +413,10 @@ fn run_tui(mut app: App) -> Result<()> {
                 };
                 app.ping_status.insert(alias, status);
             }
+            AppEvent::SyncProgress { provider, message } => {
+                let name = providers::provider_display_name(&provider);
+                app.set_status(format!("{}: {}", name, message), false);
+            }
             AppEvent::SyncComplete { provider, hosts } => {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -419,6 +438,34 @@ fn run_tui(mut app: App) -> Result<()> {
                     });
                 }
                 app.set_status(msg, is_err);
+                app.syncing_providers.remove(&provider);
+            }
+            AppEvent::SyncPartial { provider, hosts, failures, total } => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let display_name = providers::provider_display_name(provider.as_str());
+                let (msg, is_err, synced) = app.apply_sync_result(&provider, hosts);
+                if is_err {
+                    app.sync_history.insert(provider.clone(), app::SyncRecord {
+                        timestamp: now,
+                        message: msg.clone(),
+                        is_error: true,
+                    });
+                    app.set_status(msg, true);
+                } else {
+                    let label = if synced == 1 { "server" } else { "servers" };
+                    app.sync_history.insert(provider.clone(), app::SyncRecord {
+                        timestamp: now,
+                        message: format!("{} {} ({} of {} failed)", synced, label, failures, total),
+                        is_error: true,
+                    });
+                    app.set_status(
+                        format!("{}: {} synced, {} of {} failed to fetch.", display_name, synced, failures, total),
+                        true,
+                    );
+                }
                 app.syncing_providers.remove(&provider);
             }
             AppEvent::SyncError { provider, message } => {
@@ -629,7 +676,7 @@ fn handle_sync(
     let sections: Vec<&providers::config::ProviderSection> = if let Some(name) = provider_name {
         if providers::get_provider(name).is_none() {
             eprintln!(
-                "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner, upcloud.",
+                "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner, upcloud, proxmox.",
                 name
             );
             std::process::exit(1);
@@ -655,50 +702,91 @@ fn handle_sync(
 
     let mut any_changes = false;
     let mut any_failures = false;
+    let mut any_hard_failures = false;
 
     for section in &sections {
-        let provider = match providers::get_provider(&section.provider) {
+        let provider = match providers::get_provider_with_config(&section.provider, section) {
             Some(p) => p,
             None => {
                 eprintln!(
-                    "Skipping unknown provider '{}'. Try: digitalocean, vultr, linode, hetzner, upcloud.",
+                    "Skipping unknown provider '{}'. Try: digitalocean, vultr, linode, hetzner, upcloud, proxmox.",
                     section.provider
                 );
                 any_failures = true;
+                // Not a hard failure: unknown provider contributes no changes,
+                // so other providers' successful results should still be written.
                 continue;
             }
         };
         let display_name = providers::provider_display_name(section.provider.as_str());
+        let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
         print!("Syncing {}... ", display_name);
+        let _ = std::io::Write::flush(&mut std::io::stdout());
 
-        match provider.fetch_hosts(&section.token) {
-            Ok(hosts) => {
-                println!("{} servers found.", hosts.len());
-                let result = providers::sync::sync_provider_with_options(
-                    &mut config, &*provider, &hosts, section, remove, dry_run, reset_tags,
-                );
-                let prefix = if dry_run { "  Would have: " } else { "  " };
+        let last_summary = std::cell::RefCell::new(String::new());
+        let progress = |msg: &str| {
+            *last_summary.borrow_mut() = msg.to_string();
+            if is_tty {
+                print!("\x1b[2K\rSyncing {}... {}", display_name, msg);
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+            }
+        };
+        let fetch_result = provider.fetch_hosts_with_progress(&section.token, &std::sync::atomic::AtomicBool::new(false), &progress);
+        let summary = last_summary.into_inner();
+        // Complete the Syncing line: TTY overwrites with summary; non-TTY appends.
+        if is_tty {
+            if summary.is_empty() {
+                print!("\x1b[2K\rSyncing {}... ", display_name);
+            } else {
+                println!("\x1b[2K\rSyncing {}... {}", display_name, summary);
+            }
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+        } else if !summary.is_empty() {
+            println!("{}", summary);
+        }
+        let (hosts, suppress_remove) = match fetch_result {
+            Ok(hosts) => (hosts, false),
+            Err(providers::ProviderError::PartialResult { hosts, failures, total }) => {
                 println!(
-                    "{}Added {}, updated {}, unchanged {}.",
-                    prefix, result.added, result.updated, result.unchanged
+                    "{} servers found ({} of {} failed to fetch).",
+                    hosts.len(), failures, total
                 );
-                if result.removed > 0 {
-                    println!("  Removed {}.", result.removed);
+                if remove {
+                    eprintln!("! {}: skipping --remove due to partial failures.", display_name);
                 }
-                if result.added > 0 || result.updated > 0 || result.removed > 0 {
-                    any_changes = true;
-                }
+                any_failures = true;
+                (hosts, true)
             }
             Err(e) => {
                 println!("failed.");
                 eprintln!("! {}: {}", display_name, e);
                 any_failures = true;
+                any_hard_failures = true;
+                continue;
             }
+        };
+        if !suppress_remove {
+            println!("{} servers found.", hosts.len());
+        }
+        let effective_remove = remove && !suppress_remove;
+        let result = providers::sync::sync_provider_with_options(
+            &mut config, &*provider, &hosts, section, effective_remove, dry_run, reset_tags,
+        );
+        let prefix = if dry_run { "  Would have: " } else { "  " };
+        println!(
+            "{}Added {}, updated {}, unchanged {}.",
+            prefix, result.added, result.updated, result.unchanged
+        );
+        if result.removed > 0 {
+            println!("  Removed {}.", result.removed);
+        }
+        if result.added > 0 || result.updated > 0 || result.removed > 0 {
+            any_changes = true;
         }
     }
 
     if any_changes && !dry_run {
-        if any_failures {
+        if any_hard_failures {
             eprintln!("! Skipping config write due to sync failures. Fix the errors and re-run.");
         } else {
             config.write()?;
@@ -718,20 +806,84 @@ fn handle_provider_command(command: ProviderCommands) -> Result<()> {
             provider,
             token,
             token_stdin,
-            prefix,
-            user,
-            key,
+            mut prefix,
+            mut user,
+            mut key,
+            url,
+            no_verify_tls,
+            verify_tls,
         } => {
             let p = match providers::get_provider(&provider) {
                 Some(p) => p,
                 None => {
                     eprintln!(
-                        "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner, upcloud.",
+                        "Never heard of '{}'. Try: digitalocean, vultr, linode, hetzner, upcloud, proxmox.",
                         provider
                     );
                     std::process::exit(1);
                 }
             };
+
+            // --url, --no-verify-tls and --verify-tls are Proxmox-only; clear them for other providers
+            let mut token = token;
+            let mut url = url;
+            let mut no_verify_tls = no_verify_tls;
+            let mut verify_tls = verify_tls;
+            if provider != "proxmox" {
+                if url.is_some() {
+                    eprintln!("Warning: --url is only used by the Proxmox provider. Ignoring.");
+                    url = None;
+                }
+                if no_verify_tls {
+                    eprintln!("Warning: --no-verify-tls is only used by the Proxmox provider. Ignoring.");
+                    no_verify_tls = false;
+                }
+                if verify_tls {
+                    eprintln!("Warning: --verify-tls is only used by the Proxmox provider. Ignoring.");
+                    verify_tls = false;
+                }
+            }
+
+            // When updating an existing section, fall back to stored values for fields not supplied
+            let existing_section = providers::config::ProviderConfig::load()
+                .section(&provider)
+                .cloned();
+
+            if let Some(ref existing) = existing_section {
+                // URL fallback only applies to Proxmox (only provider that uses the url field)
+                if provider == "proxmox" && url.is_none() && !existing.url.is_empty() {
+                    url = Some(existing.url.clone());
+                }
+                if token.is_none() && !token_stdin && std::env::var("PURPLE_TOKEN").is_err() && !existing.token.is_empty() {
+                    token = Some(existing.token.clone());
+                }
+                if prefix.is_none() {
+                    prefix = Some(existing.alias_prefix.clone());
+                }
+                if user.is_none() {
+                    user = Some(existing.user.clone());
+                }
+                if key.is_none() && !existing.identity_file.is_empty() {
+                    key = Some(existing.identity_file.clone());
+                }
+                // Preserve verify_tls=false unless the user explicitly overrides it either way
+                if !no_verify_tls && !verify_tls && !existing.verify_tls {
+                    no_verify_tls = true;
+                }
+            }
+
+            // Proxmox requires --url
+            if provider == "proxmox" {
+                if url.is_none() || url.as_deref().unwrap_or("").trim().is_empty() {
+                    eprintln!("Proxmox requires --url (e.g. --url https://pve.example.com:8006).");
+                    std::process::exit(1);
+                }
+                let u = url.as_deref().unwrap();
+                if !u.to_ascii_lowercase().starts_with("https://") {
+                    eprintln!("URL must start with https://. For self-signed certificates use --no-verify-tls.");
+                    std::process::exit(1);
+                }
+            }
 
             let token = match resolve_token(token, token_stdin) {
                 Ok(t) => t,
@@ -759,7 +911,9 @@ fn handle_provider_command(command: ProviderCommands) -> Result<()> {
             let identity_file = key.unwrap_or_default();
 
             // Reject control characters in all fields (prevents INI injection)
+            let url_value = url.clone().unwrap_or_default();
             for (value, name) in [
+                (&url_value, "URL"),
                 (&token, "Token"),
                 (&alias_prefix, "Alias prefix"),
                 (&user, "User"),
@@ -770,6 +924,10 @@ fn handle_provider_command(command: ProviderCommands) -> Result<()> {
                     std::process::exit(1);
                 }
             }
+            if user.contains(char::is_whitespace) {
+                eprintln!("User can't contain whitespace.");
+                std::process::exit(1);
+            }
 
             let section = providers::config::ProviderSection {
                 provider: provider.clone(),
@@ -777,6 +935,9 @@ fn handle_provider_command(command: ProviderCommands) -> Result<()> {
                 alias_prefix,
                 user,
                 identity_file,
+                url: url.unwrap_or_default(),
+                verify_tls: !no_verify_tls,
+                auto_sync: provider != "proxmox",
             };
 
             let mut config = providers::config::ProviderConfig::load();

@@ -24,9 +24,9 @@ pub fn render_provider_list(frame: &mut Frame, app: &mut App) {
 
     let items: Vec<ListItem> = sorted_names
         .iter()
-        .map(|&name| {
-            let display_name = crate::providers::provider_display_name(name);
-            let configured = app.provider_config.section(name).is_some();
+        .map(|name| {
+            let display_name = crate::providers::provider_display_name(name.as_str());
+            let configured = app.provider_config.section(name.as_str()).is_some();
             let status = if configured {
                 "[configured]"
             } else {
@@ -45,14 +45,14 @@ pub fn render_provider_list(frame: &mut Frame, app: &mut App) {
                 Span::styled(status_col, status_style),
             ];
             if configured {
-                if let Some(section) = app.provider_config.section(name) {
+                if let Some(section) = app.provider_config.section(name.as_str()) {
                     let prefix_span = format!("{}-*", section.alias_prefix);
                     used_width += prefix_span.width();
                     spans.push(Span::styled(prefix_span, theme::muted()));
                 }
-                let sync_text = if app.syncing_providers.contains_key(name) {
+                let sync_text = if app.syncing_providers.contains_key(name.as_str()) {
                     Some(("   syncing...".to_string(), theme::muted()))
-                } else if let Some(record) = app.sync_history.get(name) {
+                } else if let Some(record) = app.sync_history.get(name.as_str()) {
                     let ago = ConnectionHistory::format_time_ago(record.timestamp);
                     let detail = if ago.is_empty() {
                         record.message.clone()
@@ -129,23 +129,28 @@ pub fn render_provider_form(frame: &mut Frame, app: &mut App, provider_name: &st
     let inner = outer_block.inner(form_area);
     frame.render_widget(outer_block, form_area);
 
-    let chunks = Layout::vertical([
-        Constraint::Length(3), // Token
-        Constraint::Length(3), // Alias Prefix
-        Constraint::Length(3), // User
-        Constraint::Length(3), // Identity File
-        Constraint::Min(1),   // Spacer
-        Constraint::Length(1), // Footer or status
-    ])
-    .split(inner);
+    let fields = ProviderFormField::fields_for(provider_name);
+    let mut constraints: Vec<Constraint> = fields.iter().map(|_| {
+        Constraint::Length(3)
+    }).collect();
+    constraints.push(Constraint::Min(1));   // Spacer
+    constraints.push(Constraint::Length(1)); // Footer
 
-    render_provider_field(frame, chunks[0], ProviderFormField::Token, &app.provider_form);
-    render_provider_field(frame, chunks[1], ProviderFormField::AliasPrefix, &app.provider_form);
-    render_provider_field(frame, chunks[2], ProviderFormField::User, &app.provider_form);
-    render_provider_field(frame, chunks[3], ProviderFormField::IdentityFile, &app.provider_form);
+    let chunks = Layout::vertical(constraints).split(inner);
+
+    for (i, field) in fields.iter().enumerate() {
+        if *field == ProviderFormField::VerifyTls {
+            render_provider_toggle_field(frame, chunks[i], &app.provider_form);
+        } else if *field == ProviderFormField::AutoSync {
+            render_provider_auto_sync_field(frame, chunks[i], &app.provider_form);
+        } else {
+            render_provider_field(frame, chunks[i], *field, &app.provider_form, provider_name);
+        }
+    }
 
     // Footer with status right-aligned
-    super::render_footer_with_status(frame, chunks[5], vec![
+    let footer_idx = fields.len() + 1;
+    super::render_footer_with_status(frame, chunks[footer_idx], vec![
         Span::styled(" Enter", theme::primary_action()),
         Span::styled(" save  ", theme::muted()),
         Span::styled("Tab/S-Tab", theme::accent_bold()),
@@ -162,12 +167,23 @@ pub fn render_provider_form(frame: &mut Frame, app: &mut App, provider_name: &st
     }
 }
 
-fn placeholder_for(field: ProviderFormField) -> &'static str {
+fn placeholder_for(field: ProviderFormField, provider_name: &str) -> &'static str {
     match field {
+        ProviderFormField::Url => "https://pve.example.com:8006",
         ProviderFormField::Token => "your-api-token",
-        ProviderFormField::AliasPrefix => "do",
+        ProviderFormField::AliasPrefix => match provider_name {
+            "digitalocean" => "do",
+            "vultr" => "vultr",
+            "linode" => "linode",
+            "hetzner" => "hetzner",
+            "upcloud" => "uc",
+            "proxmox" => "pve",
+            _ => "prefix",
+        },
         ProviderFormField::User => "root",
         ProviderFormField::IdentityFile => "~/.ssh/id_ed25519",
+        ProviderFormField::VerifyTls => "",
+        ProviderFormField::AutoSync => "",
     }
 }
 
@@ -176,14 +192,18 @@ fn render_provider_field(
     area: Rect,
     field: ProviderFormField,
     form: &crate::app::ProviderFormFields,
+    provider_name: &str,
 ) {
     let is_focused = form.focused_field == field;
 
     let value = match field {
+        ProviderFormField::Url => &form.url,
         ProviderFormField::Token => &form.token,
         ProviderFormField::AliasPrefix => &form.alias_prefix,
         ProviderFormField::User => &form.user,
         ProviderFormField::IdentityFile => &form.identity_file,
+        ProviderFormField::VerifyTls => unreachable!("VerifyTls uses render_provider_toggle_field"),
+        ProviderFormField::AutoSync => unreachable!("AutoSync uses render_provider_auto_sync_field"),
     };
 
     let (border_style, label_style) = if is_focused {
@@ -192,7 +212,7 @@ fn render_provider_field(
         (theme::border(), theme::muted())
     };
 
-    let is_required = matches!(field, ProviderFormField::Token);
+    let is_required = matches!(field, ProviderFormField::Token | ProviderFormField::Url);
     let label = if is_required {
         format!(" {}* ", field.label())
     } else {
@@ -218,7 +238,7 @@ fn render_provider_field(
     };
 
     let display: Span = if value.is_empty() && !is_focused {
-        Span::styled(placeholder_for(field), theme::muted())
+        Span::styled(placeholder_for(field, provider_name), theme::muted())
     } else {
         Span::raw(display_value)
     };
@@ -236,6 +256,72 @@ fn render_provider_field(
             frame.set_cursor_position((cursor_x, cursor_y));
         }
     }
+}
+
+fn render_provider_toggle_field(
+    frame: &mut Frame,
+    area: Rect,
+    form: &crate::app::ProviderFormFields,
+) {
+    let is_focused = form.focused_field == ProviderFormField::VerifyTls;
+
+    let (border_style, label_style) = if is_focused {
+        (theme::border_focused(), theme::accent_bold())
+    } else {
+        (theme::border(), theme::muted())
+    };
+
+    let block = Block::default()
+        .title(Span::styled(" Verify TLS ", label_style))
+        .borders(Borders::ALL)
+        .border_style(border_style);
+
+    let value_text = if form.verify_tls {
+        "yes"
+    } else {
+        "no (accept self-signed)"
+    };
+
+    let mut spans = vec![Span::raw(value_text)];
+    if is_focused {
+        spans.push(Span::styled("  [Space to toggle]", theme::muted()));
+    }
+
+    let paragraph = Paragraph::new(Line::from(spans)).block(block);
+    frame.render_widget(paragraph, area);
+}
+
+fn render_provider_auto_sync_field(
+    frame: &mut Frame,
+    area: Rect,
+    form: &crate::app::ProviderFormFields,
+) {
+    let is_focused = form.focused_field == ProviderFormField::AutoSync;
+
+    let (border_style, label_style) = if is_focused {
+        (theme::border_focused(), theme::accent_bold())
+    } else {
+        (theme::border(), theme::muted())
+    };
+
+    let block = Block::default()
+        .title(Span::styled(" Auto Sync ", label_style))
+        .borders(Borders::ALL)
+        .border_style(border_style);
+
+    let value_text = if form.auto_sync {
+        "yes"
+    } else {
+        "no (sync manually)"
+    };
+
+    let mut spans = vec![Span::raw(value_text)];
+    if is_focused {
+        spans.push(Span::styled("  [Space to toggle]", theme::muted()));
+    }
+
+    let paragraph = Paragraph::new(Line::from(spans)).block(block);
+    frame.render_widget(paragraph, area);
 }
 
 #[cfg(test)]

@@ -109,6 +109,16 @@ pub fn sync_provider_with_options(
             continue; // Skip duplicate server_id in same response
         }
 
+        // Empty IP means the resource exists but has no resolvable address
+        // (e.g. stopped VM, no static IP). Count it in remote_ids so --remove
+        // won't delete it, but skip add/update.
+        if remote.ip.is_empty() {
+            if existing_map.contains_key(&remote.server_id) {
+                result.unchanged += 1;
+            }
+            continue;
+        }
+
         if let Some(existing_alias) = existing_map.get(&remote.server_id) {
             // Host exists, check if alias, IP or tags changed
             if let Some(entry) = entries_map.get(existing_alias) {
@@ -327,6 +337,9 @@ mod tests {
             alias_prefix: "do".to_string(),
             user: "root".to_string(),
             identity_file: String::new(),
+            url: String::new(),
+            verify_tls: true,
+            auto_sync: true,
         }
     }
 
@@ -1022,6 +1035,9 @@ Host do-web-1-copy
             alias_prefix: "ocean".to_string(), // Different prefix
             user: "root".to_string(),
             identity_file: String::new(),
+            url: String::new(),
+            verify_tls: true,
+            auto_sync: true,
         };
 
         // Remote has the included host's server_id with a different prefix
@@ -1273,5 +1289,194 @@ Host do-web-1-copy
             &mut config, &MockProvider, &remote, &section, false, false, true,
         );
         assert_eq!(result.unchanged, 1);
+    }
+
+    // --- Empty IP (stopped/no-IP VM) tests ---
+
+    #[test]
+    fn test_sync_empty_ip_not_added() {
+        let mut config = empty_config();
+        let section = make_section();
+        let remote = vec![ProviderHost {
+            server_id: "100".to_string(),
+            name: "stopped-vm".to_string(),
+            ip: String::new(),
+            tags: Vec::new(),
+        }];
+        let result = sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(result.added, 0);
+        assert_eq!(config.host_entries().len(), 0);
+    }
+
+    #[test]
+    fn test_sync_empty_ip_existing_host_unchanged() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // First sync: add host with IP
+        let remote = vec![ProviderHost {
+            server_id: "100".to_string(),
+            name: "web".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: Vec::new(),
+        }];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(config.host_entries().len(), 1);
+        assert_eq!(config.host_entries()[0].hostname, "1.2.3.4");
+
+        // Second sync: VM stopped, empty IP. Host should stay unchanged.
+        let remote = vec![ProviderHost {
+            server_id: "100".to_string(),
+            name: "web".to_string(),
+            ip: String::new(),
+            tags: Vec::new(),
+        }];
+        let result = sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(result.unchanged, 1);
+        assert_eq!(result.updated, 0);
+        assert_eq!(config.host_entries()[0].hostname, "1.2.3.4");
+    }
+
+    #[test]
+    fn test_sync_remove_skips_empty_ip_hosts() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // First sync: add two hosts
+        let remote = vec![
+            ProviderHost {
+                server_id: "100".to_string(),
+                name: "web".to_string(),
+                ip: "1.2.3.4".to_string(),
+                tags: Vec::new(),
+            },
+            ProviderHost {
+                server_id: "200".to_string(),
+                name: "db".to_string(),
+                ip: "5.6.7.8".to_string(),
+                tags: Vec::new(),
+            },
+        ];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(config.host_entries().len(), 2);
+
+        // Second sync with --remove: web is running, db is stopped (empty IP).
+        // db must NOT be removed.
+        let remote = vec![
+            ProviderHost {
+                server_id: "100".to_string(),
+                name: "web".to_string(),
+                ip: "1.2.3.4".to_string(),
+                tags: Vec::new(),
+            },
+            ProviderHost {
+                server_id: "200".to_string(),
+                name: "db".to_string(),
+                ip: String::new(),
+                tags: Vec::new(),
+            },
+        ];
+        let result = sync_provider(&mut config, &MockProvider, &remote, &section, true, false);
+        assert_eq!(result.removed, 0);
+        assert_eq!(result.unchanged, 2);
+        assert_eq!(config.host_entries().len(), 2);
+    }
+
+    #[test]
+    fn test_sync_remove_deletes_truly_gone_hosts() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // First sync: add two hosts
+        let remote = vec![
+            ProviderHost {
+                server_id: "100".to_string(),
+                name: "web".to_string(),
+                ip: "1.2.3.4".to_string(),
+                tags: Vec::new(),
+            },
+            ProviderHost {
+                server_id: "200".to_string(),
+                name: "db".to_string(),
+                ip: "5.6.7.8".to_string(),
+                tags: Vec::new(),
+            },
+        ];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(config.host_entries().len(), 2);
+
+        // Second sync with --remove: only web exists. db is truly deleted.
+        let remote = vec![ProviderHost {
+            server_id: "100".to_string(),
+            name: "web".to_string(),
+            ip: "1.2.3.4".to_string(),
+            tags: Vec::new(),
+        }];
+        let result = sync_provider(&mut config, &MockProvider, &remote, &section, true, false);
+        assert_eq!(result.removed, 1);
+        assert_eq!(config.host_entries().len(), 1);
+        assert_eq!(config.host_entries()[0].alias, "do-web");
+    }
+
+    #[test]
+    fn test_sync_mixed_resolved_empty_and_missing() {
+        let mut config = empty_config();
+        let section = make_section();
+
+        // First sync: add three hosts
+        let remote = vec![
+            ProviderHost {
+                server_id: "1".to_string(),
+                name: "running".to_string(),
+                ip: "1.1.1.1".to_string(),
+                tags: Vec::new(),
+            },
+            ProviderHost {
+                server_id: "2".to_string(),
+                name: "stopped".to_string(),
+                ip: "2.2.2.2".to_string(),
+                tags: Vec::new(),
+            },
+            ProviderHost {
+                server_id: "3".to_string(),
+                name: "deleted".to_string(),
+                ip: "3.3.3.3".to_string(),
+                tags: Vec::new(),
+            },
+        ];
+        sync_provider(&mut config, &MockProvider, &remote, &section, false, false);
+        assert_eq!(config.host_entries().len(), 3);
+
+        // Second sync with --remove:
+        // - "running" has new IP (updated)
+        // - "stopped" has empty IP (unchanged, not removed)
+        // - "deleted" not in list (removed)
+        let remote = vec![
+            ProviderHost {
+                server_id: "1".to_string(),
+                name: "running".to_string(),
+                ip: "9.9.9.9".to_string(),
+                tags: Vec::new(),
+            },
+            ProviderHost {
+                server_id: "2".to_string(),
+                name: "stopped".to_string(),
+                ip: String::new(),
+                tags: Vec::new(),
+            },
+        ];
+        let result = sync_provider(&mut config, &MockProvider, &remote, &section, true, false);
+        assert_eq!(result.updated, 1);
+        assert_eq!(result.unchanged, 1);
+        assert_eq!(result.removed, 1);
+
+        let entries = config.host_entries();
+        assert_eq!(entries.len(), 2);
+        // Running host got new IP
+        let running = entries.iter().find(|e| e.alias == "do-running").unwrap();
+        assert_eq!(running.hostname, "9.9.9.9");
+        // Stopped host kept old IP
+        let stopped = entries.iter().find(|e| e.alias == "do-stopped").unwrap();
+        assert_eq!(stopped.hostname, "2.2.2.2");
     }
 }

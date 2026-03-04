@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Stop grepping your SSH config. Start launching from it.</strong><br>
-  Search, tag and connect your hosts. Sync servers from DigitalOcean, Vultr, Linode, Hetzner and UpCloud. Your config stays respected.
+  Search, tag and connect your hosts. Sync servers from DigitalOcean, Vultr, Linode, Hetzner, UpCloud and Proxmox VE. Your config stays respected.
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 <p align="center">
   purple is a free, open-source SSH config manager and host launcher written in Rust. It reads your existing <code>~/.ssh/config</code>,
   lets you search, filter, tag and connect with a single keystroke, and writes changes back without
-  touching your comments or unknown directives. Sync servers from five cloud providers
+  touching your comments or unknown directives. Sync servers from six cloud providers
   directly into your config. No browser, no YAML files, no context switching.
 </p>
 
@@ -80,7 +80,7 @@ Downloads the latest release from GitHub, verifies the checksum and replaces the
 
 ## Cloud provider sync
 
-Pull your servers from DigitalOcean, Vultr, Linode, Hetzner and UpCloud directly into `~/.ssh/config`. Sync adds new hosts, updates changed IPs and merges tags. Tags you add manually are preserved across syncs. Use `--reset-tags` to replace local tags with provider tags. Preview with `--dry-run`.
+Pull your servers from DigitalOcean, Vultr, Linode, Hetzner, UpCloud and Proxmox VE directly into `~/.ssh/config`. Sync adds new hosts, updates changed IPs and merges tags. Tags you add manually are preserved across syncs. Use `--reset-tags` to replace local tags with provider tags. Preview with `--dry-run`.
 
 ```bash
 purple provider add digitalocean --token YOUR_TOKEN   # or use PURPLE_TOKEN env var
@@ -213,9 +213,9 @@ purple --completions zsh            # Shell completions
 
 **It edits your real SSH config.** Most SSH config tools only read. purple reads, edits and writes `~/.ssh/config` directly.
 
-**It doesn't break anything.** Comments, indentation, unknown directives. All preserved through every edit. Tested with 755 tests including round-trip integration.
+**It doesn't break anything.** Comments, indentation, unknown directives. All preserved through every edit. Tested with 973 tests including round-trip integration.
 
-**It syncs your cloud servers.** purple is the only SSH config manager we know of that pulls hosts from DigitalOcean, Vultr, Linode, Hetzner and UpCloud directly into your config. Configure once, sync anytime.
+**It syncs your cloud servers.** purple is the only SSH config manager we know of that pulls hosts from DigitalOcean, Vultr, Linode, Hetzner, UpCloud and Proxmox VE directly into your config. Configure once, sync anytime.
 
 **It imports what you already have.** Bulk import from host files or `~/.ssh/known_hosts`. No manual re-entry.
 
@@ -224,7 +224,7 @@ purple --completions zsh            # Shell completions
 ## FAQ
 
 **Does purple modify my existing SSH config?**
-Only when you add, edit, delete or sync. Auto-sync runs on startup if you have providers configured. All writes are atomic with automatic backups.
+Only when you add, edit, delete or sync. Auto-sync runs on startup for providers that have it enabled (toggle per provider, on by default). All writes are atomic with automatic backups.
 
 **Will purple break my comments or formatting?**
 No. purple preserves comments, indentation and unknown directives through every read-write cycle. Consecutive blank lines are collapsed to one.
@@ -240,7 +240,7 @@ The name `purple` was taken on crates.io. The binary is still called `purple`.
 
 ## Built with
 
-Rust. 755 tests. Zero clippy warnings. No async runtime. Single binary.
+Rust. 973 tests. Zero clippy warnings. No async runtime. Single binary.
 
 <p align="center">
   💜 <a href="LICENSE">MIT License</a>

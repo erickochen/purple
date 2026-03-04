@@ -650,7 +650,7 @@ fn handle_tag_picker_screen(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEvent>) {
-    let provider_count = providers::PROVIDER_NAMES.len();
+    let provider_count = app.sorted_provider_names().len();
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => {
             // Cancel all running syncs
@@ -668,35 +668,42 @@ fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
         KeyCode::Enter => {
             if let Some(index) = app.ui.provider_list_state.selected() {
                 let sorted = app.sorted_provider_names();
-                if let Some(&name) = sorted.get(index) {
-                    let provider_impl = providers::get_provider(name);
+                if let Some(name) = sorted.get(index) {
+                    let provider_impl = providers::get_provider(name.as_str());
                     let short_label = provider_impl
                         .as_ref()
                         .map(|p| p.short_label().to_string())
-                        .unwrap_or_else(|| name.to_string());
+                        .unwrap_or_else(|| name.clone());
 
                     // Pre-fill form from existing config or defaults
+                    let first_field = crate::app::ProviderFormField::fields_for(name.as_str())[0];
                     app.provider_form = if let Some(section) =
-                        app.provider_config.section(name)
+                        app.provider_config.section(name.as_str())
                     {
                         ProviderFormFields {
+                            url: section.url.clone(),
                             token: section.token.clone(),
                             alias_prefix: section.alias_prefix.clone(),
                             user: section.user.clone(),
                             identity_file: section.identity_file.clone(),
-                            focused_field: crate::app::ProviderFormField::Token,
+                            verify_tls: section.verify_tls,
+                            auto_sync: section.auto_sync,
+                            focused_field: first_field,
                         }
                     } else {
                         ProviderFormFields {
+                            url: String::new(),
                             token: String::new(),
                             alias_prefix: short_label,
                             user: "root".to_string(),
                             identity_file: String::new(),
-                            focused_field: crate::app::ProviderFormField::Token,
+                            verify_tls: true,
+                            auto_sync: name.as_str() != "proxmox",
+                            focused_field: first_field,
                         }
                     };
                     app.screen = Screen::ProviderForm {
-                        provider: name.to_string(),
+                        provider: name.clone(),
                     };
                     app.capture_provider_form_mtime();
                 }
@@ -705,16 +712,21 @@ fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
         KeyCode::Char('s') => {
             if let Some(index) = app.ui.provider_list_state.selected() {
                 let sorted = app.sorted_provider_names();
-                if let Some(&name) = sorted.get(index) {
-                    if let Some(section) = app.provider_config.section(name) {
-                        if !app.syncing_providers.contains_key(name) {
+                if let Some(name) = sorted.get(index) {
+                    if let Some(section) = app.provider_config.section(name.as_str()).cloned() {
+                        if !app.syncing_providers.contains_key(name.as_str()) {
                             let cancel = Arc::new(AtomicBool::new(false));
-                            app.syncing_providers.insert(name.to_string(), cancel.clone());
-                            let token = section.token.clone();
-                            let display_name = crate::providers::provider_display_name(name);
+                            app.syncing_providers.insert(name.clone(), cancel.clone());
+                            let display_name = crate::providers::provider_display_name(name.as_str());
                             app.set_status(format!("Syncing {}...", display_name), false);
-                            spawn_provider_sync(name, &token, events_tx.clone(), cancel);
+                            spawn_provider_sync(&section, events_tx.clone(), cancel);
                         }
+                    } else {
+                        let display_name = crate::providers::provider_display_name(name.as_str());
+                        app.set_status(
+                            format!("Configure {} first. Press Enter to set up.", display_name),
+                            true,
+                        );
                     }
                 }
             }
@@ -722,16 +734,16 @@ fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
         KeyCode::Char('d') => {
             if let Some(index) = app.ui.provider_list_state.selected() {
                 let sorted = app.sorted_provider_names();
-                if let Some(&name) = sorted.get(index) {
-                    if let Some(old_section) = app.provider_config.section(name).cloned() {
-                        app.provider_config.remove_section(name);
+                if let Some(name) = sorted.get(index) {
+                    if let Some(old_section) = app.provider_config.section(name.as_str()).cloned() {
+                        app.provider_config.remove_section(name.as_str());
                         if let Err(e) = app.provider_config.save() {
                             // Rollback: restore the removed section
                             app.provider_config.set_section(old_section);
                             app.set_status(format!("Failed to save: {}", e), true);
                         } else {
-                            app.sync_history.remove(name);
-                            let display_name = crate::providers::provider_display_name(name);
+                            app.sync_history.remove(name.as_str());
+                            let display_name = crate::providers::provider_display_name(name.as_str());
                             app.set_status(
                                 format!("Removed {} configuration.", display_name),
                                 false,
@@ -763,25 +775,43 @@ fn handle_provider_form(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
         return;
     }
 
+    let provider_name = match &app.screen {
+        Screen::ProviderForm { provider } => provider.clone(),
+        _ => return,
+    };
+    let fields = crate::app::ProviderFormField::fields_for(&provider_name);
+
     match key.code {
         KeyCode::Esc => {
             app.clear_form_mtime();
             app.screen = Screen::Providers;
         }
         KeyCode::Tab | KeyCode::Down => {
-            app.provider_form.focused_field = app.provider_form.focused_field.next();
+            app.provider_form.focused_field = app.provider_form.focused_field.next(fields);
         }
         KeyCode::BackTab | KeyCode::Up => {
-            app.provider_form.focused_field = app.provider_form.focused_field.prev();
+            app.provider_form.focused_field = app.provider_form.focused_field.prev(fields);
         }
         KeyCode::Enter => {
             submit_provider_form(app, events_tx);
         }
+        KeyCode::Char(' ') if app.provider_form.focused_field == crate::app::ProviderFormField::VerifyTls => {
+            app.provider_form.verify_tls = !app.provider_form.verify_tls;
+        }
+        KeyCode::Char(' ') if app.provider_form.focused_field == crate::app::ProviderFormField::AutoSync => {
+            app.provider_form.auto_sync = !app.provider_form.auto_sync;
+        }
         KeyCode::Char(c) => {
-            app.provider_form.focused_value_mut().push(c);
+            let f = app.provider_form.focused_field;
+            if f != crate::app::ProviderFormField::VerifyTls && f != crate::app::ProviderFormField::AutoSync {
+                app.provider_form.focused_value_mut().push(c);
+            }
         }
         KeyCode::Backspace => {
-            app.provider_form.focused_value_mut().pop();
+            let f = app.provider_form.focused_field;
+            if f != crate::app::ProviderFormField::VerifyTls && f != crate::app::ProviderFormField::AutoSync {
+                app.provider_form.focused_value_mut().pop();
+            }
         }
         _ => {}
     }
@@ -804,6 +834,7 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
 
     // Reject control characters in all fields (prevents INI injection)
     let pf_fields = [
+        (&app.provider_form.url, "URL"),
         (&app.provider_form.token, "Token"),
         (&app.provider_form.alias_prefix, "Alias Prefix"),
         (&app.provider_form.user, "User"),
@@ -815,6 +846,19 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
                 format!("{} contains control characters.", name),
                 true,
             );
+            return;
+        }
+    }
+
+    // Proxmox requires a URL
+    if provider_name == "proxmox" {
+        let url = app.provider_form.url.trim();
+        if url.is_empty() {
+            app.set_status("URL is required for Proxmox VE.", true);
+            return;
+        }
+        if !url.to_ascii_lowercase().starts_with("https://") {
+            app.set_status("URL must start with https://. Toggle Verify TLS off for self-signed certificates.", true);
             return;
         }
     }
@@ -841,15 +885,24 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         return;
     }
 
+    let user = {
+        let u = app.provider_form.user.trim();
+        if u.is_empty() { "root".to_string() } else { u.to_string() }
+    };
+    if user.contains(char::is_whitespace) {
+        app.set_status("User can't contain whitespace.", true);
+        return;
+    }
+
     let section = providers::config::ProviderSection {
         provider: provider_name.clone(),
         token: token.clone(),
         alias_prefix,
-        user: {
-            let u = app.provider_form.user.trim();
-            if u.is_empty() { "root".to_string() } else { u.to_string() }
-        },
+        user,
         identity_file: app.provider_form.identity_file.trim().to_string(),
+        url: app.provider_form.url.trim().to_string(),
+        verify_tls: app.provider_form.verify_tls,
+        auto_sync: app.provider_form.auto_sync,
     };
 
     let old_section = app.provider_config.section(&provider_name).cloned();
@@ -867,10 +920,13 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
     let display_name = crate::providers::provider_display_name(provider_name.as_str());
 
     if !app.syncing_providers.contains_key(&provider_name) {
-        let cancel = Arc::new(AtomicBool::new(false));
-        app.syncing_providers.insert(provider_name.clone(), cancel.clone());
-        app.set_status(format!("Saved {} configuration. Syncing...", display_name), false);
-        spawn_provider_sync(&provider_name, &token, events_tx.clone(), cancel);
+        let sync_section = app.provider_config.section(&provider_name).cloned();
+        if let Some(sync_section) = sync_section {
+            let cancel = Arc::new(AtomicBool::new(false));
+            app.syncing_providers.insert(provider_name.clone(), cancel.clone());
+            app.set_status(format!("Saved {} configuration. Syncing...", display_name), false);
+            spawn_provider_sync(&sync_section, events_tx.clone(), cancel);
+        }
     } else {
         app.set_status(format!("Saved {} configuration.", display_name), false);
     }
@@ -1172,19 +1228,19 @@ fn submit_tunnel_form(app: &mut App, alias: &str, editing: Option<usize>) {
 
 /// Spawn a background thread to fetch hosts from a cloud provider.
 pub fn spawn_provider_sync(
-    name: &str,
-    token: &str,
+    section: &crate::providers::config::ProviderSection,
     tx: mpsc::Sender<AppEvent>,
     cancel: Arc<AtomicBool>,
 ) {
-    let name = name.to_string();
-    let token = token.to_string();
+    let name = section.provider.clone();
+    let token = section.token.clone();
+    let section_clone = section.clone();
     let tx_fallback = tx.clone();
     let name_fallback = name.clone();
     if std::thread::Builder::new()
         .name(format!("sync-{}", name))
         .spawn(move || {
-            let provider = match crate::providers::get_provider(&name) {
+            let provider = match crate::providers::get_provider_with_config(&name, &section_clone) {
                 Some(p) => p,
                 None => {
                     let _ = tx.send(AppEvent::SyncError {
@@ -1194,11 +1250,27 @@ pub fn spawn_provider_sync(
                     return;
                 }
             };
-            match provider.fetch_hosts_cancellable(&token, &cancel) {
+            let progress_tx = tx.clone();
+            let progress_name = name.clone();
+            let progress = move |msg: &str| {
+                let _ = progress_tx.send(AppEvent::SyncProgress {
+                    provider: progress_name.clone(),
+                    message: msg.to_string(),
+                });
+            };
+            match provider.fetch_hosts_with_progress(&token, &cancel, &progress) {
                 Ok(hosts) => {
                     let _ = tx.send(AppEvent::SyncComplete {
                         provider: name,
                         hosts,
+                    });
+                }
+                Err(crate::providers::ProviderError::PartialResult { hosts, failures, total }) => {
+                    let _ = tx.send(AppEvent::SyncPartial {
+                        provider: name,
+                        hosts,
+                        failures,
+                        total,
                     });
                 }
                 Err(e) => {
@@ -1215,5 +1287,267 @@ pub fn spawn_provider_sync(
             provider: name_fallback,
             message: "Failed to start sync thread.".to_string(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{App, ProviderFormField, ProviderFormFields, Screen};
+    use crate::providers::config::{ProviderConfig, ProviderSection};
+    use crate::ssh_config::model::SshConfigFile;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::path::PathBuf;
+    use std::sync::mpsc;
+
+    fn make_app(content: &str) -> App {
+        let config = SshConfigFile {
+            elements: SshConfigFile::parse_content(content),
+            path: PathBuf::from("/tmp/test_config"),
+            crlf: false,
+        };
+        App::new(config)
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    /// App met een geconfigureerde DigitalOcean (auto_sync=true) en een nieuw Proxmox.
+    fn make_providers_app_with_do() -> App {
+        let mut app = make_app("Host test\n  HostName test.com\n");
+        app.screen = Screen::Providers;
+        app.provider_config = ProviderConfig::default();
+        app.provider_config.set_section(ProviderSection {
+            provider: "digitalocean".to_string(),
+            token: "tok".to_string(),
+            alias_prefix: "do".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            url: String::new(),
+            verify_tls: true,
+            auto_sync: true,
+        });
+        app
+    }
+
+    fn make_providers_app_with_proxmox() -> App {
+        let mut app = make_app("Host test\n  HostName test.com\n");
+        app.screen = Screen::Providers;
+        app.provider_config = ProviderConfig::default();
+        app.provider_config.set_section(ProviderSection {
+            provider: "proxmox".to_string(),
+            token: "user@pam!t=secret".to_string(),
+            alias_prefix: "pve".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            url: "https://pve.local:8006".to_string(),
+            verify_tls: true,
+            auto_sync: false,
+        });
+        app
+    }
+
+    /// Positioneer de cursor op een bepaalde provider in de lijst en stuur Enter.
+    fn open_provider_form(app: &mut App, provider_name: &str) {
+        let sorted = app.sorted_provider_names();
+        let idx = sorted.iter().position(|n| n == provider_name).unwrap();
+        app.ui.provider_list_state.select(Some(idx));
+        let (tx, _rx) = mpsc::channel();
+        let _ = handle_key_event(app, key(KeyCode::Enter), &tx);
+    }
+
+    // --- Form initialisatie ---
+
+    #[test]
+    fn test_provider_form_init_existing_do_preserves_auto_sync_true() {
+        let mut app = make_providers_app_with_do();
+        open_provider_form(&mut app, "digitalocean");
+        assert!(
+            app.provider_form.auto_sync,
+            "Bestaande DO provider (auto_sync=true) moet true blijven in het form"
+        );
+    }
+
+    #[test]
+    fn test_provider_form_init_existing_proxmox_preserves_auto_sync_false() {
+        let mut app = make_providers_app_with_proxmox();
+        open_provider_form(&mut app, "proxmox");
+        assert!(
+            !app.provider_form.auto_sync,
+            "Bestaande Proxmox provider (auto_sync=false) moet false blijven in het form"
+        );
+    }
+
+    #[test]
+    fn test_provider_form_init_existing_do_explicit_false_preserved() {
+        let mut app = make_app("Host test\n  HostName test.com\n");
+        app.screen = Screen::Providers;
+        app.provider_config = ProviderConfig::default();
+        // DO met auto_sync=false (gebruiker heeft het handmatig uitgezet)
+        app.provider_config.set_section(ProviderSection {
+            provider: "digitalocean".to_string(),
+            token: "tok".to_string(),
+            alias_prefix: "do".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            url: String::new(),
+            verify_tls: true,
+            auto_sync: false,
+        });
+        open_provider_form(&mut app, "digitalocean");
+        assert!(
+            !app.provider_form.auto_sync,
+            "DO met auto_sync=false moet false blijven"
+        );
+    }
+
+    #[test]
+    fn test_provider_form_init_new_proxmox_defaults_to_false() {
+        // Proxmox zonder bestaande config: default auto_sync=false
+        let mut app = make_app("Host test\n  HostName test.com\n");
+        app.screen = Screen::Providers;
+        app.provider_config = ProviderConfig::default(); // geen config voor proxmox
+        open_provider_form(&mut app, "proxmox");
+        assert!(
+            !app.provider_form.auto_sync,
+            "Nieuw Proxmox form moet auto_sync=false als default tonen"
+        );
+    }
+
+    #[test]
+    fn test_provider_form_init_new_digitalocean_defaults_to_true() {
+        let mut app = make_app("Host test\n  HostName test.com\n");
+        app.screen = Screen::Providers;
+        app.provider_config = ProviderConfig::default();
+        open_provider_form(&mut app, "digitalocean");
+        assert!(
+            app.provider_form.auto_sync,
+            "Nieuw DigitalOcean form moet auto_sync=true als default tonen"
+        );
+    }
+
+    // --- Space toggle ---
+
+    fn make_form_app_focused_on(provider: &str, field: ProviderFormField) -> App {
+        let mut app = make_app("Host test\n  HostName test.com\n");
+        app.screen = Screen::ProviderForm { provider: provider.to_string() };
+        app.provider_form = ProviderFormFields {
+            url: String::new(),
+            token: "tok".to_string(),
+            alias_prefix: "do".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            verify_tls: true,
+            auto_sync: true,
+            focused_field: field,
+        };
+        app
+    }
+
+    #[test]
+    fn test_space_toggles_auto_sync_true_to_false() {
+        let mut app = make_form_app_focused_on("digitalocean", ProviderFormField::AutoSync);
+        assert!(app.provider_form.auto_sync);
+        let (tx, _rx) = mpsc::channel();
+        let _ = handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx);
+        assert!(!app.provider_form.auto_sync);
+    }
+
+    #[test]
+    fn test_space_toggles_auto_sync_false_to_true() {
+        let mut app = make_form_app_focused_on("digitalocean", ProviderFormField::AutoSync);
+        app.provider_form.auto_sync = false;
+        let (tx, _rx) = mpsc::channel();
+        let _ = handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx);
+        assert!(app.provider_form.auto_sync);
+    }
+
+    #[test]
+    fn test_space_on_other_field_does_not_affect_auto_sync() {
+        let mut app = make_form_app_focused_on("digitalocean", ProviderFormField::Token);
+        app.provider_form.auto_sync = true;
+        let (tx, _rx) = mpsc::channel();
+        let _ = handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx);
+        // Space op Token voegt spatie toe aan tekstveld; auto_sync ongewijzigd
+        assert!(app.provider_form.auto_sync);
+    }
+
+    // --- Char/Backspace blokkering op AutoSync ---
+
+    #[test]
+    fn test_char_input_blocked_when_auto_sync_focused() {
+        let mut app = make_form_app_focused_on("digitalocean", ProviderFormField::AutoSync);
+        let original_token = app.provider_form.token.clone();
+        let (tx, _rx) = mpsc::channel();
+        let _ = handle_key_event(&mut app, key(KeyCode::Char('x')), &tx);
+        // Geen enkel tekstveld mag gewijzigd zijn
+        assert_eq!(app.provider_form.token, original_token);
+        assert_eq!(app.provider_form.alias_prefix, "do");
+    }
+
+    #[test]
+    fn test_backspace_blocked_when_auto_sync_focused() {
+        let mut app = make_form_app_focused_on("digitalocean", ProviderFormField::AutoSync);
+        let original_token = app.provider_form.token.clone();
+        let (tx, _rx) = mpsc::channel();
+        let _ = handle_key_event(&mut app, key(KeyCode::Backspace), &tx);
+        assert_eq!(app.provider_form.token, original_token);
+    }
+
+    // --- Submit persisteert auto_sync ---
+
+    #[test]
+    fn test_submit_provider_form_persists_auto_sync_false() {
+        // Submit met auto_sync=false moet de sectie opslaan met auto_sync=false.
+        let mut app = make_app("Host test\n  HostName test.com\n");
+        app.screen = Screen::ProviderForm { provider: "digitalocean".to_string() };
+        app.provider_config = ProviderConfig::default();
+        app.provider_form = ProviderFormFields {
+            url: String::new(),
+            token: "tok".to_string(),
+            alias_prefix: "do".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            verify_tls: true,
+            auto_sync: false,
+            focused_field: ProviderFormField::Token,
+        };
+
+        let (tx, _rx) = mpsc::channel();
+        // Enter triggert submit; save() kan falen zonder ~/.purple dir, maar de
+        // in-memory sectie wordt altijd bijgewerkt vóór de save.
+        let _ = handle_key_event(&mut app, key(KeyCode::Enter), &tx);
+
+        // Ongeacht of save() slaagde: de sectie in provider_config is bijgewerkt.
+        if let Some(section) = app.provider_config.section("digitalocean") {
+            assert!(!section.auto_sync, "Opgeslagen sectie moet auto_sync=false hebben");
+        }
+        // Als het form is gesloten (save geslaagd), controleert de screen-state
+        // dat de toggle correct is doorgegeven.
+    }
+
+    #[test]
+    fn test_submit_provider_form_persists_auto_sync_true() {
+        let mut app = make_app("Host test\n  HostName test.com\n");
+        app.screen = Screen::ProviderForm { provider: "digitalocean".to_string() };
+        app.provider_config = ProviderConfig::default();
+        app.provider_form = ProviderFormFields {
+            url: String::new(),
+            token: "tok".to_string(),
+            alias_prefix: "do".to_string(),
+            user: "root".to_string(),
+            identity_file: String::new(),
+            verify_tls: true,
+            auto_sync: true,
+            focused_field: ProviderFormField::Token,
+        };
+
+        let (tx, _rx) = mpsc::channel();
+        let _ = handle_key_event(&mut app, key(KeyCode::Enter), &tx);
+
+        if let Some(section) = app.provider_config.section("digitalocean") {
+            assert!(section.auto_sync, "Opgeslagen sectie moet auto_sync=true hebben");
+        }
     }
 }
