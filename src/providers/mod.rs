@@ -2,6 +2,7 @@ pub mod config;
 mod digitalocean;
 mod hetzner;
 mod linode;
+mod proxmox;
 pub mod sync;
 mod upcloud;
 mod vultr;
@@ -37,6 +38,14 @@ pub enum ProviderError {
     RateLimited,
     #[error("Cancelled.")]
     Cancelled,
+    /// Some hosts were fetched but others failed. The caller should use the
+    /// hosts but suppress destructive operations like --remove.
+    #[error("Partial result: {failures} of {total} failed")]
+    PartialResult {
+        hosts: Vec<ProviderHost>,
+        failures: usize,
+        total: usize,
+    },
 }
 
 /// Trait implemented by each cloud provider.
@@ -52,13 +61,23 @@ pub trait Provider {
         cancel: &AtomicBool,
     ) -> Result<Vec<ProviderHost>, ProviderError>;
     /// Fetch all servers from the provider API.
+    #[allow(dead_code)]
     fn fetch_hosts(&self, token: &str) -> Result<Vec<ProviderHost>, ProviderError> {
         self.fetch_hosts_cancellable(token, &AtomicBool::new(false))
+    }
+    /// Fetch hosts with progress reporting. Default delegates to fetch_hosts_cancellable.
+    fn fetch_hosts_with_progress(
+        &self,
+        token: &str,
+        cancel: &AtomicBool,
+        _progress: &dyn Fn(&str),
+    ) -> Result<Vec<ProviderHost>, ProviderError> {
+        self.fetch_hosts_cancellable(token, cancel)
     }
 }
 
 /// All known provider names.
-pub const PROVIDER_NAMES: &[&str] = &["digitalocean", "vultr", "linode", "hetzner", "upcloud"];
+pub const PROVIDER_NAMES: &[&str] = &["digitalocean", "vultr", "linode", "hetzner", "upcloud", "proxmox"];
 
 /// Get a provider implementation by name.
 pub fn get_provider(name: &str) -> Option<Box<dyn Provider>> {
@@ -68,7 +87,24 @@ pub fn get_provider(name: &str) -> Option<Box<dyn Provider>> {
         "linode" => Some(Box::new(linode::Linode)),
         "hetzner" => Some(Box::new(hetzner::Hetzner)),
         "upcloud" => Some(Box::new(upcloud::UpCloud)),
+        "proxmox" => Some(Box::new(proxmox::Proxmox {
+            base_url: String::new(),
+            verify_tls: true,
+        })),
         _ => None,
+    }
+}
+
+/// Get a provider implementation configured from a provider section.
+/// For providers that need extra config (e.g. Proxmox base URL), this
+/// creates a properly configured instance.
+pub fn get_provider_with_config(name: &str, section: &config::ProviderSection) -> Option<Box<dyn Provider>> {
+    match name {
+        "proxmox" => Some(Box::new(proxmox::Proxmox {
+            base_url: section.url.clone(),
+            verify_tls: section.verify_tls,
+        })),
+        _ => get_provider(name),
     }
 }
 
@@ -80,6 +116,7 @@ pub fn provider_display_name(name: &str) -> &str {
         "linode" => "Linode",
         "hetzner" => "Hetzner",
         "upcloud" => "UpCloud",
+        "proxmox" => "Proxmox VE",
         other => other,
     }
 }
@@ -90,6 +127,20 @@ pub(crate) fn http_agent() -> ureq::Agent {
         .timeout(std::time::Duration::from_secs(30))
         .redirects(0)
         .build()
+}
+
+/// Create an HTTP agent that accepts invalid/self-signed TLS certificates.
+pub(crate) fn http_agent_insecure() -> Result<ureq::Agent, ProviderError> {
+    let tls = ureq::native_tls::TlsConnector::builder()
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build()
+        .map_err(|e| ProviderError::Http(format!("TLS setup failed: {}", e)))?;
+    Ok(ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(30))
+        .redirects(0)
+        .tls_connector(std::sync::Arc::new(tls))
+        .build())
 }
 
 /// Strip CIDR suffix (/64, /128, etc.) from an IP address.

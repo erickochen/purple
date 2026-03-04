@@ -281,7 +281,7 @@ footer a:hover { color: #9333ea; border-color: #9333ea; }
     <div><strong>Tags</strong> \u2014 organize hosts with #tags and filter instantly</div>
     <div><strong>Tunnels</strong> \u2014 manage SSH port forwards per host</div>
     <div><strong>Ping</strong> \u2014 check host reachability from the TUI</div>
-    <div><strong>Cloud sync</strong> \u2014 DigitalOcean, Vultr, Linode, Hetzner, UpCloud</div>
+    <div><strong>Cloud sync</strong> \u2014 DigitalOcean, Vultr, Linode, Hetzner, UpCloud, Proxmox VE</div>
     <div><strong>Round-trip</strong> \u2014 preserves comments, formatting and unknown directives</div>
     <div><strong>Self-update</strong> \u2014 run purple update, with startup version check</div>
   </div>

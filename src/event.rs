@@ -15,10 +15,17 @@ pub enum AppEvent {
         provider: String,
         hosts: Vec<crate::providers::ProviderHost>,
     },
+    SyncPartial {
+        provider: String,
+        hosts: Vec<crate::providers::ProviderHost>,
+        failures: usize,
+        total: usize,
+    },
     SyncError {
         provider: String,
         message: String,
     },
+    SyncProgress { provider: String, message: String },
     UpdateAvailable { version: String },
     PollError,
 }
@@ -124,7 +131,9 @@ impl EventHandler {
             match event {
                 AppEvent::PingResult { .. }
                 | AppEvent::SyncComplete { .. }
+                | AppEvent::SyncPartial { .. }
                 | AppEvent::SyncError { .. }
+                | AppEvent::SyncProgress { .. }
                 | AppEvent::UpdateAvailable { .. } => preserved.push(event),
                 _ => {}
             }

@@ -239,11 +239,17 @@ impl Provider for UpCloud {
         }
 
         if fetch_failures > 0 {
-            return Err(ProviderError::Http(format!(
-                "Failed to fetch details for {} of {} servers",
-                fetch_failures,
-                all_servers.len()
-            )));
+            let total = all_servers.len();
+            if all_hosts.is_empty() {
+                return Err(ProviderError::Http(format!(
+                    "Failed to fetch details for all {} servers", total
+                )));
+            }
+            return Err(ProviderError::PartialResult {
+                hosts: all_hosts,
+                failures: fetch_failures,
+                total,
+            });
         }
 
         Ok(all_hosts)
