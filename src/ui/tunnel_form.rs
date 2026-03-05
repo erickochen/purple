@@ -54,8 +54,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         frame,
         chunks[1],
         TunnelFormField::BindPort,
-        &app.tunnel_form.bind_port,
-        app.tunnel_form.focused_field,
+        &app.tunnel_form,
         "8080",
         true,
     );
@@ -66,8 +65,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             frame,
             chunks[2],
             TunnelFormField::RemoteHost,
-            &app.tunnel_form.remote_host,
-            app.tunnel_form.focused_field,
+            &app.tunnel_form,
             "localhost",
             true,
         );
@@ -77,8 +75,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             frame,
             chunks[3],
             TunnelFormField::RemotePort,
-            &app.tunnel_form.remote_port,
-            app.tunnel_form.focused_field,
+            &app.tunnel_form,
             "80",
             true,
         );
@@ -135,12 +132,17 @@ fn render_text_field(
     frame: &mut Frame,
     area: Rect,
     field: TunnelFormField,
-    value: &str,
-    focused: TunnelFormField,
+    form: &crate::app::TunnelForm,
     placeholder: &str,
     required: bool,
 ) {
-    let is_focused = focused == field;
+    let value = match field {
+        TunnelFormField::BindPort => &form.bind_port,
+        TunnelFormField::RemoteHost => &form.remote_host,
+        TunnelFormField::RemotePort => &form.remote_port,
+        TunnelFormField::Type => unreachable!("Type uses render_type_field"),
+    };
+    let is_focused = form.focused_field == field;
 
     let (border_style, label_style) = if is_focused {
         (theme::border_focused(), theme::accent_bold())
@@ -170,10 +172,11 @@ fn render_text_field(
 
     // Cursor
     if is_focused {
+        let prefix: String = value.chars().take(form.cursor_pos).collect();
         let cursor_x = area
             .x
             .saturating_add(1)
-            .saturating_add(value.width().min(u16::MAX as usize) as u16);
+            .saturating_add(UnicodeWidthStr::width(prefix.as_str()).min(u16::MAX as usize) as u16);
         let cursor_y = area.y + 1;
         if area.width > 1 && cursor_x < area.x.saturating_add(area.width).saturating_sub(1) {
             frame.set_cursor_position((cursor_x, cursor_y));

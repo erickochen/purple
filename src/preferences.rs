@@ -1,10 +1,22 @@
 use std::io;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use crate::app::SortMode;
 use crate::fs_util;
 
+static PATH_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Override the preferences file path (used in tests to avoid writing to ~/.purple).
+#[cfg(test)]
+pub fn set_path_override(path: PathBuf) {
+    *PATH_OVERRIDE.lock().unwrap() = Some(path);
+}
+
 fn path() -> Option<PathBuf> {
+    if let Some(p) = PATH_OVERRIDE.lock().unwrap().clone() {
+        return Some(p);
+    }
     dirs::home_dir().map(|h| h.join(".purple/preferences"))
 }
 

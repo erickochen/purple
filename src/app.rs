@@ -115,6 +115,7 @@ pub struct HostForm {
     pub askpass: String,
     pub tags: String,
     pub focused_field: FormField,
+    pub cursor_pos: usize,
 }
 
 impl HostForm {
@@ -129,12 +130,15 @@ impl HostForm {
             askpass: String::new(),
             tags: String::new(),
             focused_field: FormField::Alias,
+            cursor_pos: 0,
         }
     }
 
     pub fn from_entry(entry: &HostEntry) -> Self {
+        let alias = entry.alias.clone();
+        let cursor_pos = alias.chars().count();
         Self {
-            alias: entry.alias.clone(),
+            alias,
             hostname: entry.hostname.clone(),
             user: entry.user.clone(),
             port: entry.port.to_string(),
@@ -143,6 +147,20 @@ impl HostForm {
             askpass: entry.askpass.clone().unwrap_or_default(),
             tags: entry.tags.join(", "),
             focused_field: FormField::Alias,
+            cursor_pos,
+        }
+    }
+
+    pub fn focused_value(&self) -> &str {
+        match self.focused_field {
+            FormField::Alias => &self.alias,
+            FormField::Hostname => &self.hostname,
+            FormField::User => &self.user,
+            FormField::Port => &self.port,
+            FormField::IdentityFile => &self.identity_file,
+            FormField::ProxyJump => &self.proxy_jump,
+            FormField::AskPass => &self.askpass,
+            FormField::Tags => &self.tags,
         }
     }
 
@@ -158,6 +176,30 @@ impl HostForm {
             FormField::AskPass => &mut self.askpass,
             FormField::Tags => &mut self.tags,
         }
+    }
+
+    pub fn insert_char(&mut self, c: char) {
+        let pos = self.cursor_pos;
+        let val = self.focused_value_mut();
+        let byte_pos = char_to_byte_pos(val, pos);
+        val.insert(byte_pos, c);
+        self.cursor_pos = pos + 1;
+    }
+
+    pub fn delete_char_before_cursor(&mut self) {
+        if self.cursor_pos == 0 {
+            return;
+        }
+        let pos = self.cursor_pos;
+        let val = self.focused_value_mut();
+        let byte_pos = char_to_byte_pos(val, pos);
+        let prev = char_to_byte_pos(val, pos - 1);
+        val.drain(prev..byte_pos);
+        self.cursor_pos = pos - 1;
+    }
+
+    pub fn sync_cursor_to_end(&mut self) {
+        self.cursor_pos = self.focused_value().chars().count();
     }
 
     /// Validate the form. Returns an error message if invalid.
@@ -301,6 +343,7 @@ pub struct ProviderFormFields {
     pub verify_tls: bool,
     pub auto_sync: bool,
     pub focused_field: ProviderFormField,
+    pub cursor_pos: usize,
 }
 
 impl ProviderFormFields {
@@ -314,6 +357,18 @@ impl ProviderFormFields {
             verify_tls: true,
             auto_sync: true,
             focused_field: ProviderFormField::Token,
+            cursor_pos: 0,
+        }
+    }
+
+    pub fn focused_value(&self) -> &str {
+        match self.focused_field {
+            ProviderFormField::Url => &self.url,
+            ProviderFormField::Token => &self.token,
+            ProviderFormField::AliasPrefix => &self.alias_prefix,
+            ProviderFormField::User => &self.user,
+            ProviderFormField::IdentityFile => &self.identity_file,
+            ProviderFormField::VerifyTls | ProviderFormField::AutoSync => "",
         }
     }
 
@@ -328,6 +383,37 @@ impl ProviderFormFields {
             ProviderFormField::AutoSync => unreachable!("AutoSync is a toggle, not a text field"),
         }
     }
+
+    pub fn insert_char(&mut self, c: char) {
+        let pos = self.cursor_pos;
+        let val = self.focused_value_mut();
+        let byte_pos = char_to_byte_pos(val, pos);
+        val.insert(byte_pos, c);
+        self.cursor_pos = pos + 1;
+    }
+
+    pub fn delete_char_before_cursor(&mut self) {
+        if self.cursor_pos == 0 {
+            return;
+        }
+        let pos = self.cursor_pos;
+        let val = self.focused_value_mut();
+        let byte_pos = char_to_byte_pos(val, pos);
+        let prev = char_to_byte_pos(val, pos - 1);
+        val.drain(prev..byte_pos);
+        self.cursor_pos = pos - 1;
+    }
+
+    pub fn sync_cursor_to_end(&mut self) {
+        self.cursor_pos = self.focused_value().chars().count();
+    }
+}
+
+fn char_to_byte_pos(s: &str, char_pos: usize) -> usize {
+    s.char_indices()
+        .nth(char_pos)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len())
 }
 
 /// Which tunnel form field is focused.
@@ -382,6 +468,7 @@ pub struct TunnelForm {
     /// Hidden field: preserved during edit, not exposed in the form UI.
     pub bind_address: String,
     pub focused_field: TunnelFormField,
+    pub cursor_pos: usize,
 }
 
 impl TunnelForm {
@@ -393,6 +480,7 @@ impl TunnelForm {
             remote_port: String::new(),
             bind_address: String::new(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         }
     }
 
@@ -408,6 +496,7 @@ impl TunnelForm {
             },
             bind_address: rule.bind_address.clone(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         }
     }
 
@@ -466,6 +555,15 @@ impl TunnelForm {
         (key, rule.to_directive_value())
     }
 
+    pub fn focused_value(&self) -> Option<&str> {
+        match self.focused_field {
+            TunnelFormField::Type => None,
+            TunnelFormField::BindPort => Some(&self.bind_port),
+            TunnelFormField::RemoteHost => Some(&self.remote_host),
+            TunnelFormField::RemotePort => Some(&self.remote_port),
+        }
+    }
+
     /// Get mutable reference to the focused text field's value.
     /// Returns None for Type field (uses Left/Right, not text input).
     pub fn focused_value_mut(&mut self) -> Option<&mut String> {
@@ -475,6 +573,32 @@ impl TunnelForm {
             TunnelFormField::RemoteHost => Some(&mut self.remote_host),
             TunnelFormField::RemotePort => Some(&mut self.remote_port),
         }
+    }
+
+    pub fn insert_char(&mut self, c: char) {
+        let pos = self.cursor_pos;
+        if let Some(val) = self.focused_value_mut() {
+            let byte_pos = char_to_byte_pos(val, pos);
+            val.insert(byte_pos, c);
+            self.cursor_pos = pos + 1;
+        }
+    }
+
+    pub fn delete_char_before_cursor(&mut self) {
+        if self.cursor_pos == 0 {
+            return;
+        }
+        let pos = self.cursor_pos;
+        if let Some(val) = self.focused_value_mut() {
+            let byte_pos = char_to_byte_pos(val, pos);
+            let prev = char_to_byte_pos(val, pos - 1);
+            val.drain(prev..byte_pos);
+            self.cursor_pos = pos - 1;
+        }
+    }
+
+    pub fn sync_cursor_to_end(&mut self) {
+        self.cursor_pos = self.focused_value().map(|v| v.chars().count()).unwrap_or(0);
     }
 }
 
@@ -2070,6 +2194,7 @@ Host vultr-app
             remote_host: "localhost".to_string(),
             remote_port: "80".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         let (key, value) = form.to_directive();
         assert_eq!(key, "LocalForward");
@@ -2086,6 +2211,7 @@ Host vultr-app
             remote_host: "localhost".to_string(),
             remote_port: "3000".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         let (key, value) = form.to_directive();
         assert_eq!(key, "RemoteForward");
@@ -2102,6 +2228,7 @@ Host vultr-app
             remote_host: String::new(),
             remote_port: String::new(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         let (key, value) = form.to_directive();
         assert_eq!(key, "DynamicForward");
@@ -2118,6 +2245,7 @@ Host vultr-app
             remote_host: "localhost".to_string(),
             remote_port: "80".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         assert!(form.validate().is_ok());
     }
@@ -2132,6 +2260,7 @@ Host vultr-app
             remote_host: "localhost".to_string(),
             remote_port: "80".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         assert!(form.validate().is_err());
     }
@@ -2146,6 +2275,7 @@ Host vultr-app
             remote_host: "localhost".to_string(),
             remote_port: "80".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         assert!(form.validate().is_err());
     }
@@ -2160,6 +2290,7 @@ Host vultr-app
             remote_host: "  ".to_string(),
             remote_port: "80".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         assert!(form.validate().is_err());
     }
@@ -2174,6 +2305,7 @@ Host vultr-app
             remote_host: String::new(),
             remote_port: String::new(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         assert!(form.validate().is_ok());
     }
@@ -2220,6 +2352,7 @@ Host vultr-app
             remote_host: "localhost".to_string(),
             remote_port: "abc".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         assert!(form.validate().is_err());
     }
@@ -2252,6 +2385,7 @@ Host vultr-app
             remote_host: "localhost".to_string(),
             remote_port: "80".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         assert!(form.validate().is_err());
     }
@@ -2266,6 +2400,7 @@ Host vultr-app
             remote_host: "localhost".to_string(),
             remote_port: "0".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         let err = form.validate().unwrap_err();
         assert!(err.contains("Remote port"));
@@ -2281,6 +2416,7 @@ Host vultr-app
             remote_host: "local\x00host".to_string(),
             remote_port: "80".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         let err = form.validate().unwrap_err();
         assert!(err.contains("control characters"));
@@ -2296,6 +2432,7 @@ Host vultr-app
             remote_host: "local host".to_string(),
             remote_port: "80".to_string(),
             focused_field: TunnelFormField::Type,
+            cursor_pos: 0,
         };
         let err = form.validate().unwrap_err();
         assert!(err.contains("spaces"));

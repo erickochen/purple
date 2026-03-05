@@ -272,12 +272,12 @@ fn render_field(frame: &mut Frame, area: Rect, field: FormField, form: &crate::a
     let paragraph = Paragraph::new(content).block(block);
     frame.render_widget(paragraph, area);
 
-    // Place cursor at end of focused field (use display width for multibyte chars)
     if is_focused {
+        let prefix: String = value.chars().take(form.cursor_pos).collect();
         let cursor_x = area
             .x
             .saturating_add(1)
-            .saturating_add(value.width().min(u16::MAX as usize) as u16);
+            .saturating_add(prefix.width().min(u16::MAX as usize) as u16);
         let cursor_y = area.y + 1;
         if area.width > 1 && cursor_x < area.x.saturating_add(area.width).saturating_sub(1) {
             frame.set_cursor_position((cursor_x, cursor_y));

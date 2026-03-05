@@ -130,19 +130,19 @@ const LANDING_PAGE = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>purple. \u2014 SSH config manager and host launcher for the terminal</title>
+<title>purple. SSH config manager and host launcher for the terminal</title>
 <meta name="description" content="Free, open-source SSH config manager, editor and host launcher. TUI with search, tags, tunnels, password management (keychain, 1Password, Bitwarden, pass, Vault), cloud provider sync (DigitalOcean, Vultr, Linode, Hetzner, UpCloud, Proxmox VE) and round-trip fidelity for ~/.ssh/config. Written in Rust. macOS and Linux.">
 <meta name="keywords" content="SSH config manager, SSH launcher, terminal SSH, TUI SSH, SSH host manager, cloud SSH sync, DigitalOcean SSH, Vultr SSH, Linode SSH, Hetzner SSH, UpCloud SSH, Proxmox SSH, SSH tunnel manager, SSH config editor, Rust SSH tool, purple-ssh, SSH password manager, SSH askpass, SSH keychain, 1Password SSH, Bitwarden SSH">
 <meta name="robots" content="index, follow">
 <meta name="author" content="Erick Ochen">
-<meta property="og:title" content="purple. \u2014 SSH config manager and host launcher for the terminal">
+<meta property="og:title" content="purple. SSH config manager and host launcher for the terminal">
 <meta property="og:description" content="Free, open-source TUI that turns ~/.ssh/config into a searchable, taggable host launcher. Sync servers from 6 cloud providers. Manage SSH passwords. Written in Rust.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://getpurple.sh">
 <meta property="og:image" content="https://raw.githubusercontent.com/erickochen/purple/master/demo.gif">
 <meta property="og:site_name" content="purple">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="purple. \u2014 SSH config manager and host launcher">
+<meta name="twitter:title" content="purple. SSH config manager and host launcher">
 <meta name="twitter:description" content="Free, open-source TUI for managing SSH configs. Search, tag, sync cloud providers, manage passwords. Written in Rust.">
 <meta name="twitter:image" content="https://raw.githubusercontent.com/erickochen/purple/master/demo.gif">
 <link rel="canonical" href="https://getpurple.sh">
@@ -428,18 +428,18 @@ footer a:hover { color: #9333ea; border-color: #9333ea; }
 
   <h2>Features</h2>
   <div class="features">
-    <div><strong>Search</strong> \u2014 fuzzy find across aliases, hostnames, users and tags</div>
-    <div><strong>Tags</strong> \u2014 organize hosts with #tags and filter instantly</div>
-    <div><strong>Tunnels</strong> \u2014 manage SSH port forwards (local, remote, dynamic) per host</div>
-    <div><strong>Ping</strong> \u2014 TCP connectivity check from the TUI</div>
-    <div><strong>Round-trip fidelity</strong> \u2014 preserves comments, formatting and unknown directives</div>
-    <div><strong>Bulk import</strong> \u2014 from hosts files or ~/.ssh/known_hosts</div>
-    <div><strong>Passwords</strong> \u2014 OS Keychain, 1Password, Bitwarden, pass, Vault integration</div>
-    <div><strong>SSH keys</strong> \u2014 browse keys with metadata and linked hosts</div>
-    <div><strong>Cloud sync</strong> \u2014 pull servers from 6 cloud providers into your config</div>
-    <div><strong>Self-update</strong> \u2014 run <code>purple update</code></div>
-    <div><strong>Atomic writes</strong> \u2014 temp file, chmod 600, rename. Automatic backups</div>
-    <div><strong>Completions</strong> \u2014 bash, zsh and fish via <code>purple --completions</code></div>
+    <div><strong>Search.</strong> Fuzzy find across aliases, hostnames, users and tags</div>
+    <div><strong>Tags.</strong> Organize hosts with #tags and filter instantly</div>
+    <div><strong>Tunnels.</strong> Manage SSH port forwards (local, remote, dynamic) per host</div>
+    <div><strong>Ping.</strong> TCP connectivity check from the TUI</div>
+    <div><strong>Round-trip fidelity.</strong> Preserves comments, formatting and unknown directives</div>
+    <div><strong>Bulk import.</strong> From hosts files or ~/.ssh/known_hosts</div>
+    <div><strong>Passwords.</strong> OS Keychain, 1Password, Bitwarden, pass, Vault integration</div>
+    <div><strong>SSH keys.</strong> Browse keys with metadata and linked hosts</div>
+    <div><strong>Cloud sync.</strong> Pull servers from 6 cloud providers into your config</div>
+    <div><strong>Self-update.</strong> Run <code>purple update</code></div>
+    <div><strong>Atomic writes.</strong> Temp file, chmod 600, rename. Automatic backups</div>
+    <div><strong>Completions.</strong> Bash, zsh and fish via <code>purple --completions</code></div>
   </div>
 
   <section>

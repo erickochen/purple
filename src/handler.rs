@@ -359,12 +359,28 @@ fn handle_form(app: &mut App, key: KeyEvent) {
                 maybe_smart_paste(app);
             }
             app.form.focused_field = app.form.focused_field.next();
+            app.form.sync_cursor_to_end();
         }
-        KeyCode::BackTab => {
+        KeyCode::BackTab | KeyCode::Up => {
             app.form.focused_field = app.form.focused_field.prev();
+            app.form.sync_cursor_to_end();
         }
-        KeyCode::Up => {
-            app.form.focused_field = app.form.focused_field.prev();
+        KeyCode::Left => {
+            if app.form.cursor_pos > 0 {
+                app.form.cursor_pos -= 1;
+            }
+        }
+        KeyCode::Right => {
+            let len = app.form.focused_value().chars().count();
+            if app.form.cursor_pos < len {
+                app.form.cursor_pos += 1;
+            }
+        }
+        KeyCode::Home => {
+            app.form.cursor_pos = 0;
+        }
+        KeyCode::End => {
+            app.form.sync_cursor_to_end();
         }
         KeyCode::Enter => {
             match app.form.focused_field {
@@ -391,10 +407,10 @@ fn handle_form(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Char(c) => {
-            app.form.focused_value_mut().push(c);
+            app.form.insert_char(c);
         }
         KeyCode::Backspace => {
-            app.form.focused_value_mut().pop();
+            app.form.delete_char_before_cursor();
         }
         _ => {}
     }
@@ -751,6 +767,11 @@ fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
                     app.provider_form = if let Some(section) =
                         app.provider_config.section(name.as_str())
                     {
+                        let cursor_pos = match first_field {
+                            crate::app::ProviderFormField::Url => section.url.chars().count(),
+                            crate::app::ProviderFormField::Token => section.token.chars().count(),
+                            _ => 0,
+                        };
                         ProviderFormFields {
                             url: section.url.clone(),
                             token: section.token.clone(),
@@ -760,6 +781,7 @@ fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
                             verify_tls: section.verify_tls,
                             auto_sync: section.auto_sync,
                             focused_field: first_field,
+                            cursor_pos,
                         }
                     } else {
                         ProviderFormFields {
@@ -771,6 +793,7 @@ fn handle_provider_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
                             verify_tls: true,
                             auto_sync: name.as_str() != "proxmox",
                             focused_field: first_field,
+                            cursor_pos: 0,
                         }
                     };
                     app.screen = Screen::ProviderForm {
@@ -839,9 +862,28 @@ fn handle_provider_form(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
         }
         KeyCode::Tab | KeyCode::Down => {
             app.provider_form.focused_field = app.provider_form.focused_field.next(fields);
+            app.provider_form.sync_cursor_to_end();
         }
         KeyCode::BackTab | KeyCode::Up => {
             app.provider_form.focused_field = app.provider_form.focused_field.prev(fields);
+            app.provider_form.sync_cursor_to_end();
+        }
+        KeyCode::Left => {
+            if app.provider_form.cursor_pos > 0 {
+                app.provider_form.cursor_pos -= 1;
+            }
+        }
+        KeyCode::Right => {
+            let len = app.provider_form.focused_value().chars().count();
+            if app.provider_form.cursor_pos < len {
+                app.provider_form.cursor_pos += 1;
+            }
+        }
+        KeyCode::Home => {
+            app.provider_form.cursor_pos = 0;
+        }
+        KeyCode::End => {
+            app.provider_form.sync_cursor_to_end();
         }
         KeyCode::Enter => {
             if app.provider_form.focused_field == crate::app::ProviderFormField::IdentityFile {
@@ -864,13 +906,13 @@ fn handle_provider_form(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<A
         KeyCode::Char(c) => {
             let f = app.provider_form.focused_field;
             if f != crate::app::ProviderFormField::VerifyTls && f != crate::app::ProviderFormField::AutoSync {
-                app.provider_form.focused_value_mut().push(c);
+                app.provider_form.insert_char(c);
             }
         }
         KeyCode::Backspace => {
             let f = app.provider_form.focused_field;
             if f != crate::app::ProviderFormField::VerifyTls && f != crate::app::ProviderFormField::AutoSync {
-                app.provider_form.focused_value_mut().pop();
+                app.provider_form.delete_char_before_cursor();
             }
         }
         _ => {}
@@ -1038,17 +1080,21 @@ fn handle_password_picker(app: &mut App, key: KeyEvent) {
                     let is_prefix = source.value.ends_with(':') || source.value.ends_with("//");
                     if is_none {
                         app.form.askpass = String::new();
+                        app.form.sync_cursor_to_end();
                         app.set_status("Password source cleared.", false);
                     } else if is_custom_cmd {
                         app.form.askpass = String::new();
                         app.form.focused_field = FormField::AskPass;
+                        app.form.sync_cursor_to_end();
                         app.set_status("Type your command. Use %a (alias) and %h (hostname) as placeholders.", false);
                     } else if is_prefix {
                         app.form.askpass = source.value.to_string();
                         app.form.focused_field = FormField::AskPass;
+                        app.form.sync_cursor_to_end();
                         app.set_status(format!("Complete the {} path.", source.label), false);
                     } else {
                         app.form.askpass = source.value.to_string();
+                        app.form.sync_cursor_to_end();
                         app.set_status(
                             format!("Password source set to {}.", source.label),
                             false,
@@ -1079,8 +1125,10 @@ fn handle_key_picker_shared(app: &mut App, key: KeyEvent, for_provider: bool) {
                 if let Some(key_info) = app.keys.get(index) {
                     if for_provider {
                         app.provider_form.identity_file = key_info.display_path.clone();
+                        app.provider_form.sync_cursor_to_end();
                     } else {
                         app.form.identity_file = key_info.display_path.clone();
+                        app.form.sync_cursor_to_end();
                     }
                     app.set_status(
                         format!("Locked and loaded with {}.", key_info.name),
@@ -1255,32 +1303,43 @@ fn handle_tunnel_form(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Tab | KeyCode::Down => {
             app.tunnel_form.focused_field = app.tunnel_form.focused_field.next(app.tunnel_form.tunnel_type);
+            app.tunnel_form.sync_cursor_to_end();
         }
         KeyCode::BackTab | KeyCode::Up => {
             app.tunnel_form.focused_field = app.tunnel_form.focused_field.prev(app.tunnel_form.tunnel_type);
+            app.tunnel_form.sync_cursor_to_end();
         }
         KeyCode::Left => {
             if app.tunnel_form.focused_field == crate::app::TunnelFormField::Type {
                 app.tunnel_form.tunnel_type = app.tunnel_form.tunnel_type.prev();
+            } else if app.tunnel_form.cursor_pos > 0 {
+                app.tunnel_form.cursor_pos -= 1;
             }
         }
         KeyCode::Right => {
             if app.tunnel_form.focused_field == crate::app::TunnelFormField::Type {
                 app.tunnel_form.tunnel_type = app.tunnel_form.tunnel_type.next();
+            } else {
+                let len = app.tunnel_form.focused_value().map(|v| v.chars().count()).unwrap_or(0);
+                if app.tunnel_form.cursor_pos < len {
+                    app.tunnel_form.cursor_pos += 1;
+                }
             }
+        }
+        KeyCode::Home => {
+            app.tunnel_form.cursor_pos = 0;
+        }
+        KeyCode::End => {
+            app.tunnel_form.sync_cursor_to_end();
         }
         KeyCode::Enter => {
             submit_tunnel_form(app, &alias, editing);
         }
         KeyCode::Char(c) => {
-            if let Some(val) = app.tunnel_form.focused_value_mut() {
-                val.push(c);
-            }
+            app.tunnel_form.insert_char(c);
         }
         KeyCode::Backspace => {
-            if let Some(val) = app.tunnel_form.focused_value_mut() {
-                val.pop();
-            }
+            app.tunnel_form.delete_char_before_cursor();
         }
         _ => {}
     }
@@ -1431,6 +1490,12 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::mpsc;
 
+    fn test_provider_config() -> ProviderConfig {
+        let mut c = ProviderConfig::default();
+        c.path_override = Some(PathBuf::from("/tmp/purple_test_providers"));
+        c
+    }
+
     fn make_app(content: &str) -> App {
         let config = SshConfigFile {
             elements: SshConfigFile::parse_content(content),
@@ -1438,8 +1503,9 @@ mod tests {
             crlf: false,
         };
         let mut app = App::new(config);
-        // Never write to the real ~/.purple/providers during tests
-        app.provider_config.path_override = Some(PathBuf::from("/tmp/purple_test_providers"));
+        // Never write to the real ~/.purple during tests
+        app.provider_config = test_provider_config();
+        crate::preferences::set_path_override(PathBuf::from("/tmp/purple_test_preferences"));
         app
     }
 
@@ -1451,7 +1517,7 @@ mod tests {
     fn make_providers_app_with_do() -> App {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         app.provider_config.set_section(ProviderSection {
             provider: "digitalocean".to_string(),
             token: "tok".to_string(),
@@ -1468,7 +1534,7 @@ mod tests {
     fn make_providers_app_with_proxmox() -> App {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         app.provider_config.set_section(ProviderSection {
             provider: "proxmox".to_string(),
             token: "user@pam!t=secret".to_string(),
@@ -1517,7 +1583,7 @@ mod tests {
     fn test_provider_form_init_existing_do_explicit_false_preserved() {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         // DO met auto_sync=false (gebruiker heeft het handmatig uitgezet)
         app.provider_config.set_section(ProviderSection {
             provider: "digitalocean".to_string(),
@@ -1541,7 +1607,7 @@ mod tests {
         // Proxmox zonder bestaande config: default auto_sync=false
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default(); // geen config voor proxmox
+        app.provider_config = test_provider_config(); // geen config voor proxmox
         open_provider_form(&mut app, "proxmox");
         assert!(
             !app.provider_form.auto_sync,
@@ -1553,7 +1619,7 @@ mod tests {
     fn test_provider_form_init_new_digitalocean_defaults_to_true() {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         open_provider_form(&mut app, "digitalocean");
         assert!(
             app.provider_form.auto_sync,
@@ -1575,6 +1641,7 @@ mod tests {
             verify_tls: true,
             auto_sync: true,
             focused_field: field,
+            cursor_pos: 0,
         };
         app
     }
@@ -1663,7 +1730,7 @@ mod tests {
         // Submit met auto_sync=false moet de sectie opslaan met auto_sync=false.
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::ProviderForm { provider: "digitalocean".to_string() };
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         app.provider_form = ProviderFormFields {
             url: String::new(),
             token: "tok".to_string(),
@@ -1673,6 +1740,7 @@ mod tests {
             verify_tls: true,
             auto_sync: false,
             focused_field: ProviderFormField::Token,
+            cursor_pos: 0,
         };
 
         let (tx, _rx) = mpsc::channel();
@@ -1692,7 +1760,7 @@ mod tests {
     fn test_submit_provider_form_persists_auto_sync_true() {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::ProviderForm { provider: "digitalocean".to_string() };
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         app.provider_form = ProviderFormFields {
             url: String::new(),
             token: "tok".to_string(),
@@ -1702,6 +1770,7 @@ mod tests {
             verify_tls: true,
             auto_sync: true,
             focused_field: ProviderFormField::Token,
+            cursor_pos: 0,
         };
 
         let (tx, _rx) = mpsc::channel();
@@ -1948,6 +2017,7 @@ mod tests {
     fn test_provider_form_char_appended_to_focused_field() {
         let mut app = make_form_app_focused_on("digitalocean", ProviderFormField::Token);
         app.provider_form.token = "tok".to_string();
+        app.provider_form.cursor_pos = 3;
         let (tx, _rx) = mpsc::channel();
         let _ = handle_key_event(&mut app, key(KeyCode::Char('X')), &tx);
         assert_eq!(app.provider_form.token, "tokX");
@@ -1957,6 +2027,7 @@ mod tests {
     fn test_provider_form_backspace_removes_from_focused_field() {
         let mut app = make_form_app_focused_on("digitalocean", ProviderFormField::Token);
         app.provider_form.token = "tok".to_string();
+        app.provider_form.cursor_pos = 3;
         let (tx, _rx) = mpsc::channel();
         let _ = handle_key_event(&mut app, key(KeyCode::Backspace), &tx);
         assert_eq!(app.provider_form.token, "to");
@@ -2005,7 +2076,7 @@ mod tests {
     fn test_provider_list_sync_unconfigured_shows_status() {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         // No config for digitalocean - select it and press s
         let sorted = app.sorted_provider_names();
         let idx = sorted.iter().position(|n| n == "digitalocean").unwrap();
@@ -2036,7 +2107,7 @@ mod tests {
     fn test_provider_list_delete_unconfigured_is_noop() {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         let sorted = app.sorted_provider_names();
         let idx = sorted.iter().position(|n| n == "digitalocean").unwrap();
         app.ui.provider_list_state.select(Some(idx));
@@ -2071,7 +2142,7 @@ mod tests {
     fn test_provider_list_enter_opens_form_with_defaults() {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         open_provider_form(&mut app, "vultr");
         assert!(matches!(app.screen, Screen::ProviderForm { ref provider } if provider == "vultr"));
         assert_eq!(app.provider_form.token, "");
@@ -2083,7 +2154,7 @@ mod tests {
     fn test_provider_form_proxmox_default_alias_prefix() {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         open_provider_form(&mut app, "proxmox");
         // Proxmox short_label is "pve"
         assert_eq!(app.provider_form.alias_prefix, "pve");
@@ -2098,7 +2169,7 @@ mod tests {
         for provider in &["digitalocean", "vultr", "linode", "hetzner", "upcloud"] {
             let mut app = make_app("Host test\n  HostName test.com\n");
             app.screen = Screen::Providers;
-            app.provider_config = ProviderConfig::default();
+            app.provider_config = test_provider_config();
             open_provider_form(&mut app, provider);
             assert!(
                 app.provider_form.auto_sync,
@@ -2111,7 +2182,7 @@ mod tests {
     fn test_proxmox_defaults_auto_sync_false() {
         let mut app = make_app("Host test\n  HostName test.com\n");
         app.screen = Screen::Providers;
-        app.provider_config = ProviderConfig::default();
+        app.provider_config = test_provider_config();
         open_provider_form(&mut app, "proxmox");
         assert!(!app.provider_form.auto_sync);
     }
@@ -2593,6 +2664,7 @@ mod tests {
         let mut app = make_form_app();
         app.form.focused_field = FormField::AskPass;
         app.form.askpass = "vault:".to_string();
+        app.form.cursor_pos = 6;
         let (tx, _rx) = mpsc::channel();
         let _ = handle_key_event(&mut app, key(KeyCode::Backspace), &tx);
         assert_eq!(app.form.askpass, "vault");
@@ -2999,6 +3071,7 @@ Host beta
         let mut app = make_form_app();
         app.form.focused_field = FormField::AskPass;
         app.form.askpass = "keychain".to_string();
+        app.form.cursor_pos = 8;
         let (tx, _rx) = mpsc::channel();
         for _ in 0..8 {
             let _ = handle_key_event(&mut app, key(KeyCode::Backspace), &tx);
