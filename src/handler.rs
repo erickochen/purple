@@ -492,8 +492,10 @@ fn submit_form(app: &mut App) {
         }
     }
 
+    let target_alias = app.form.alias.trim().to_string();
     app.clear_form_mtime();
     app.screen = Screen::HostList;
+    app.select_host_by_alias(&target_alias);
 }
 
 fn handle_confirm_delete(app: &mut App, key: KeyEvent) {
@@ -1435,7 +1437,10 @@ mod tests {
             path: PathBuf::from("/tmp/test_config"),
             crlf: false,
         };
-        App::new(config)
+        let mut app = App::new(config);
+        // Never write to the real ~/.purple/providers during tests
+        app.provider_config.path_override = Some(PathBuf::from("/tmp/purple_test_providers"));
+        app
     }
 
     fn key(code: KeyCode) -> KeyEvent {

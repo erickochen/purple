@@ -25,6 +25,9 @@ fn default_auto_sync(provider: &str) -> bool {
 #[derive(Debug, Clone, Default)]
 pub struct ProviderConfig {
     pub sections: Vec<ProviderSection>,
+    /// Override path for save(). None uses the default ~/.purple/providers.
+    /// Set to Some in tests to avoid writing to the real config.
+    pub path_override: Option<PathBuf>,
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -112,19 +115,23 @@ impl ProviderConfig {
                 sections.push(section);
             }
         }
-        Self { sections }
+        Self { sections, path_override: None }
     }
 
     /// Save provider config to ~/.purple/providers (atomic write, chmod 600).
+    /// Respects path_override when set (used in tests).
     pub fn save(&self) -> io::Result<()> {
-        let path = match config_path() {
-            Some(p) => p,
-            None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "Could not determine home directory",
-                ))
-            }
+        let path = match &self.path_override {
+            Some(p) => p.clone(),
+            None => match config_path() {
+                Some(p) => p,
+                None => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "Could not determine home directory",
+                    ))
+                }
+            },
         };
 
         let mut content = String::new();
