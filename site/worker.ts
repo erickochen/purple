@@ -507,7 +507,7 @@ const LLMS_TXT = `# purple
 
 > SSH config manager and host launcher for the terminal
 
-purple is a free, open-source TUI (terminal user interface) that turns ~/.ssh/config into a searchable, taggable host launcher with full round-trip fidelity. Written in Rust as a single binary with 2400+ tests.
+purple is a free, open-source TUI that turns ~/.ssh/config into a searchable, taggable host launcher with full round-trip fidelity. Single Rust binary. macOS and Linux. MIT licensed.
 
 ## What purple does
 
@@ -574,19 +574,13 @@ purple --completions zsh            # Generate shell completions
 
 Sync servers from cloud providers into ~/.ssh/config. Each synced host is tracked via a comment (# purple:provider name:id) so purple knows which hosts belong to which provider.
 
-Supported providers:
-- DigitalOcean: page-based pagination, droplet tags synced
-- Vultr: cursor-based pagination, instance tags synced
-- Linode (Akamai): page-based pagination, private IP filtering, tags synced
-- Hetzner: page-based pagination, labels converted to tags
-- UpCloud: offset-based pagination, tags and labels synced, N+1 detail requests
-- Proxmox VE: N+1 detail requests, QEMU guest agent + LXC interfaces, self-signed TLS support
+Supported providers: DigitalOcean, Vultr, Linode (Akamai), Hetzner, UpCloud and Proxmox VE. Tags and labels from each provider are synced. Proxmox supports self-signed TLS certificates.
 
-Per-provider auto_sync toggle controls startup sync. Default is true for all providers except Proxmox (default false). Manual sync via the TUI (s key) or CLI always works.
+Per-provider auto_sync toggle controls startup sync. Default is true for all providers except Proxmox (default false). Manual sync via the TUI (s key) or CLI always works. Preview changes with --dry-run. Remove deleted hosts with --remove. Replace local tags with --reset-tags.
 
 ## Password management
 
-Purple can retrieve SSH passwords automatically on connect. Set a password source per host via the TUI form or a global default in ~/.purple/preferences. Purple acts as its own SSH_ASKPASS program.
+purple can retrieve SSH passwords automatically on connect. Set a password source per host via the TUI form or a global default in ~/.purple/preferences. purple acts as its own SSH_ASKPASS program.
 
 Supported password sources:
 - OS Keychain (keychain): uses security command on macOS, secret-tool on Linux. Service name purple-ssh
@@ -619,15 +613,14 @@ Consecutive blank lines are collapsed to one. Hosts from Include files are displ
 
 ## Technical details
 
-- Language: Rust (edition 2024)
+- Language: Rust
+- Platforms: macOS and Linux
 - Binary name: purple (crate name: purple-ssh)
-- Dependencies: ratatui, crossterm, clap (derive), clap_complete, dirs, glob, unicode-width, ureq (json, native-tls), serde, serde_json, anyhow, thiserror
 - Tests: 2400+ (unit + integration)
-- No async runtime (std::sync::mpsc for events and sync results)
+- No async runtime. Single binary, no daemon
 - Atomic writes via temp file + chmod 600 + rename
-- SSH invocations use system ssh binary with -F <config_path>
-- Auto-reload every 4 seconds via config file stat()
-- Event loop: crossterm polling thread (sync mpsc), pause/resume for SSH sessions
+- Uses system ssh binary with -F <config_path>
+- License: MIT
 
 ## FAQ
 
