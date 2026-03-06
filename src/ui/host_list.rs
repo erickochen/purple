@@ -357,12 +357,14 @@ fn build_host_item<'a>(
 
     if let Some(status) = ping_status.get(&host.alias) {
         let (indicator, style) = match status {
-            PingStatus::Checking => (" [..]", theme::muted()),
-            PingStatus::Reachable => (" [ok]", theme::success()),
-            PingStatus::Unreachable => (" [--]", theme::error()),
-            PingStatus::Skipped => (" [??]", theme::muted()),
+            PingStatus::Checking => ("[..]", theme::muted()),
+            PingStatus::Reachable => ("[ok]", theme::success()),
+            PingStatus::Unreachable => ("[--]", theme::error()),
+            PingStatus::Skipped => ("[??]", theme::muted()),
         };
-        right_len += indicator.width();
+        let sep = " ";
+        right_len += sep.width() + indicator.width();
+        right_spans.push(Span::raw(sep));
         right_spans.push(Span::styled(indicator, style));
     }
 

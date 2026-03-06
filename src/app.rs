@@ -1202,6 +1202,7 @@ impl App {
     /// Reload hosts from config.
     pub fn reload_hosts(&mut self) {
         let had_search = self.search.query.take();
+        let selected_alias = self.selected_host().map(|h| h.alias.clone());
 
         self.hosts = self.config.host_entries();
         if self.sort_mode == SortMode::Original && !self.group_by_provider {
@@ -1239,6 +1240,11 @@ impl App {
             } else {
                 self.ui.list_state.select(None);
             }
+        }
+
+        // Restore selection by alias (e.g. after SSH connect changed sort order)
+        if let Some(alias) = selected_alias {
+            self.select_host_by_alias(&alias);
         }
     }
 
