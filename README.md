@@ -402,6 +402,10 @@ Synced hosts get an alias prefix (e.g. `do-web-1` for DigitalOcean). If a name c
 **Why is the crate called `purple-ssh`?**
 The name `purple` was taken on crates.io. The binary is still called `purple`.
 
+## Feedback
+
+Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/erickochen/purple/issues).
+
 ## Built with
 
 Rust. 2400+ tests. Zero clippy warnings. No async runtime. Single binary.
