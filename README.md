@@ -126,6 +126,7 @@ Browse your SSH keys with metadata (type, bits, fingerprint, comment) and see wh
 - **Automatic backups** Every write creates a timestamped backup (keeps the last 5)
 - **Host key reset** Detects changed host keys after a server reinstall and offers to remove the old key and reconnect
 - **Auto-reload** Detects external config changes and reloads automatically
+- **Detail panel** Split-pane view showing connection info, history, tags and tunnels alongside the host list. Toggle with `v`
 - **Minimal UI** Monochrome with subtle color for status messages. Works in any terminal, any font. Respects [NO_COLOR](https://no-color.org/)
 - **Shell completions** Bash, zsh and fish via `purple --completions`
 
@@ -176,6 +177,7 @@ purple --completions zsh            # Shell completions
 | `s`         | Cycle sort mode                  |
 | `g`         | Group by provider                |
 | `i`         | Inspect host details             |
+| `v`         | Toggle detail panel              |
 | `u`         | Undo last delete                 |
 | `p`         | Ping selected host               |
 | `P`         | Ping all hosts                   |

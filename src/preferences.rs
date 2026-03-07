@@ -2,7 +2,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::app::SortMode;
+use crate::app::{SortMode, ViewMode};
 use crate::fs_util;
 
 static PATH_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -95,6 +95,27 @@ pub fn load_group_by_provider() -> bool {
 /// Save group_by_provider to ~/.purple/preferences.
 pub fn save_group_by_provider(enabled: bool) -> io::Result<()> {
     save_value("group_by_provider", &enabled.to_string())
+}
+
+/// Load view mode from ~/.purple/preferences. Returns Compact if missing or invalid.
+pub fn load_view_mode() -> ViewMode {
+    load_value("view_mode")
+        .map(|v| match v.as_str() {
+            "detailed" => ViewMode::Detailed,
+            _ => ViewMode::Compact,
+        })
+        .unwrap_or(ViewMode::Compact)
+}
+
+/// Save view mode to ~/.purple/preferences.
+pub fn save_view_mode(mode: ViewMode) -> io::Result<()> {
+    save_value(
+        "view_mode",
+        match mode {
+            ViewMode::Compact => "compact",
+            ViewMode::Detailed => "detailed",
+        },
+    )
 }
 
 /// Load global askpass default from ~/.purple/preferences.

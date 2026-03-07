@@ -6,7 +6,10 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 use super::theme;
-use crate::app::{self, App, HostListItem, PingStatus, SortMode};
+use crate::app::{self, App, HostListItem, PingStatus, SortMode, ViewMode};
+
+/// Minimum terminal width to show the detail panel in detailed view mode.
+const DETAIL_MIN_WIDTH: u16 = 90;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
@@ -30,17 +33,37 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .split(area)
     };
 
+    let content_area = chunks[0];
+    let use_detail =
+        app.view_mode == ViewMode::Detailed && content_area.width >= DETAIL_MIN_WIDTH;
+
+    let (list_area, detail_area) = if use_detail {
+        let detail_width = if content_area.width >= 140 { 48 } else { 40 };
+        let [left, right] = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(detail_width),
+        ])
+        .areas(content_area);
+        (left, Some(right))
+    } else {
+        (content_area, None)
+    };
+
     if is_searching {
-        render_search_list(frame, app, chunks[0]);
+        render_search_list(frame, app, list_area);
         render_search_bar(frame, app, chunks[1]);
         super::render_footer_with_status(frame, chunks[2], search_footer_spans(), app);
     } else if is_tagging {
-        render_display_list(frame, app, chunks[0]);
+        render_display_list(frame, app, list_area);
         render_tag_bar(frame, app, chunks[1]);
         super::render_footer_with_status(frame, chunks[2], tag_footer_spans(), app);
     } else {
-        render_display_list(frame, app, chunks[0]);
-        super::render_footer_with_status(frame, chunks[1], footer_spans(), app);
+        render_display_list(frame, app, list_area);
+        super::render_footer_with_status(frame, chunks[1], footer_spans(use_detail), app);
+    }
+
+    if let Some(detail) = detail_area {
+        super::detail_panel::render(frame, app, detail);
     }
 }
 
@@ -409,7 +432,8 @@ fn render_search_bar(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) 
     frame.render_widget(Paragraph::new(search_line), area);
 }
 
-fn footer_spans<'a>() -> Vec<Span<'a>> {
+fn footer_spans(detail_active: bool) -> Vec<Span<'static>> {
+    let view_label = if detail_active { " compact " } else { " detail " };
     vec![
         Span::styled(" Enter", theme::primary_action()),
         Span::styled(" connect ", theme::muted()),
@@ -426,6 +450,8 @@ fn footer_spans<'a>() -> Vec<Span<'a>> {
         Span::styled("d", theme::accent_bold()),
         Span::styled(" del ", theme::muted()),
         Span::styled("\u{2502} ", theme::muted()),
+        Span::styled("v", theme::accent_bold()),
+        Span::styled(view_label, theme::muted()),
         Span::styled("?", theme::accent_bold()),
         Span::styled(" help", theme::muted()),
     ]

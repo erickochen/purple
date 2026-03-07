@@ -158,7 +158,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
   "url": "https://getpurple.sh",
   "downloadUrl": "https://getpurple.sh",
   "installUrl": "https://github.com/erickochen/purple/releases",
-  "softwareVersion": "1.14.2",
+  "softwareVersion": "1.16.0",
   "programmingLanguage": "Rust",
   "license": "https://opensource.org/licenses/MIT",
   "codeRepository": "https://github.com/erickochen/purple",
@@ -182,6 +182,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
     "Bulk import from known_hosts",
     "SSH key management",
     "Atomic writes with automatic backups",
+    "Split-pane detail panel with connection info and activity",
     "Shell completions for Bash, zsh, fish"
   ]
 }
@@ -441,6 +442,7 @@ footer a:hover { color: #9333ea; border-color: #9333ea; }
     <div><strong>Cloud sync.</strong> Pull servers from 6 cloud providers into your config</div>
     <div><strong>Self-update.</strong> Run <code>purple update</code></div>
     <div><strong>Atomic writes.</strong> Temp file, chmod 600, rename. Automatic backups</div>
+    <div><strong>Detail panel.</strong> Split-pane view with connection info, history and tunnels</div>
     <div><strong>Completions.</strong> Bash, zsh and fish via <code>purple --completions</code></div>
   </div>
 
@@ -531,6 +533,7 @@ purple reads your existing ~/.ssh/config and gives you a terminal UI to search, 
 - Self-update mechanism (macOS curl installs). Homebrew and cargo users update via their package manager
 - Auto-reload: detects external config changes every 4 seconds
 - Host key reset: detects changed host keys after server reinstalls and offers to remove the old key and reconnect
+- Split-pane detail panel (toggle with v key) showing connection info, activity, tags and tunnels alongside the host list. Auto-fallback to compact view on narrow terminals
 - Minimal UI with monochrome base and subtle color for status. Works in any terminal, respects NO_COLOR
 
 ## Install

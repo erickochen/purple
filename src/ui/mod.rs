@@ -1,4 +1,5 @@
 mod confirm_dialog;
+mod detail_panel;
 mod help;
 mod host_detail;
 pub mod host_form;

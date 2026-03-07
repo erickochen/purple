@@ -59,6 +59,7 @@ fn help_text() -> Vec<Line<'static>> {
         help_line(" K        ", "SSH keys"),
         help_line(" p / P    ", "ping / ping all"),
         help_line(" y / x    ", "copy cmd / config"),
+        help_line(" v        ", "toggle detail panel"),
         Line::from(""),
         help_line(" q / Esc  ", "quit / close"),
     ]

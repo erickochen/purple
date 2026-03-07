@@ -390,6 +390,7 @@ fn apply_saved_sort(app: &mut App) {
     let group = preferences::load_group_by_provider();
     app.sort_mode = saved;
     app.group_by_provider = group;
+    app.view_mode = preferences::load_view_mode();
     if saved != app::SortMode::Original || group {
         app.apply_sort();
     }

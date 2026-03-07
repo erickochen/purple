@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::{App, FormField, HostForm, ProviderFormFields, Screen};
+use crate::app::{App, FormField, HostForm, ProviderFormFields, Screen, ViewMode};
 use crate::clipboard;
 use crate::event::AppEvent;
 use crate::ping;
@@ -248,6 +248,13 @@ fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEv
             if let Some(index) = app.selected_host_index() {
                 app.screen = Screen::HostDetail { index };
             }
+        }
+        KeyCode::Char('v') => {
+            app.view_mode = match app.view_mode {
+                ViewMode::Compact => ViewMode::Detailed,
+                ViewMode::Detailed => ViewMode::Compact,
+            };
+            let _ = preferences::save_view_mode(app.view_mode);
         }
         KeyCode::Char('u') => {
             if let Some(deleted) = app.deleted_host.take() {

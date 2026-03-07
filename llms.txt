@@ -26,6 +26,7 @@ purple reads your existing ~/.ssh/config and gives you a terminal UI to search, 
 - Self-update mechanism (macOS curl installs). Homebrew and cargo users update via their package manager
 - Auto-reload: detects external config changes every 4 seconds
 - Host key reset: detects changed host keys after server reinstalls and offers to remove the old key and reconnect
+- Split-pane detail panel (toggle with v key) showing connection info, activity, tags and tunnels alongside the host list. Auto-fallback to compact view on narrow terminals
 - Minimal UI with monochrome base and subtle color for status. Works in any terminal, respects NO_COLOR
 
 ## Install

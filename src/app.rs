@@ -632,6 +632,13 @@ pub enum PingStatus {
     Skipped,
 }
 
+/// View mode for the host list.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ViewMode {
+    Compact,
+    Detailed,
+}
+
 /// Sort mode for the host list.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SortMode {
@@ -767,6 +774,7 @@ pub struct App {
     pub history: ConnectionHistory,
     pub sort_mode: SortMode,
     pub group_by_provider: bool,
+    pub view_mode: ViewMode,
 
     // Undo
     pub deleted_host: Option<DeletedHost>,
@@ -858,6 +866,7 @@ impl App {
             history: ConnectionHistory::load(),
             sort_mode: SortMode::Original,
             group_by_provider: false,
+            view_mode: ViewMode::Compact,
             deleted_host: None,
             provider_config: ProviderConfig::load(),
             provider_form: ProviderFormFields::new(),
