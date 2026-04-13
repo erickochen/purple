@@ -34,7 +34,8 @@ fuzz_target!(|data: &[u8]| {
     };
     let reserialized = reparsed.serialize();
     assert_eq!(
-        serialized, reserialized,
+        serialized,
+        reserialized,
         "Round-trip not idempotent for input of length {}",
         content.len()
     );
@@ -95,5 +96,102 @@ fuzz_target!(|data: &[u8]| {
         let _ = &entry.provider;
         let _ = &entry.askpass;
         let _ = &entry.provider_meta;
+    }
+
+    // 8. Vault SSH mutation API coverage.
+    //    set_host_certificate_file is the newest write path and the one that
+    //    writes a potentially user-visible directive into the ssh config.
+    //    Exercise it against every parsed alias AND against a synthetic
+    //    ghost alias to cover the "missing alias" branch. Round-trip
+    //    idempotency of the result is asserted on each mutation so libfuzzer
+    //    has a crash signal for any regression in the writer.
+    if !entries.is_empty() {
+        for entry in &entries {
+            let mut c = config.clone();
+            let wrote = c.set_host_certificate_file(&entry.alias, "~/.purple/certs/fuzz-cert.pub");
+            let s1 = c.serialize();
+            let mut c2 = purple_ssh::ssh_config::model::SshConfigFile {
+                elements: purple_ssh::ssh_config::model::SshConfigFile::parse_content(&s1),
+                path: PathBuf::from("/tmp/fuzz_config"),
+                crlf: s1.contains("\r\n"),
+                bom: s1.starts_with('\u{FEFF}'),
+            };
+            let s2 = c2.serialize();
+            assert_eq!(
+                s1, s2,
+                "set_host_certificate_file broke round-trip idempotency (wrote={})",
+                wrote
+            );
+            // Clear it again — must also be idempotent.
+            let _ = c2.set_host_certificate_file(&entry.alias, "");
+            let _ = c2.serialize();
+        }
+
+        // Ghost alias (must be a no-op with byte-identical output).
+        let mut c_ghost = config.clone();
+        let before = c_ghost.serialize();
+        let wrote = c_ghost
+            .set_host_certificate_file("\u{0000}fuzz-ghost-never-exists\u{0000}", "/tmp/g.pub");
+        assert!(!wrote, "ghost alias should never match a real block");
+        assert_eq!(
+            before,
+            c_ghost.serialize(),
+            "ghost alias write mutated the config"
+        );
+
+        // Same ghost-alias invariant for set_host_vault_addr. Mirrors the
+        // set_host_certificate_file path so the wildcard-refuse and
+        // missing-alias branches both get libfuzzer coverage.
+        let mut c_ghost_addr = config.clone();
+        let before_addr = c_ghost_addr.serialize();
+        let wrote_addr = c_ghost_addr.set_host_vault_addr(
+            "\u{0000}fuzz-ghost-never-exists\u{0000}",
+            "http://ghost.invalid:8200",
+        );
+        assert!(
+            !wrote_addr,
+            "ghost alias should never match a real block (vault_addr)"
+        );
+        assert_eq!(
+            before_addr,
+            c_ghost_addr.serialize(),
+            "ghost alias vault_addr write mutated the config"
+        );
+    }
+
+    // 9. set_host_vault_ssh / set_host_tags / set_host_stale / set_host_meta
+    //    are all mutation APIs added after the fuzz target was written.
+    //    Exercise them against the first entry if any, purely as a panic
+    //    smoke test plus round-trip idempotency.
+    if let Some(entry) = entries.first() {
+        let mut c = config.clone();
+        c.set_host_vault_ssh(&entry.alias, "ssh-client-signer/sign/fuzz-role");
+        // set_host_vault_addr is #[must_use] -> bool; swallow the return like
+        // the set_host_certificate_file calls above.
+        let _ = c.set_host_vault_addr(&entry.alias, "http://127.0.0.1:8200");
+        c.set_host_tags(&entry.alias, &["fuzz".to_string(), "prop".to_string()]);
+        c.set_host_stale(&entry.alias, 1_700_000_000);
+        c.clear_host_stale(&entry.alias);
+        c.set_host_meta(
+            &entry.alias,
+            &[
+                ("region".to_string(), "eu-west-1".to_string()),
+                ("os".to_string(), "linux".to_string()),
+            ],
+        );
+        // Clearing vault-addr must also round-trip cleanly.
+        let _ = c.set_host_vault_addr(&entry.alias, "");
+        let s1 = c.serialize();
+        let c2 = purple_ssh::ssh_config::model::SshConfigFile {
+            elements: purple_ssh::ssh_config::model::SshConfigFile::parse_content(&s1),
+            path: PathBuf::from("/tmp/fuzz_config"),
+            crlf: s1.contains("\r\n"),
+            bom: s1.starts_with('\u{FEFF}'),
+        };
+        assert_eq!(
+            s1,
+            c2.serialize(),
+            "post-v2.8.1 mutation APIs broke round-trip"
+        );
     }
 });

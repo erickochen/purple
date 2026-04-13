@@ -3,15 +3,200 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Padding, Paragraph};
+use ratatui::widgets::Paragraph;
 use unicode_width::UnicodeWidthStr;
 
+use super::host_list::format_rtt;
+
+// Box-drawing characters for section cards
+const BOX_TL: &str = "\u{256D}"; // ╭
+const BOX_TR: &str = "\u{256E}"; // ╮
+const BOX_BL: &str = "\u{2570}"; // ╰
+const BOX_BR: &str = "\u{256F}"; // ╯
+const BOX_H: &str = "\u{2500}"; // ─
+const BOX_V: &str = "\u{2502}"; // │
+
+/// Push the opening line of a section card: ╭─ TITLE ───╮
+fn section_open(lines: &mut Vec<Line<'static>>, title: &str, width: usize) {
+    // prefix: "╭─ " border, then TITLE in bold, then " " — split styling
+    let border_prefix = format!("{}\u{2500} ", BOX_TL);
+    let title_suffix = " ";
+    let prefix_width = border_prefix.width() + title.width() + title_suffix.width();
+    let fill = width.saturating_sub(prefix_width).saturating_sub(1); // -1 for TR char
+    lines.push(Line::from(vec![
+        Span::styled(border_prefix, theme::border()),
+        Span::styled(title.to_string(), theme::bold()),
+        Span::styled(title_suffix, theme::border()),
+        Span::styled(BOX_H.repeat(fill), theme::border()),
+        Span::styled(BOX_TR, theme::border()),
+    ]));
+}
+
+/// Push the opening line of a section card without a title: ╭───────╮
+fn section_open_notitle(lines: &mut Vec<Line<'static>>, width: usize) {
+    let fill = width.saturating_sub(2); // -1 for TL, -1 for TR
+    lines.push(Line::from(vec![
+        Span::styled(BOX_TL, theme::border()),
+        Span::styled(BOX_H.repeat(fill), theme::border()),
+        Span::styled(BOX_TR, theme::border()),
+    ]));
+}
+
+/// Push a content row wrapped in box side characters: │ <spans...> │
+/// Pads content to fill `width` columns (right-aligns the closing │).
+fn section_line(lines: &mut Vec<Line<'static>>, spans: Vec<Span<'static>>, width: usize) {
+    let mut full_spans: Vec<Span<'static>> =
+        vec![Span::styled(format!("{} ", BOX_V), theme::border())];
+    let content_width: usize = full_spans.iter().map(|s| s.content.width()).sum::<usize>()
+        + spans.iter().map(|s| s.content.width()).sum::<usize>();
+    full_spans.extend(spans);
+    // Pad to align the right │ border
+    let closing_offset = 1; // the │ character
+    let padding = width
+        .saturating_sub(content_width)
+        .saturating_sub(closing_offset);
+    if padding > 0 {
+        full_spans.push(Span::raw(" ".repeat(padding)));
+    }
+    full_spans.push(Span::styled(BOX_V, theme::border()));
+    lines.push(Line::from(full_spans));
+}
+
+/// Push the closing line of a section card: ╰───────╯
+fn section_close(lines: &mut Vec<Line<'static>>, width: usize) {
+    let fill = width.saturating_sub(2); // -1 for BL, -1 for BR
+    lines.push(Line::from(vec![
+        Span::styled(BOX_BL, theme::border()),
+        Span::styled(BOX_H.repeat(fill), theme::border()),
+        Span::styled(BOX_BR, theme::border()),
+    ]));
+}
+
+/// Push a label+value field row inside a section card.
+fn section_field(
+    lines: &mut Vec<Line<'static>>,
+    label: &str,
+    value: &str,
+    max_value_width: usize,
+    box_width: usize,
+) {
+    let display = if max_value_width > 0 && value.width() > max_value_width {
+        super::truncate(value, max_value_width)
+    } else {
+        value.to_string()
+    };
+    let spans = vec![
+        Span::styled(
+            format!("{:<width$}", label, width = LABEL_WIDTH),
+            theme::muted(),
+        ),
+        Span::styled(display, theme::bold()),
+    ];
+    section_line(lines, spans, box_width);
+}
+
 use super::theme;
-use crate::app::{App, PingStatus};
+use crate::app::App;
 use crate::history::ConnectionHistory;
 use crate::ssh_config::model::ConfigElement;
 
 const LABEL_WIDTH: usize = 14;
+
+/// Testable detail panel data — what the detail panel will render.
+/// Extracted from `App` state without requiring a `Frame`.
+#[cfg(test)]
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct DetailInfo {
+    pub has_route: bool,
+    pub is_proxy_loop: bool,
+    pub route_hops: Vec<String>,
+    pub pattern_matches: Vec<String>,
+    pub pattern_proxy_jumps: Vec<(String, String)>, // (pattern, proxy_jump value)
+    pub has_tags: bool,
+    pub has_provider_meta: bool,
+    pub has_tunnels: bool,
+    pub has_containers: bool,
+}
+
+/// Compute detail panel information for a host without rendering.
+#[cfg(test)]
+pub fn compute_detail_info(
+    host: &crate::ssh_config::model::HostEntry,
+    hosts: &[crate::ssh_config::model::HostEntry],
+    config: &crate::ssh_config::model::SshConfigFile,
+) -> DetailInfo {
+    let is_proxy_loop = !host.proxy_jump.is_empty()
+        && crate::ssh_config::model::proxy_jump_contains_self(&host.proxy_jump, &host.alias);
+    let chain = if is_proxy_loop {
+        Vec::new()
+    } else {
+        resolve_proxy_chain(host, hosts)
+    };
+    let inherited = config.matching_patterns(&host.alias);
+    DetailInfo {
+        has_route: !is_proxy_loop && !host.proxy_jump.is_empty() && !chain.is_empty(),
+        is_proxy_loop,
+        route_hops: chain.iter().map(|(name, _, _)| name.clone()).collect(),
+        pattern_matches: inherited.iter().map(|p| p.pattern.clone()).collect(),
+        pattern_proxy_jumps: inherited
+            .iter()
+            .filter(|p| !p.proxy_jump.is_empty())
+            .map(|p| (p.pattern.clone(), p.proxy_jump.clone()))
+            .collect(),
+        has_tags: !host.tags.is_empty()
+            || !host.provider_tags.is_empty()
+            || host.provider.is_some(),
+        has_provider_meta: !host.provider_meta.is_empty(),
+        has_tunnels: host.tunnel_count > 0,
+        has_containers: false, // requires app.container_cache, not testable here
+    }
+}
+
+/// Testable info for the pattern-selected detail view.
+#[cfg(test)]
+#[derive(Debug)]
+pub struct PatternDetailInfo {
+    pub matching_aliases: Vec<String>,
+    pub has_directives: bool,
+    pub has_tags: bool,
+}
+
+/// Compute pattern detail info without rendering.
+/// Mirrors `render_pattern_detail` logic.
+#[cfg(test)]
+pub fn compute_pattern_detail_info(
+    pattern: &crate::ssh_config::model::PatternEntry,
+    hosts: &[crate::ssh_config::model::HostEntry],
+) -> PatternDetailInfo {
+    let matching_aliases: Vec<String> = hosts
+        .iter()
+        .filter(|h| crate::ssh_config::model::host_pattern_matches(&pattern.pattern, &h.alias))
+        .map(|h| h.alias.clone())
+        .collect();
+    PatternDetailInfo {
+        matching_aliases,
+        has_directives: !pattern.directives.is_empty(),
+        has_tags: !pattern.tags.is_empty(),
+    }
+}
+
+/// Short label for a password source.
+fn password_label(source: &str) -> &'static str {
+    if source == "keychain" {
+        "keychain"
+    } else if source.starts_with("op://") {
+        "1password"
+    } else if source.starts_with("bw:") {
+        "bitwarden"
+    } else if source.starts_with("pass:") {
+        "pass"
+    } else if source.starts_with("vault:") {
+        "vault-kv"
+    } else {
+        "custom"
+    }
+}
 
 /// Wrap tags into rows that fit within `max_width` display columns.
 /// Each row is a Vec of references into the input slice.
@@ -42,7 +227,7 @@ fn wrap_tags<'a>(tags: &'a [String], max_width: usize) -> Vec<Vec<&'a str>> {
     rows
 }
 
-pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+pub fn render(frame: &mut Frame, app: &App, area: Rect, spinner_tick: u64) {
     // Check if a pattern is selected — render pattern detail instead
     if let Some(pattern) = app.selected_pattern() {
         render_pattern_detail(frame, app, area, pattern);
@@ -52,42 +237,116 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let host = match app.selected_host() {
         Some(h) => h,
         None => {
-            let block = Block::bordered()
-                .border_type(BorderType::Rounded)
-                .padding(Padding::horizontal(1))
-                .border_style(theme::border());
-            let empty = Paragraph::new(" Select a host to see details.")
-                .style(theme::muted())
-                .block(block);
+            let empty = Paragraph::new(" Select a host to see details.").style(theme::muted());
             frame.render_widget(empty, area);
             return;
         }
     };
 
-    let title = format!(" {} ", host.alias);
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .padding(Padding::horizontal(1))
-        .title(Span::styled(title, theme::brand()))
-        .border_style(theme::border());
-
-    let inner_width = (area.width as usize).saturating_sub(4); // minus borders + padding
-    let max_value_width = inner_width.saturating_sub(LABEL_WIDTH); // minus label
+    // box_width = area width; each section card spans the full width.
+    // max_value_width = box_width - "│ " prefix (2) - " │" suffix (2) - LABEL_WIDTH
+    let box_width = area.width as usize;
+    let max_value_width = box_width.saturating_sub(4).saturating_sub(LABEL_WIDTH);
 
     let mut lines: Vec<Line<'static>> = Vec::new();
 
-    // Connection section
-    lines.push(Line::from(""));
-    lines.push(section_header("Connection"));
+    // Header card: alias as title, then user@host:port + status line
+    {
+        section_open(&mut lines, &host.alias.clone(), box_width);
 
-    push_field(&mut lines, "Host", &host.hostname, max_value_width);
+        let user_display = host.user.as_str();
+        let port_display = host.port;
+        let host_addr = host.hostname.as_str();
+        let addr_str = if !user_display.is_empty() && !host_addr.is_empty() {
+            format!("{}@{}:{}", user_display, host_addr, port_display)
+        } else if !host_addr.is_empty() {
+            format!("{}:{}", host_addr, port_display)
+        } else {
+            String::new()
+        };
+        if !addr_str.is_empty() {
+            // Available width inside box: box_width - 2 (│ prefix+space) - 1 (closing │)
+            let inner = box_width.saturating_sub(3);
+            let truncated = super::truncate(&addr_str, inner);
+            section_line(
+                &mut lines,
+                vec![Span::styled(truncated, theme::muted())],
+                box_width,
+            );
+        }
+
+        // Status line using dual-encoded glyphs (consistent with host list)
+        let status_spans: Vec<Span<'static>> = match app.ping_status.get(&host.alias) {
+            Some(status @ crate::app::PingStatus::Reachable { rtt_ms }) => {
+                vec![Span::styled(
+                    format!(
+                        "{} online ({})",
+                        crate::app::status_glyph(Some(status), spinner_tick),
+                        format_rtt(*rtt_ms)
+                    ),
+                    theme::success(),
+                )]
+            }
+            Some(status @ crate::app::PingStatus::Slow { rtt_ms }) => {
+                vec![Span::styled(
+                    format!(
+                        "{} slow ({})",
+                        crate::app::status_glyph(Some(status), spinner_tick),
+                        format_rtt(*rtt_ms)
+                    ),
+                    theme::warning(),
+                )]
+            }
+            Some(status @ crate::app::PingStatus::Unreachable) => {
+                vec![Span::styled(
+                    format!(
+                        "{} offline",
+                        crate::app::status_glyph(Some(status), spinner_tick)
+                    ),
+                    theme::error(),
+                )]
+            }
+            Some(status @ crate::app::PingStatus::Checking) => {
+                vec![Span::styled(
+                    format!(
+                        "{} checking",
+                        crate::app::status_glyph(Some(status), spinner_tick)
+                    ),
+                    theme::muted(),
+                )]
+            }
+            Some(crate::app::PingStatus::Skipped) | None => vec![],
+        };
+        if !status_spans.is_empty() {
+            section_line(&mut lines, status_spans, box_width);
+        }
+
+        section_close(&mut lines, box_width);
+    }
+
+    // Connection section
+    section_open(&mut lines, "CONNECTION", box_width);
+
+    section_field(
+        &mut lines,
+        "Host",
+        &host.hostname,
+        max_value_width,
+        box_width,
+    );
 
     if !host.user.is_empty() {
-        push_field(&mut lines, "User", &host.user, max_value_width);
+        section_field(&mut lines, "User", &host.user, max_value_width, box_width);
     }
 
     if host.port != 22 {
-        push_field(&mut lines, "Port", &host.port.to_string(), max_value_width);
+        section_field(
+            &mut lines,
+            "Port",
+            &host.port.to_string(),
+            max_value_width,
+            box_width,
+        );
     }
 
     if !host.identity_file.is_empty() {
@@ -96,11 +355,28 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
             .rsplit('/')
             .next()
             .unwrap_or(&host.identity_file);
-        push_field(&mut lines, "Key", key_display, max_value_width);
+        section_field(&mut lines, "Key", key_display, max_value_width, box_width);
     }
 
     if let Some(ref askpass) = host.askpass {
-        push_field(&mut lines, "Password", askpass, max_value_width);
+        section_field(
+            &mut lines,
+            "Password",
+            password_label(askpass),
+            max_value_width,
+            box_width,
+        );
+    }
+
+    if let Some(status) = app.ping_status.get(&host.alias) {
+        let ping_text = match status {
+            crate::app::PingStatus::Reachable { rtt_ms }
+            | crate::app::PingStatus::Slow { rtt_ms } => format_rtt(*rtt_ms),
+            crate::app::PingStatus::Unreachable => "--".to_string(),
+            crate::app::PingStatus::Skipped => "-- (proxied)".to_string(),
+            crate::app::PingStatus::Checking => "...".to_string(),
+        };
+        section_field(&mut lines, "Ping", &ping_text, max_value_width, box_width);
     }
 
     if let Some(stale_ts) = host.stale {
@@ -115,57 +391,50 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             stale_value
         };
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("{:<width$}", "Stale", width = LABEL_WIDTH),
-                theme::muted(),
-            ),
-            Span::styled(display, theme::error()),
-        ]));
+        section_line(
+            &mut lines,
+            vec![
+                Span::styled(
+                    format!("{:<width$}", "Stale", width = LABEL_WIDTH),
+                    theme::muted(),
+                ),
+                Span::styled(display, theme::error()),
+            ],
+            box_width,
+        );
     }
+
+    section_close(&mut lines, box_width);
 
     // Activity section
     let history_entry = app.history.entries.get(&host.alias);
-    let ping = app.ping_status.get(&host.alias);
 
-    if history_entry.is_some() || ping.is_some() {
-        lines.push(Line::from(""));
-        lines.push(section_header("Activity"));
-
-        if let Some(status) = ping {
-            let (text, style) = match status {
-                PingStatus::Checking => ("checking...", theme::muted()),
-                PingStatus::Reachable => ("reachable", theme::success()),
-                PingStatus::Unreachable => ("unreachable", theme::error()),
-                PingStatus::Skipped => ("skipped", theme::muted()),
-            };
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("{:<width$}", "Status", width = LABEL_WIDTH),
-                    theme::muted(),
-                ),
-                Span::styled(text, style),
-            ]));
-        }
+    if history_entry.is_some() {
+        // The sparkline chart width is the inner box content width: box_width - 4
+        // ("│ " prefix = 2, " │" suffix = 2)
+        let chart_width = box_width.saturating_sub(4);
+        section_open(&mut lines, "ACTIVITY", box_width);
 
         if let Some(entry) = history_entry {
             let ago = ConnectionHistory::format_time_ago(entry.last_connected);
             if !ago.is_empty() {
-                push_field(
+                section_field(
                     &mut lines,
                     "Last SSH",
                     &format!("{} ago", ago),
                     max_value_width,
+                    box_width,
                 );
             }
-            push_field(
+            section_field(
                 &mut lines,
                 "Connections",
                 &entry.count.to_string(),
                 max_value_width,
+                box_width,
             );
 
-            if !entry.timestamps.is_empty() && inner_width >= 10 {
+            if !entry.timestamps.is_empty() && chart_width >= 10 {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
@@ -193,193 +462,346 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
                         .collect();
                     if !labels.is_empty() {
                         let text = labels.join(", ");
-                        lines.push(Line::from(Span::styled(
-                            super::truncate(&text, inner_width),
-                            theme::muted(),
-                        )));
+                        let truncated = super::truncate(&text, chart_width);
+                        section_line(
+                            &mut lines,
+                            vec![Span::styled(truncated, theme::muted())],
+                            box_width,
+                        );
                     }
                 } else {
-                    let chart_lines = activity_sparkline(&entry.timestamps, inner_width);
+                    let chart_lines = activity_sparkline(&entry.timestamps, chart_width);
                     if !chart_lines.is_empty() {
-                        lines.push(Line::from(""));
-                        lines.extend(chart_lines);
+                        // Empty separator row inside the box
+                        section_line(&mut lines, vec![], box_width);
+                        for chart_line in chart_lines {
+                            section_line(
+                                &mut lines,
+                                chart_line.spans.into_iter().collect(),
+                                box_width,
+                            );
+                        }
                     }
                 }
             }
         }
+
+        section_close(&mut lines, box_width);
     }
 
     // Route visualisation (only when ProxyJump resolves to known hosts)
     if !host.proxy_jump.is_empty() {
-        let chain = resolve_proxy_chain(host, &app.hosts);
-        if !chain.is_empty() {
-            lines.push(Line::from(""));
-            lines.push(section_header("Route"));
-            let indent = "  ";
-            let hop_width = inner_width.saturating_sub(4); // minus "  ● "
-            lines.push(Line::from(vec![
-                Span::styled(format!("{}\u{25CB} ", indent), theme::muted()),
-                Span::styled("you", theme::muted()),
-            ]));
-            for (name, hostname, in_config) in chain.iter().rev() {
-                lines.push(Line::from(Span::styled(
-                    format!("{}  \u{2502}", indent),
-                    theme::muted(),
-                )));
-                let name_style = if *in_config {
-                    theme::bold()
-                } else {
-                    theme::error()
-                };
-                let name_trunc = super::truncate(name, hop_width);
-                let remaining = hop_width.saturating_sub(name_trunc.width());
-                let ip = if *in_config && name != hostname && remaining > 4 {
+        let is_loop =
+            crate::ssh_config::model::proxy_jump_contains_self(&host.proxy_jump, &host.alias);
+        if is_loop {
+            section_open(&mut lines, "ROUTE", box_width);
+            let inner = box_width.saturating_sub(4);
+            section_line(
+                &mut lines,
+                vec![Span::styled("ProxyJump loop", theme::error())],
+                box_width,
+            );
+            let fix = format!("add !{} to pattern", host.alias);
+            section_line(
+                &mut lines,
+                vec![Span::styled(super::truncate(&fix, inner), theme::muted())],
+                box_width,
+            );
+            section_close(&mut lines, box_width);
+        } else {
+            let chain = resolve_proxy_chain(host, &app.hosts);
+            if !chain.is_empty() {
+                section_open(&mut lines, "ROUTE", box_width);
+                // hop_width: content width minus "  ● " prefix (4 chars)
+                let hop_width = box_width.saturating_sub(4 + 4); // box borders (4) + indent+bullet (4)
+                section_line(
+                    &mut lines,
+                    vec![
+                        Span::styled("  \u{25CB} ", theme::muted()),
+                        Span::styled("you", theme::muted()),
+                    ],
+                    box_width,
+                );
+                for (name, hostname, in_config) in chain.iter().rev() {
+                    section_line(
+                        &mut lines,
+                        vec![Span::styled("    \u{2502}", theme::muted())],
+                        box_width,
+                    );
+                    let name_style = if *in_config {
+                        theme::bold()
+                    } else {
+                        theme::error()
+                    };
+                    let name_trunc = super::truncate(name, hop_width);
+                    let remaining = hop_width.saturating_sub(name_trunc.width());
+                    let ip = if *in_config && name != hostname && remaining > 4 {
+                        format!(
+                            "  {}",
+                            super::truncate(hostname, remaining.saturating_sub(2))
+                        )
+                    } else {
+                        String::new()
+                    };
+                    section_line(
+                        &mut lines,
+                        vec![
+                            Span::styled("  \u{25CF} ", theme::muted()),
+                            Span::styled(name_trunc, name_style),
+                            Span::styled(ip, theme::muted()),
+                        ],
+                        box_width,
+                    );
+                }
+                section_line(
+                    &mut lines,
+                    vec![Span::styled("    \u{2502}", theme::muted())],
+                    box_width,
+                );
+                let alias_trunc = super::truncate(&host.alias, hop_width);
+                let remaining = hop_width.saturating_sub(alias_trunc.width());
+                let target_ip = if remaining > 4 {
                     format!(
                         "  {}",
-                        super::truncate(hostname, remaining.saturating_sub(2))
+                        super::truncate(&host.hostname, remaining.saturating_sub(2))
                     )
                 } else {
                     String::new()
                 };
-                lines.push(Line::from(vec![
-                    Span::styled(format!("{}\u{25CF} ", indent), theme::muted()),
-                    Span::styled(name_trunc, name_style),
-                    Span::styled(ip, theme::muted()),
-                ]));
+                section_line(
+                    &mut lines,
+                    vec![
+                        Span::styled("  \u{25CF} ", theme::accent()),
+                        Span::styled(alias_trunc, theme::bold()),
+                        Span::styled(target_ip, theme::muted()),
+                    ],
+                    box_width,
+                );
+                section_close(&mut lines, box_width);
             }
-            lines.push(Line::from(Span::styled(
-                format!("{}  \u{2502}", indent),
-                theme::muted(),
-            )));
-            let alias_trunc = super::truncate(&host.alias, hop_width);
-            let remaining = hop_width.saturating_sub(alias_trunc.width());
-            let target_ip = if remaining > 4 {
-                format!(
-                    "  {}",
-                    super::truncate(&host.hostname, remaining.saturating_sub(2))
-                )
-            } else {
-                String::new()
-            };
-            lines.push(Line::from(vec![
-                Span::styled(format!("{}\u{25CF} ", indent), theme::accent()),
-                Span::styled(alias_trunc, theme::bold()),
-                Span::styled(target_ip, theme::muted()),
-            ]));
         }
     }
 
     // Tags section
     if !host.tags.is_empty() || !host.provider_tags.is_empty() || host.provider.is_some() {
-        lines.push(Line::from(""));
-        lines.push(section_header("Tags"));
+        section_open(&mut lines, "TAGS", box_width);
 
         let mut all_tags: Vec<String> = host
             .provider_tags
             .iter()
             .chain(host.tags.iter())
-            .map(|t| format!("#{}", t))
+            .cloned()
             .collect();
         if let Some(ref provider) = host.provider {
-            all_tags.push(format!("#{}", provider));
+            all_tags.push(provider.clone());
         }
-        // Inner width = area width - 2 (borders) - 2 (1-char padding each side).
-        let max_width = (area.width as usize).saturating_sub(4);
-        for row in wrap_tags(&all_tags, max_width) {
-            let mut spans = Vec::new();
+        // Tag rows fit within box content width: box_width - 4 ("│ " + " │")
+        let tag_content_width = box_width.saturating_sub(4);
+        for row in wrap_tags(&all_tags, tag_content_width) {
+            let mut spans: Vec<Span<'static>> = Vec::new();
             for (i, tag) in row.iter().enumerate() {
                 if i > 0 {
                     spans.push(Span::raw(" "));
                 }
                 spans.push(Span::styled(tag.to_string(), theme::accent()));
             }
-            lines.push(Line::from(spans));
+            section_line(&mut lines, spans, box_width);
         }
+
+        section_close(&mut lines, box_width);
     }
 
     // Provider metadata section
     if !host.provider_meta.is_empty() {
-        lines.push(Line::from(""));
         let header = match host.provider.as_deref() {
-            Some(name) => crate::providers::provider_display_name(name).to_string(),
-            None => "Provider".to_string(),
+            Some(name) => crate::providers::provider_display_name(name).to_uppercase(),
+            None => "PROVIDER".to_string(),
         };
-        lines.push(section_header(&header));
+        section_open(&mut lines, &header, box_width);
 
         for (key, value) in &host.provider_meta {
             let label = meta_label(key);
-            push_field(&mut lines, &label, value, max_value_width);
+            section_field(&mut lines, &label, value, max_value_width, box_width);
+        }
+
+        section_close(&mut lines, box_width);
+    }
+
+    // Vault certificate section
+    {
+        let effective_role = crate::vault_ssh::resolve_vault_role(
+            host.vault_ssh.as_deref(),
+            host.provider.as_deref(),
+            &app.provider_config,
+        );
+        if let Some(ref role) = effective_role {
+            section_open(&mut lines, "VAULT SSH", box_width);
+
+            // Show the role name (last path segment). The full mount
+            // path is a config detail visible in the edit form (e).
+            let role_name = role.rsplit('/').next().unwrap_or(role);
+            let role_inherited = host.vault_ssh.is_none();
+            if role_inherited {
+                let provider_name = host.provider.as_deref().unwrap_or("provider");
+                let suffix = format!(" (from {})", provider_name);
+                let role_budget = max_value_width.saturating_sub(suffix.len());
+                let display_role = super::truncate(role_name, role_budget);
+                section_line(
+                    &mut lines,
+                    vec![
+                        Span::styled(
+                            format!("{:<width$}", "Role", width = LABEL_WIDTH),
+                            theme::muted(),
+                        ),
+                        Span::styled(display_role, theme::bold()),
+                        Span::styled(suffix, theme::muted()),
+                    ],
+                    box_width,
+                );
+            } else {
+                section_field(&mut lines, "Role", role_name, max_value_width, box_width);
+            }
+
+            // Vault address is visible in the edit form (e) or provider
+            // form. Showing it here wastes space (the https:// prefix
+            // dominates the narrow column) and adds no actionable info.
+            // Check cert status from cache, fall back to file-existence check.
+            // While a signing check is in flight for this host, show "Checking...".
+            // `needs_action` flags states where the user can press V to fix
+            // things (missing/expired/invalid). It is consumed below to render
+            // a "(press V to sign)" affordance hint next to the status text.
+            let mut needs_action = false;
+            let (status_text, status_style) = if app.cert_check_in_flight.contains(&host.alias) {
+                ("Checking...".to_string(), theme::muted())
+            } else if let Some((checked_at, status, _mtime)) =
+                app.cert_status_cache.get(&host.alias)
+            {
+                let elapsed = checked_at.elapsed().as_secs() as i64;
+                match status {
+                    crate::vault_ssh::CertStatus::Valid { remaining_secs, .. } => {
+                        let adjusted = remaining_secs - elapsed;
+                        if adjusted <= 0 {
+                            needs_action = true;
+                            ("Expired".to_string(), theme::error())
+                        } else {
+                            let text =
+                                format!("Valid ({})", crate::vault_ssh::format_remaining(adjusted));
+                            (text, theme::success())
+                        }
+                    }
+                    crate::vault_ssh::CertStatus::Expired => {
+                        needs_action = true;
+                        ("Expired".to_string(), theme::error())
+                    }
+                    crate::vault_ssh::CertStatus::Missing => {
+                        needs_action = true;
+                        ("Not signed".to_string(), theme::muted())
+                    }
+                    crate::vault_ssh::CertStatus::Invalid(_) => {
+                        needs_action = true;
+                        ("Invalid".to_string(), theme::error())
+                    }
+                }
+            } else {
+                // No cached status -- check file existence as fallback.
+                // Any resolve error collapses to "Not signed" since the cert
+                // path is unreachable in practice (alias validated upstream).
+                match crate::vault_ssh::resolve_cert_path(&host.alias, &host.certificate_file) {
+                    Ok(cert_path) if cert_path.exists() => ("Signed".to_string(), theme::success()),
+                    _ => {
+                        needs_action = true;
+                        ("Not signed".to_string(), theme::muted())
+                    }
+                }
+            };
+
+            // Affordance hint computed during the if/else chain above. When
+            // set, the user can press V to remediate the cert state.
+            let mut status_spans = vec![
+                Span::styled(
+                    format!("{:<width$}", "Status", width = LABEL_WIDTH),
+                    theme::muted(),
+                ),
+                Span::styled(status_text, status_style),
+            ];
+            if needs_action {
+                status_spans.push(Span::styled(" (press V to sign)", theme::muted()));
+            }
+            section_line(&mut lines, status_spans, box_width);
+
+            section_close(&mut lines, box_width);
         }
     }
 
     // Tunnels section
     let tunnel_active = app.active_tunnels.contains_key(&host.alias);
     if host.tunnel_count > 0 {
-        lines.push(Line::from(""));
         let tunnel_label = if tunnel_active {
-            "Tunnels (active)"
+            "TUNNELS (active)"
         } else {
-            "Tunnels"
+            "TUNNELS"
         };
-        lines.push(section_header(tunnel_label));
+        section_open(&mut lines, tunnel_label, box_width);
 
         let rules = find_tunnel_rules(&app.config.elements, &host.alias);
         let style = if tunnel_active {
-            theme::bold()
+            theme::success()
         } else {
             theme::muted()
         };
-        for rule in rules.iter().take(5) {
-            lines.push(Line::from(Span::styled(rule.to_string(), style)));
+        let rule_content_width = box_width.saturating_sub(4);
+        for rule in &rules {
+            let truncated = super::truncate(rule, rule_content_width);
+            section_line(&mut lines, vec![Span::styled(truncated, style)], box_width);
         }
-        if rules.len() > 5 {
-            lines.push(Line::from(Span::styled(
-                format!("(and {} more. T to manage)", rules.len() - 5),
-                theme::muted(),
-            )));
-        }
+
+        section_close(&mut lines, box_width);
     }
 
     // Snippets hint
     let snippet_count = app.snippet_store.snippets.len();
     if snippet_count > 0 {
-        lines.push(Line::from(""));
-        lines.push(section_header("Snippets"));
-        lines.push(Line::from(Span::styled(
-            format!("{} available (r to run)", snippet_count),
-            theme::muted(),
-        )));
+        section_open(&mut lines, "SNIPPETS", box_width);
+        let msg = format!("{} available (r to run)", snippet_count);
+        section_line(
+            &mut lines,
+            vec![Span::styled(msg, theme::muted())],
+            box_width,
+        );
+        section_close(&mut lines, box_width);
     }
 
     // Containers section (only shown when cache data exists)
     if let Some(cache_entry) = app.container_cache.get(&host.alias) {
-        lines.push(Line::from(""));
-        lines.push(section_header("Containers"));
+        section_open(&mut lines, "CONTAINERS", box_width);
         let running = cache_entry
             .containers
             .iter()
             .filter(|c| c.state == "running")
             .count();
         let total = cache_entry.containers.len();
-        push_field(
+        section_field(
             &mut lines,
             "Total",
             &format!("{} running / {} total", running, total),
             max_value_width,
+            box_width,
         );
-        push_field(
+        section_field(
             &mut lines,
             "Runtime",
             cache_entry.runtime.as_str(),
             max_value_width,
+            box_width,
         );
-        push_field(
+        section_field(
             &mut lines,
             "Last checked",
             &crate::containers::format_relative_time(cache_entry.timestamp),
             max_value_width,
+            box_width,
         );
-        for container in cache_entry.containers.iter().take(5) {
+        for container in &cache_entry.containers {
             let (icon, icon_style) = match container.state.as_str() {
                 "running" => ("\u{2713}", theme::success()),
                 "exited" | "dead" => ("\u{2717}", theme::error()),
@@ -389,65 +811,85 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
                 &container.names,
                 max_value_width.saturating_sub(2),
             );
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("{:>width$}", "", width = LABEL_WIDTH),
-                    theme::muted(),
-                ),
-                Span::styled(icon, icon_style),
-                Span::styled(" ", theme::muted()),
-                Span::styled(name, theme::bold()),
-            ]));
+            section_line(
+                &mut lines,
+                vec![
+                    Span::styled(
+                        format!("{:>width$}", "", width = LABEL_WIDTH),
+                        theme::muted(),
+                    ),
+                    Span::styled(icon, icon_style),
+                    Span::styled(" ", theme::muted()),
+                    Span::styled(name, theme::bold()),
+                ],
+                box_width,
+            );
         }
-        if total > 5 {
-            lines.push(Line::from(Span::styled(
-                format!("(and {} more. C to manage)", total - 5),
-                theme::muted(),
-            )));
-        }
+        section_close(&mut lines, box_width);
     }
 
-    // Inherited directives section — match against alias and hostname for display.
-    // OpenSSH Host keyword matches alias only, but patterns like "10.30.0.*" apply
-    // when the user types the IP directly, so we show those too.
-    let mut inherited = app.config.matching_patterns(&host.alias);
-    if !host.hostname.is_empty() {
-        let hostname_matches = app.config.matching_patterns(&host.hostname);
-        for entry in hostname_matches {
-            if !inherited.iter().any(|e| e.pattern == entry.pattern) {
-                inherited.push(entry);
-            }
-        }
-    }
+    // Inherited directives section — alias-only matching (SSH-faithful).
+    // OpenSSH Host keyword matches only the alias typed on the command line.
+    let inherited = app.config.matching_patterns(&host.alias);
     for pattern_entry in &inherited {
-        lines.push(Line::from(""));
-        lines.push(section_header(&pattern_entry.pattern));
+        section_open(&mut lines, "PATTERN MATCH", box_width);
+        section_line(
+            &mut lines,
+            vec![Span::styled(
+                super::truncate(&pattern_entry.pattern, box_width.saturating_sub(4)),
+                theme::bold(),
+            )],
+            box_width,
+        );
         for (key, value) in &pattern_entry.directives {
-            push_field(&mut lines, key, value, max_value_width);
+            section_field(&mut lines, key, value, max_value_width, box_width);
         }
+        section_close(&mut lines, box_width);
     }
 
     // Source section (for included hosts)
     if let Some(ref source) = host.source_file {
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("{:<width$}", "Source", width = LABEL_WIDTH),
-                theme::muted(),
-            ),
-            Span::styled(
-                super::truncate(&source.display().to_string(), max_value_width),
-                theme::bold(),
-            ),
-        ]));
+        section_open_notitle(&mut lines, box_width);
+        section_field(
+            &mut lines,
+            "Source",
+            &source.display().to_string(),
+            max_value_width,
+            box_width,
+        );
+        section_close(&mut lines, box_width);
     }
 
-    lines.push(Line::from(""));
+    // Stretch: give all remaining vertical space to the last section card.
+    // Insert empty bordered lines before the last section_close line.
+    let available = area.height as usize;
+    if lines.len() < available {
+        let extra = available - lines.len();
+        // Find the last section_close line (╰...╯)
+        if let Some(last_close) = lines.iter().rposition(|line| {
+            line.spans
+                .first()
+                .map(|s| s.content.starts_with(BOX_BL))
+                .unwrap_or(false)
+        }) {
+            for _ in 0..extra {
+                lines.insert(last_close, section_empty_line(box_width));
+            }
+        }
+    }
 
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .scroll((app.ui.detail_scroll, 0));
+    let paragraph = Paragraph::new(lines).scroll((app.ui.detail_scroll, 0));
     frame.render_widget(paragraph, area);
+}
+
+/// Empty bordered line for padding: │                              │
+fn section_empty_line(width: usize) -> Line<'static> {
+    let fill = width.saturating_sub(2);
+    Line::from(vec![
+        Span::styled(BOX_V, theme::border()),
+        Span::raw(" ".repeat(fill)),
+        Span::styled(BOX_V, theme::border()),
+    ])
 }
 
 fn render_pattern_detail(
@@ -456,84 +898,103 @@ fn render_pattern_detail(
     area: Rect,
     pattern: &crate::ssh_config::model::PatternEntry,
 ) {
-    let title = format!(" {} ", pattern.pattern);
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .padding(Padding::horizontal(1))
-        .title(Span::styled(title, theme::brand()))
-        .border_style(theme::border());
-
-    let inner_width = (area.width as usize).saturating_sub(4);
-    let max_value_width = inner_width.saturating_sub(LABEL_WIDTH);
+    let box_width = area.width as usize;
+    let max_value_width = box_width.saturating_sub(4).saturating_sub(LABEL_WIDTH);
 
     let mut lines: Vec<Line<'static>> = Vec::new();
 
-    // Directives section (like Connection for hosts)
+    // Header card: PATTERN MATCH with pattern on first line
+    section_open(&mut lines, "PATTERN MATCH", box_width);
+    section_line(
+        &mut lines,
+        vec![Span::styled(pattern.pattern.clone(), theme::bold())],
+        box_width,
+    );
+    section_close(&mut lines, box_width);
+
+    // Directives section
     if !pattern.directives.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(section_header("Directives"));
+        section_open(&mut lines, "DIRECTIVES", box_width);
         for (key, value) in &pattern.directives {
-            push_field(&mut lines, key, value, max_value_width);
+            section_field(&mut lines, key, value, max_value_width, box_width);
         }
+        section_close(&mut lines, box_width);
     }
 
     // Tags section
     if !pattern.tags.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(section_header("Tags"));
-        let tag_strings: Vec<String> = pattern.tags.iter().map(|t| format!("#{}", t)).collect();
+        section_open(&mut lines, "TAGS", box_width);
+        let tag_strings: Vec<String> = pattern.tags.to_vec();
+        let inner_width = box_width.saturating_sub(4);
         let tag_rows = wrap_tags(&tag_strings, inner_width);
         for row in &tag_rows {
-            lines.push(Line::from(Span::styled(row.join(" "), theme::muted())));
+            section_line(
+                &mut lines,
+                vec![Span::styled(row.join(" "), theme::accent())],
+                box_width,
+            );
         }
+        section_close(&mut lines, box_width);
     }
 
-    // Matches section: find concrete hosts whose alias OR hostname matches this pattern.
-    // OpenSSH Host keyword matches alias only, but for display purposes we also show
-    // hosts whose HostName matches (e.g. pattern "10.30.0.*" applies when a user types
-    // the IP directly, so showing those hosts helps the user understand the pattern scope).
+    // Matches section — alias-only matching (SSH-faithful).
     let matching_aliases: Vec<String> = app
         .hosts
         .iter()
-        .filter(|h| {
-            crate::ssh_config::model::host_pattern_matches(&pattern.pattern, &h.alias)
-                || (!h.hostname.is_empty()
-                    && crate::ssh_config::model::host_pattern_matches(
-                        &pattern.pattern,
-                        &h.hostname,
-                    ))
-        })
+        .filter(|h| crate::ssh_config::model::host_pattern_matches(&pattern.pattern, &h.alias))
         .map(|h| h.alias.clone())
         .collect();
 
     if !matching_aliases.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(section_header(&format!(
-            "Matches ({})",
-            matching_aliases.len()
-        )));
+        section_open(
+            &mut lines,
+            &format!("MATCHES ({})", matching_aliases.len()),
+            box_width,
+        );
+        let inner_width = box_width.saturating_sub(4);
         for alias in &matching_aliases {
-            lines.push(Line::from(Span::styled(
-                super::truncate(alias, inner_width),
-                theme::bold(),
-            )));
+            section_line(
+                &mut lines,
+                vec![Span::styled(
+                    super::truncate(alias, inner_width),
+                    theme::bold(),
+                )],
+                box_width,
+            );
+        }
+        section_close(&mut lines, box_width);
+    }
+
+    // Source file
+    if let Some(ref source) = pattern.source_file {
+        section_open(&mut lines, "SOURCE", box_width);
+        section_field(
+            &mut lines,
+            "File",
+            &source.display().to_string(),
+            max_value_width,
+            box_width,
+        );
+        section_close(&mut lines, box_width);
+    }
+
+    // Stretch: give all remaining vertical space to the last section card.
+    let available = area.height as usize;
+    if lines.len() < available {
+        let extra = available - lines.len();
+        if let Some(last_close) = lines.iter().rposition(|line| {
+            line.spans
+                .first()
+                .map(|s| s.content.starts_with(BOX_BL))
+                .unwrap_or(false)
+        }) {
+            for _ in 0..extra {
+                lines.insert(last_close, section_empty_line(box_width));
+            }
         }
     }
 
-    // Source file (if from Include)
-    if let Some(ref source) = pattern.source_file {
-        lines.push(Line::from(""));
-        push_field(
-            &mut lines,
-            "Source",
-            &source.display().to_string(),
-            max_value_width,
-        );
-    }
-
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .scroll((app.ui.detail_scroll, 0));
+    let paragraph = Paragraph::new(lines).scroll((app.ui.detail_scroll, 0));
     frame.render_widget(paragraph, area);
 }
 
@@ -586,21 +1047,6 @@ fn resolve_proxy_chain(
 /// Below this threshold, a compact text list is shown instead.
 const SPARKLINE_MIN_CONNECTIONS: usize = 3;
 
-fn push_field(lines: &mut Vec<Line<'static>>, label: &str, value: &str, max_value_width: usize) {
-    let display = if max_value_width > 0 {
-        super::truncate(value, max_value_width)
-    } else {
-        value.to_string()
-    };
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("{:<width$}", label, width = LABEL_WIDTH),
-            theme::muted(),
-        ),
-        Span::styled(display, theme::bold()),
-    ]));
-}
-
 /// Map metadata keys to human-readable labels.
 fn meta_label(key: &str) -> String {
     match key {
@@ -629,10 +1075,6 @@ fn meta_label(key: &str) -> String {
             }
         }
     }
-}
-
-fn section_header(label: &str) -> Line<'static> {
-    Line::from(Span::styled(label.to_string(), theme::section_header()))
 }
 
 // Block sparkline using lower block elements (▁▂▃▄▅▆▇█).
@@ -812,7 +1254,13 @@ fn find_tunnel_rules(elements: &[ConfigElement], alias: &str) -> Vec<String> {
                             "dynamicforward" => "D",
                             _ => return None,
                         };
-                        Some(format!("{} {}", prefix, d.value))
+                        let formatted = match d.value.split_once(char::is_whitespace) {
+                            Some((src, dst)) => {
+                                format!("{} {} \u{2192} {}", prefix, src, dst.trim_start())
+                            }
+                            None => format!("{} {}", prefix, d.value),
+                        };
+                        Some(formatted)
                     })
                     .collect();
             }
@@ -831,404 +1279,5 @@ fn find_tunnel_rules(elements: &[ConfigElement], alias: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn now() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    }
-
-    #[test]
-    fn sparkline_empty_timestamps() {
-        let result = activity_sparkline(&[], 40);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn sparkline_all_outside_range() {
-        let old = now() - 400 * 86400; // older than max range (365d)
-        let result = activity_sparkline(&[old], 40);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn sparkline_single_timestamp() {
-        let ts = now() - 86400;
-        let lines = activity_sparkline(&[ts], 40);
-        assert!(!lines.is_empty());
-        // Bottom row + axis = at least 2 lines
-        assert!(lines.len() >= 2);
-    }
-
-    #[test]
-    fn sparkline_multiple_buckets() {
-        let n = now();
-        let timestamps: Vec<u64> = (0..84).map(|day| n - day * 86400).collect();
-        let lines = activity_sparkline(&timestamps, 40);
-        assert!(lines.len() >= 2);
-    }
-
-    #[test]
-    fn sparkline_all_in_one_bucket() {
-        let n = now();
-        let timestamps: Vec<u64> = (0..10).map(|i| n - i * 60).collect();
-        let lines = activity_sparkline(&timestamps, 20);
-        assert!(lines.len() >= 2);
-    }
-
-    #[test]
-    fn sparkline_axis_labels() {
-        let ts = now() - 86400; // 1 day ago → auto-scales to 5d range
-        let lines = activity_sparkline(&[ts], 30);
-        let axis = lines.last().unwrap();
-        let text: String = axis.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("5d"));
-        assert!(text.contains("now"));
-    }
-
-    #[test]
-    fn sparkline_auto_scales_to_data_range() {
-        // 3 days of data → 5d range
-        let lines_3d = activity_sparkline(&[now() - 3 * 86400], 30);
-        let axis_3d: String = lines_3d
-            .last()
-            .unwrap()
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(axis_3d.contains("5d"));
-
-        // 8 days of data → 10d range
-        let lines_8d = activity_sparkline(&[now() - 8 * 86400], 30);
-        let axis_8d: String = lines_8d
-            .last()
-            .unwrap()
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(axis_8d.contains("10d"));
-
-        // 50 days of data → 2mo range
-        let lines_50d = activity_sparkline(&[now() - 50 * 86400], 30);
-        let axis_50d: String = lines_50d
-            .last()
-            .unwrap()
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(axis_50d.contains("2mo"));
-
-        // 100 days of data → 6mo range
-        let lines_100d = activity_sparkline(&[now() - 100 * 86400], 30);
-        let axis_100d: String = lines_100d
-            .last()
-            .unwrap()
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(axis_100d.contains("6mo"));
-    }
-
-    #[test]
-    fn sparkline_shown_at_threshold() {
-        // 3 connections (= SPARKLINE_MIN_CONNECTIONS) → sparkline should render
-        let n = now();
-        let ts = vec![n - 86400, n - 2 * 86400, n - 3 * 86400];
-        let lines = activity_sparkline(&ts, 30);
-        assert!(
-            !lines.is_empty(),
-            "sparkline must render at {} connections",
-            SPARKLINE_MIN_CONNECTIONS
-        );
-    }
-
-    #[test]
-    fn sparkline_shown_above_threshold() {
-        // 4 connections (above threshold) → sparkline should render
-        let n = now();
-        let ts = vec![n - 3600, n - 86400, n - 2 * 86400, n - 3 * 86400];
-        let lines = activity_sparkline(&ts, 30);
-        assert!(!lines.is_empty(), "sparkline must render at 4 connections");
-    }
-
-    #[test]
-    fn sparkline_rendered_with_dotted_baseline() {
-        // Verify that empty buckets use · (middle dot) not spaces
-        let n = now();
-        // One connection at start of range → most buckets empty → dots visible
-        let lines = activity_sparkline(&[n - 4 * 86400], 20);
-        assert!(!lines.is_empty());
-        // Bottom row (before axis) should contain · for empty buckets
-        let bottom = &lines[lines.len() - 2]; // second to last = bottom row
-        let text: String = bottom.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(
-            text.contains('\u{00B7}'),
-            "empty buckets should show · (middle dot), got: {:?}",
-            text
-        );
-    }
-
-    #[test]
-    fn sparkline_midpoint_label_shown_at_normal_width() {
-        // At 30 cols, midpoint label should appear
-        let lines = activity_sparkline(&[now() - 86400], 30);
-        let axis: String = lines
-            .last()
-            .unwrap()
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(
-            axis.contains("~2d"),
-            "midpoint label missing at 30 cols, got: {:?}",
-            axis
-        );
-    }
-
-    #[test]
-    fn sparkline_midpoint_label_hidden_at_narrow_width() {
-        // At 10 cols, midpoint label should NOT appear (too narrow)
-        let lines = activity_sparkline(&[now() - 86400], 10);
-        let axis: String = lines
-            .last()
-            .unwrap()
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(
-            !axis.contains("~"),
-            "midpoint label should be hidden at 10 cols, got: {:?}",
-            axis
-        );
-    }
-
-    #[test]
-    fn sparkline_365_day_boundary_selects_1y() {
-        // Timestamp at exactly 364 days old → 1y range
-        let lines_364 = activity_sparkline(&[now() - 364 * 86400], 30);
-        assert!(!lines_364.is_empty(), "364-day-old data should render");
-        let axis: String = lines_364
-            .last()
-            .unwrap()
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(
-            axis.contains("1y"),
-            "364 days should use 1y range, got: {axis:?}"
-        );
-    }
-
-    #[test]
-    fn sparkline_narrow_width() {
-        let ts = now() - 86400;
-        let lines = activity_sparkline(&[ts], 10);
-        assert!(lines.len() >= 2);
-    }
-
-    #[test]
-    fn sparkline_two_rows_for_high_variance() {
-        let n = now();
-        // One bucket with many hits, rest with few
-        let mut timestamps: Vec<u64> = vec![n; 100];
-        timestamps.push(n - 40 * 86400);
-        let lines = activity_sparkline(&timestamps, 20);
-        // Should have top row + bottom row + axis = 3 lines
-        assert_eq!(lines.len(), 3);
-    }
-
-    // =========================================================================
-    // wrap_tags
-    // =========================================================================
-
-    fn tags(names: &[&str]) -> Vec<String> {
-        names.iter().map(|n| format!("#{}", n)).collect()
-    }
-
-    #[test]
-    fn wrap_tags_single_row() {
-        let t = tags(&["prod", "web"]);
-        let rows = wrap_tags(&t, 32);
-        assert_eq!(rows, vec![vec!["#prod", "#web"]]);
-    }
-
-    #[test]
-    fn wrap_tags_wraps_to_second_row() {
-        let t = tags(&["production", "web", "europe", "api"]);
-        // "#production #web" = 16 cols, "#europe" would make 24 > 20
-        let rows = wrap_tags(&t, 20);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], vec!["#production", "#web"]);
-        assert_eq!(rows[1], vec!["#europe", "#api"]);
-    }
-
-    #[test]
-    fn wrap_tags_one_per_row_when_narrow() {
-        let t = tags(&["production", "staging"]);
-        // Each tag is 11 chars, panel only 12 wide — no room for two
-        let rows = wrap_tags(&t, 12);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], vec!["#production"]);
-        assert_eq!(rows[1], vec!["#staging"]);
-    }
-
-    #[test]
-    fn wrap_tags_empty() {
-        let rows = wrap_tags(&[], 32);
-        assert!(rows.is_empty());
-    }
-
-    #[test]
-    fn wrap_tags_exact_fit() {
-        let t = tags(&["ab", "cd"]);
-        // "#ab #cd" = 7 cols
-        let rows = wrap_tags(&t, 7);
-        assert_eq!(rows, vec![vec!["#ab", "#cd"]]);
-    }
-
-    #[test]
-    fn wrap_tags_exact_overflow() {
-        let t = tags(&["ab", "cd"]);
-        // "#ab #cd" = 7 cols, max 6 → wraps
-        let rows = wrap_tags(&t, 6);
-        assert_eq!(rows.len(), 2);
-    }
-
-    // --- resolve_proxy_chain tests ---
-
-    fn host(alias: &str, hostname: &str, proxy: &str) -> crate::ssh_config::model::HostEntry {
-        crate::ssh_config::model::HostEntry {
-            alias: alias.to_string(),
-            hostname: hostname.to_string(),
-            proxy_jump: proxy.to_string(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn proxy_chain_single_hop() {
-        let target = host("server", "10.0.0.1", "bastion");
-        let bastion = host("bastion", "1.2.3.4", "");
-        let hosts = vec![target.clone(), bastion];
-        let chain = resolve_proxy_chain(&target, &hosts);
-        assert_eq!(chain.len(), 1);
-        assert_eq!(chain[0].0, "bastion");
-        assert_eq!(chain[0].1, "1.2.3.4");
-        assert!(chain[0].2); // in_config
-    }
-
-    #[test]
-    fn proxy_chain_multi_hop() {
-        let target = host("server", "10.0.0.1", "jump1");
-        let jump1 = host("jump1", "1.1.1.1", "jump2");
-        let jump2 = host("jump2", "2.2.2.2", "");
-        let hosts = vec![target.clone(), jump1, jump2];
-        let chain = resolve_proxy_chain(&target, &hosts);
-        assert_eq!(chain.len(), 2);
-        assert_eq!(chain[0].0, "jump1");
-        assert_eq!(chain[1].0, "jump2");
-    }
-
-    #[test]
-    fn proxy_chain_loop_detection() {
-        let a = host("a", "1.1.1.1", "b");
-        let b = host("b", "2.2.2.2", "a");
-        let hosts = vec![a.clone(), b];
-        let chain = resolve_proxy_chain(&a, &hosts);
-        // Should stop after "b" because "a" was already seen
-        assert_eq!(chain.len(), 1);
-        assert_eq!(chain[0].0, "b");
-    }
-
-    #[test]
-    fn proxy_chain_comma_separated() {
-        let target = host("server", "10.0.0.1", "hop1, hop2");
-        let hop1 = host("hop1", "1.1.1.1", "");
-        let hop2 = host("hop2", "2.2.2.2", "");
-        let hosts = vec![target.clone(), hop1, hop2];
-        let chain = resolve_proxy_chain(&target, &hosts);
-        assert_eq!(chain.len(), 2);
-        assert_eq!(chain[0].0, "hop1");
-        assert_eq!(chain[1].0, "hop2");
-    }
-
-    #[test]
-    fn proxy_chain_host_not_in_config() {
-        let target = host("server", "10.0.0.1", "unknown");
-        let hosts = vec![target.clone()];
-        let chain = resolve_proxy_chain(&target, &hosts);
-        assert_eq!(chain.len(), 1);
-        assert_eq!(chain[0].0, "unknown");
-        assert_eq!(chain[0].1, "unknown"); // hostname == alias for unknown hosts
-        assert!(!chain[0].2); // NOT in_config
-    }
-
-    #[test]
-    fn proxy_chain_empty_hops_in_comma_list() {
-        let target = host("server", "10.0.0.1", "hop1,,hop2");
-        let hop1 = host("hop1", "1.1.1.1", "");
-        let hop2 = host("hop2", "2.2.2.2", "");
-        let hosts = vec![target.clone(), hop1, hop2];
-        let chain = resolve_proxy_chain(&target, &hosts);
-        assert_eq!(chain.len(), 2);
-        assert_eq!(chain[0].0, "hop1");
-        assert_eq!(chain[1].0, "hop2");
-    }
-
-    #[test]
-    fn proxy_chain_mixed_known_unknown() {
-        let target = host("server", "10.0.0.1", "known, mystery, also_known");
-        let known = host("known", "1.1.1.1", "");
-        let also_known = host("also_known", "3.3.3.3", "");
-        let hosts = vec![target.clone(), known, also_known];
-        let chain = resolve_proxy_chain(&target, &hosts);
-        assert_eq!(chain.len(), 3);
-        assert!(chain[0].2); // known: in_config
-        assert!(!chain[1].2); // mystery: NOT in_config
-        assert!(chain[2].2); // also_known: in_config
-    }
-
-    #[test]
-    fn proxy_chain_none_stops() {
-        let target = host("server", "10.0.0.1", "none");
-        let hosts = vec![target.clone()];
-        let chain = resolve_proxy_chain(&target, &hosts);
-        assert!(chain.is_empty());
-    }
-
-    #[test]
-    fn proxy_chain_empty_proxyjump() {
-        let target = host("server", "10.0.0.1", "");
-        let hosts = vec![target.clone()];
-        let chain = resolve_proxy_chain(&target, &hosts);
-        assert!(chain.is_empty());
-    }
-
-    #[test]
-    fn proxy_chain_max_depth() {
-        // Create a chain of 12 hops (exceeds max 10)
-        let mut hosts = Vec::new();
-        for i in 0..12 {
-            let proxy = if i < 11 {
-                format!("h{}", i + 1)
-            } else {
-                String::new()
-            };
-            hosts.push(host(&format!("h{}", i), &format!("10.0.0.{}", i), &proxy));
-        }
-        let target = host("target", "10.0.0.99", "h0");
-        hosts.push(target.clone());
-        let chain = resolve_proxy_chain(&target, &hosts);
-        assert!(chain.len() <= 10);
-    }
-}
+#[path = "detail_panel_tests.rs"]
+mod tests;

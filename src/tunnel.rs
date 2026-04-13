@@ -1,6 +1,7 @@
 use std::process::{Child, Command, Stdio};
 
 use anyhow::Result;
+use log::debug;
 
 /// Type of SSH tunnel.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -267,7 +268,7 @@ pub struct ActiveTunnel {
 /// Uses `ssh -N` (no remote command). All configured forwards activate automatically.
 /// Passes `-F <config_path>` so the alias resolves against the correct config file.
 /// stderr is piped so poll_tunnels() can capture error messages on exit.
-/// When `askpass` is Some, sets SSH_ASKPASS environment variables. This is essential
+/// When `askpass` is Some, delegates to `askpass_env::configure_ssh_command`. Essential
 /// for tunnels since stdin is null and interactive password entry is impossible.
 pub fn start_tunnel(
     alias: &str,
@@ -286,24 +287,19 @@ pub fn start_tunnel(
         .stderr(Stdio::piped());
 
     if askpass.is_some() {
-        let exe = std::env::current_exe()
-            .ok()
-            .map(|p| p.to_string_lossy().to_string())
-            .or_else(|| std::env::args().next())
-            .unwrap_or_else(|| "purple".to_string());
-        cmd.env("SSH_ASKPASS", &exe)
-            .env("SSH_ASKPASS_REQUIRE", "prefer")
-            .env("PURPLE_ASKPASS_MODE", "1")
-            .env("PURPLE_HOST_ALIAS", alias)
-            .env("PURPLE_CONFIG_PATH", config_path.as_os_str());
+        crate::askpass_env::configure_ssh_command(&mut cmd, alias, config_path);
     }
 
     if let Some(token) = bw_session {
         cmd.env("BW_SESSION", token);
     }
 
-    // Own process group so tunnel doesn't receive purple's signals.
     #[cfg(unix)]
+    // SAFETY: pre_exec runs after fork, before exec in the child process.
+    // setpgid(0, 0) is async-signal-safe (POSIX). It moves the child into
+    // its own process group so SIGINT/SIGTERM sent to purple's group does
+    // not kill the tunnel. The return value is intentionally ignored: if
+    // setpgid fails the tunnel still works, it just shares purple's group.
     unsafe {
         use std::os::unix::process::CommandExt;
         cmd.pre_exec(|| {
@@ -311,6 +307,11 @@ pub fn start_tunnel(
             Ok(())
         });
     }
+
+    debug!(
+        "Tunnel SSH command: ssh -N -F {} -- {alias}",
+        config_path.display()
+    );
 
     cmd.spawn()
         .map_err(|e| anyhow::anyhow!("Failed to start tunnel: {}", e))
@@ -962,13 +963,9 @@ mod tests {
         assert_eq!(expected[2], "PURPLE_ASKPASS_MODE");
     }
 
-    #[test]
-    fn start_tunnel_askpass_require_is_prefer() {
-        // SSH_ASKPASS_REQUIRE=prefer is critical for tunnels:
-        // stdin is null, so SSH cannot prompt interactively
-        let value = "prefer";
-        assert_eq!(value, "prefer");
-    }
+    // Note: the SSH_ASKPASS_REQUIRE=force invariant is now covered by the
+    // real regression test in `src/askpass_env.rs`, which builds a Command and
+    // inspects its env vars directly via `Command::get_envs()`.
 
     // =========================================================================
     // Tunnel vs Connection env var consistency

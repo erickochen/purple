@@ -18,23 +18,39 @@ fn placeholder_for(field: FormField, is_pattern: bool) -> String {
             }
         }
         FormField::Alias if is_pattern => "10.0.0.* or *.example.com".to_string(),
-        FormField::Alias => "user@host:port or alias".to_string(),
+        FormField::Alias => "prod, staging, db-01".to_string(),
         FormField::Hostname => "192.168.1.1 or example.com".to_string(),
         FormField::User => "root".to_string(),
         FormField::Port => "22".to_string(),
         FormField::IdentityFile => "Enter to pick a key".to_string(),
         FormField::ProxyJump => "Enter to pick a host".to_string(),
+        // SSH secrets engine role (signs SSH certificates). Distinct from
+        // Vault KV used in Password Source (vault:path/to/secret).
+        FormField::VaultSsh => "e.g. ssh-client-signer/sign/my-role".to_string(),
+        FormField::VaultAddr => {
+            "e.g. http://127.0.0.1:8200 (inherits from provider or env when empty)".to_string()
+        }
         FormField::Tags => "prod, staging, us-east".to_string(),
     }
 }
 
-/// All form fields in display order with required flag.
-const FIELDS: &[(FormField, bool)] = &[
+/// Required fields (always visible).
+const REQUIRED_FIELDS: &[(FormField, bool)] =
+    &[(FormField::Alias, true), (FormField::Hostname, true)];
+
+/// All fields in order: required first, then optional. `VaultAddr` lives
+/// immediately after `VaultSsh` and is progressively disclosed at render
+/// time by filtering against `HostForm::visible_fields()` — the constant
+/// keeps the full schema so dirty-check, baselines and non-render callers
+/// see a consistent ordering.
+const ALL_FIELDS: &[(FormField, bool)] = &[
     (FormField::Alias, true),
     (FormField::Hostname, true),
     (FormField::User, false),
     (FormField::Port, false),
     (FormField::IdentityFile, false),
+    (FormField::VaultSsh, false),
+    (FormField::VaultAddr, false),
     (FormField::ProxyJump, false),
     (FormField::AskPass, false),
     (FormField::Tags, false),
@@ -43,8 +59,28 @@ const FIELDS: &[(FormField, bool)] = &[
 pub fn render(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
 
+    // Determine visible fields based on progressive disclosure state.
+    // The Vault SSH Role override field follows the same expand/collapse rule
+    // as every other optional field: hidden in collapsed state, shown in
+    // expanded state. The Vault SSH Address field has an additional gate:
+    // it is only rendered when a Vault SSH Role is set on this form (the
+    // address is meaningless without a role, and hiding it keeps the form
+    // compact for the 99% of hosts that do not use Vault SSH).
+    let expanded = app.form.expanded;
+    let role_set = !app.form.vault_ssh.trim().is_empty();
+    let base: &[(FormField, bool)] = if expanded {
+        ALL_FIELDS
+    } else {
+        REQUIRED_FIELDS
+    };
+    let filtered: Vec<(FormField, bool)> = base
+        .iter()
+        .copied()
+        .filter(|(f, _)| *f != FormField::VaultAddr || role_set)
+        .collect();
+    let visible_fields: &[(FormField, bool)] = &filtered;
     // Block: top(1) + fields * 2 (divider + content) + bottom(1)
-    let block_height = 2 + FIELDS.len() as u16 * 2;
+    let block_height = 2 + visible_fields.len() as u16 * 2;
     let total_height = block_height + 1; // + footer
 
     let base = super::centered_rect(70, 80, area);
@@ -87,10 +123,54 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let picker_open =
         app.ui.show_key_picker || app.ui.show_proxyjump_picker || app.ui.show_password_picker;
 
-    // Render dividers and content for each field
-    for (i, &(field, field_required)) in FIELDS.iter().enumerate() {
-        let divider_y = inner.y + (2 * i) as u16;
+    // Compute provider vault role hint for the VaultSsh field placeholder
+    let vault_provider_hint: Option<(String, String)> =
+        if let Screen::EditHost { alias } = &app.screen {
+            app.hosts
+                .iter()
+                .find(|h| h.alias == *alias)
+                .and_then(|h| h.provider.as_ref())
+                .and_then(|prov| {
+                    app.provider_config.section(prov).and_then(|s| {
+                        if s.vault_role.is_empty() {
+                            None
+                        } else {
+                            Some((s.vault_role.clone(), prov.clone()))
+                        }
+                    })
+                })
+        } else {
+            None
+        };
+
+    // Symmetric hint for the VaultAddr field: show the provider default
+    // address (if any) when the host-level field is empty, so the user
+    // knows a provider default is already in play without having to save
+    // and re-open the detail panel to find out.
+    let vault_addr_provider_hint: Option<(String, String)> =
+        if let Screen::EditHost { alias } = &app.screen {
+            app.hosts
+                .iter()
+                .find(|h| h.alias == *alias)
+                .and_then(|h| h.provider.as_ref())
+                .and_then(|prov| {
+                    app.provider_config.section(prov).and_then(|s| {
+                        if s.vault_addr.is_empty() {
+                            None
+                        } else {
+                            Some((s.vault_addr.clone(), prov.clone()))
+                        }
+                    })
+                })
+        } else {
+            None
+        };
+
+    let mut y_offset: u16 = 0;
+    for &(field, field_required) in visible_fields.iter() {
+        let divider_y = inner.y + y_offset;
         let content_y = divider_y + 1;
+        y_offset += 2;
 
         let is_focused = app.form.focused_field == field;
         let label_style = if is_focused {
@@ -123,7 +203,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         );
 
         let content_area = Rect::new(inner.x + 1, content_y, inner.width.saturating_sub(1), 1);
-        render_field_content(frame, content_area, field, &app.form, picker_open);
+        render_field_content(
+            frame,
+            content_area,
+            field,
+            &app.form,
+            picker_open,
+            vault_provider_hint.as_ref(),
+            vault_addr_provider_hint.as_ref(),
+        );
     }
 
     // Footer below the block
@@ -131,21 +219,33 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let mut footer_spans = if app.pending_discard_confirm {
         vec![
             Span::styled(" Discard changes? ", theme::error()),
-            Span::styled("y", theme::accent_bold()),
+            Span::styled(" y ", theme::footer_key()),
             Span::styled(" yes ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Esc", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
             Span::styled(" no", theme::muted()),
+        ]
+    } else if !expanded {
+        // Collapsed: show hint about more options
+        vec![
+            Span::styled(" Enter ", theme::footer_key()),
+            Span::styled(" save ", theme::muted()),
+            Span::raw("  "),
+            Span::styled(" \u{2193} ", theme::footer_key()),
+            Span::styled(" more options ", theme::muted()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
+            Span::styled(" cancel", theme::muted()),
         ]
     } else {
         vec![
-            Span::styled(" Enter", theme::primary_action()),
+            Span::styled(" Enter ", theme::footer_key()),
             Span::styled(" save ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Tab", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Tab ", theme::footer_key()),
             Span::styled(" next ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Esc", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
             Span::styled(" cancel", theme::muted()),
         ]
     };
@@ -381,13 +481,13 @@ fn render_password_picker_overlay(frame: &mut Frame, app: &mut App) {
     frame.render_stateful_widget(list, chunks[0], &mut app.ui.password_picker_state);
 
     let spans = vec![
-        Span::styled(" Enter", theme::primary_action()),
+        Span::styled(" Enter ", theme::footer_key()),
         Span::styled(" select ", theme::muted()),
-        Span::styled("\u{2502} ", theme::muted()),
-        Span::styled("Ctrl+D", theme::accent_bold()),
+        Span::raw("  "),
+        Span::styled(" Ctrl+D ", theme::footer_key()),
         Span::styled(" global default ", theme::muted()),
-        Span::styled("\u{2502} ", theme::muted()),
-        Span::styled("Esc", theme::accent_bold()),
+        Span::raw("  "),
+        Span::styled(" Esc ", theme::footer_key()),
         Span::styled(" cancel", theme::muted()),
     ];
     super::render_footer_with_status(frame, chunks[2], spans, app);
@@ -417,12 +517,15 @@ fn render_divider(
 }
 
 /// Render a single field's content (value or placeholder) and set cursor.
+#[allow(clippy::too_many_arguments)]
 fn render_field_content(
     frame: &mut Frame,
     area: Rect,
     field: FormField,
     form: &crate::app::HostForm,
     picker_open: bool,
+    vault_provider_hint: Option<&(String, String)>,
+    vault_addr_provider_hint: Option<&(String, String)>,
 ) {
     let is_focused = form.focused_field == field;
 
@@ -434,6 +537,8 @@ fn render_field_content(
         FormField::IdentityFile => &form.identity_file,
         FormField::ProxyJump => &form.proxy_jump,
         FormField::AskPass => &form.askpass,
+        FormField::VaultSsh => &form.vault_ssh,
+        FormField::VaultAddr => &form.vault_addr,
         FormField::Tags => &form.tags,
     };
 
@@ -442,8 +547,57 @@ fn render_field_content(
         FormField::IdentityFile | FormField::ProxyJump | FormField::AskPass
     );
 
-    // Show placeholder only when field is empty and focused
-    let content = if value.is_empty() && is_focused && !is_picker {
+    // Inherited hint for this field (value + source pattern).
+    let inherited_hint = match field {
+        FormField::ProxyJump => form.inherited.proxy_jump.as_ref(),
+        FormField::User => form.inherited.user.as_ref(),
+        FormField::IdentityFile => form.inherited.identity_file.as_ref(),
+        _ => None,
+    };
+
+    // Inherited hints are shown regardless of focus (unlike input placeholders) because
+    // they are informational: they show the effective SSH config, not an input prompt.
+    let content = if let (true, Some((inh_val, inh_src))) = (value.is_empty(), inherited_hint) {
+        let inner_width = area.width as usize;
+        // Detect self-referencing ProxyJump loop.
+        let is_loop = field == FormField::ProxyJump
+            && crate::ssh_config::model::proxy_jump_contains_self(inh_val, &form.alias);
+        if is_loop {
+            let msg = format!("loops via {}", inh_src);
+            let display = super::truncate(&msg, inner_width);
+            Line::from(vec![Span::styled(display, theme::error())])
+        } else {
+            let source_suffix = format!("  \u{2190} {}", inh_src);
+            let val_budget = inner_width.saturating_sub(source_suffix.width());
+            let display = super::truncate(inh_val, val_budget);
+            if is_picker && is_focused {
+                let arrow_pos = inner_width.saturating_sub(1);
+                let used = display.width() + source_suffix.width();
+                let gap = arrow_pos.saturating_sub(used);
+                Line::from(vec![
+                    Span::styled(display, theme::muted()),
+                    Span::styled(source_suffix, theme::muted()),
+                    Span::raw(" ".repeat(gap)),
+                    Span::styled("\u{25B8}", theme::muted()),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled(display, theme::muted()),
+                    Span::styled(source_suffix, theme::muted()),
+                ])
+            }
+        }
+    } else if let (true, FormField::VaultSsh, Some((role, prov))) =
+        (value.is_empty(), field, vault_provider_hint)
+    {
+        let hint = format!("inherits {} from {}", role, prov);
+        Line::from(Span::styled(hint, theme::muted()))
+    } else if let (true, FormField::VaultAddr, Some((addr, prov))) =
+        (value.is_empty(), field, vault_addr_provider_hint)
+    {
+        let hint = format!("inherits {} from {}", addr, prov);
+        Line::from(Span::styled(hint, theme::muted()))
+    } else if value.is_empty() && is_focused && !is_picker {
         let ph = placeholder_for(field, form.is_pattern);
         Line::from(Span::styled(ph, theme::muted()))
     } else if is_picker && is_focused {

@@ -72,21 +72,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let footer_spans = if app.pending_discard_confirm {
         vec![
             Span::styled(" Discard changes? ", theme::error()),
-            Span::styled("y", theme::accent_bold()),
+            Span::styled(" y ", theme::footer_key()),
             Span::styled(" yes ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Esc", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
             Span::styled(" no", theme::muted()),
         ]
     } else {
         vec![
-            Span::styled(" Enter", theme::primary_action()),
+            Span::styled(" Enter ", theme::footer_key()),
             Span::styled(" save ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Tab", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Tab ", theme::footer_key()),
             Span::styled(" next ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Esc", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
             Span::styled(" cancel", theme::muted()),
         ]
     };

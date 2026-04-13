@@ -1,3 +1,190 @@
+## 2.35.0
+
+- Command palette. Press `:` to search and run any action
+- 24 searchable actions: add, edit, delete, file explorer, tunnels, containers, SSH keys, providers and more ([#21](https://github.com/erickochen/purple/issues/21))
+- Type to filter by name, press Enter to execute. Case-insensitive matching
+- Up/Down to navigate, Esc to close, Backspace to clear filter
+- Shortcuts shown next to each command so you learn the direct keys over time
+- Footer shows `: cmds` hint. Help overlay lists `:` in the TOOLS section
+
+## 2.34.0
+
+- Toast notifications for user action feedback
+- Copy, sort, delete and error messages now appear as a bordered overlay box in the bottom-right corner instead of blending into the footer
+- Toast queue buffers rapid actions so no feedback is lost (max 5 queued)
+- Keyboard hints in the footer stay visible at all times. Status messages no longer replace the "? more" help hint
+- Four message classes: Confirmation (toast, 1.5s), Info (footer, 3s), Alert (toast, 5s) and Progress (footer, sticky)
+- Background events like provider sync and ping go to the footer. Direct user actions go to toast
+- Debug logging for all status message routing decisions
+
+## 2.33.5
+
+- Debug logging for silent error paths across the codebase
+- Pipe read failures in MCP tool execution, Vault SSH signing and Tailscale provider now surface in the log instead of being silently swallowed
+- First-launch init (directory creation, SSH config backup, permission setting) logs warnings on failure
+- Connection history read/write errors, preferences file access failures and SSH config backup pruning failures are now logged
+- Thread panics in stderr capture (SSH connection) and stdout/stderr readers (snippet execution) log a warning instead of silently returning empty strings
+- Tunnel and process cleanup failures (kill/wait) log at debug level
+- Proxmox guest OS info and VM config API calls log the specific failure reason instead of returning None silently
+- Version check cache write failures log at debug level
+
+## 2.33.4
+
+- Internal: extract CLI handlers from main.rs, move test modules into dedicated files across the codebase, document unsafe block invariants, replace fragile unwrap patterns with let-else guards, route TUI-context error messages through the log system instead of stderr
+
+## 2.33.3
+
+- Safer render paths: recover from poisoned mutex, remove unwrap panics from container overlay, replace unreachable! with safe fallbacks in provider and tunnel forms
+- Faster host sorting: cache lowercased keys instead of allocating per comparison. HashSet dedup for group tab ordering
+- Allocation-free host width calculation in the host list renderer
+- Container cache write errors now surface in the debug log instead of being silently swallowed
+- Internal: split handler.rs (11k lines) and app.rs (11k lines) into focused submodules. No behavior change
+
+## 2.33.2
+
+- Active tunnels now render green in the detail panel
+- Tunnel rules in the detail panel TUNNELS section use a `→` arrow between the local and remote endpoints, so `LocalForward 8200 10.30.0.3:8200` displays as `L 8200 → 10.30.0.3:8200`. DynamicForward entries keep their single-value form (`D 1080`)
+- Active tunnel lines use the theme success color instead of bold, matching the green convention already used for active hosts in the host list
+
+## 2.33.1
+
+- Askpass now works from headless ssh sessions on Linux
+- Switch `SSH_ASKPASS_REQUIRE` from `prefer` to `force` on every ssh and scp launch (connect, tunnel, file browser, snippet). OpenSSH's `prefer` mode silently no-ops when both `DISPLAY` and `WAYLAND_DISPLAY` are empty and falls back to the TTY prompt, which broke Bitwarden, 1Password, Vault KV, pass and keychain lookups for users running purple inside a remote shell on Arch, Hyprland and other headless Linux setups
+- Extract the SSH_ASKPASS env wiring into `askpass_env::configure_ssh_command` so all four call sites share one regression test that inspects `Command::get_envs()` directly. A future change back to `prefer` now fails CI
+- Resolves #19
+
+## 2.33.0
+
+- Tmux-aware SSH: new window instead of TUI suspend
+- When purple runs inside a tmux session, pressing Enter on a host opens SSH in a new tmux window named after the alias. The purple TUI stays alive in the original window so you can switch between sessions with `prefix + n/p` and keep navigating other hosts
+- Detection via `$TMUX` env var. No tmux means the current suspend-and-restore behavior is unchanged
+- Hosts with an askpass source (keychain, 1Password, Bitwarden, Vault KV, pass, cmd) keep the suspend-TUI flow because the askpass relay needs inherited stdin
+- Vault SSH cert signing still runs before the tmux window opens, so short-lived certs are refreshed exactly as before. Signing status messages surface via the purple status bar
+- Resolves #18
+
+## 2.32.1
+
+- Remove vault sign from host list footer to reduce clutter
+
+## 2.32.0
+
+- Structured logging to ~/.purple/purple.log
+- `--verbose` flag enables debug-level logging. `PURPLE_LOG` env var for finer control (trace/debug/info/warn/error/off)
+- `purple logs` subcommand: `--tail` to follow in real time, `--clear` to delete
+- Log entries carry fault domain prefixes: `[external]` for remote/tool errors, `[config]` for local config issues, `[purple]` for internal errors
+- Startup banner records purple version, SSH version, terminal, providers and askpass sources for diagnostics
+- Automatic log rotation at 5 MB
+
+## 2.31.0
+
+- HashiCorp Vault SSH certificate signing
+- Short-lived SSH certificates signed via the HashiCorp Vault SSH secrets engine. Per-host role in `# purple:vault-ssh <mount>/sign/<role>`, per-provider default in `vault_role=`. Host overrides win over provider defaults
+- `V` key bulk-signs every host needing renewal. Press `V` again to cancel. Detail panel shows cert TTL under the `VAULT SSH` section with a "(press V to sign)" affordance when missing, expired or invalid
+- Automatic renewal on connect via `ensure_vault_ssh_if_needed`, so an expired cert is re-signed before the SSH session starts
+- Cert cache under `~/.purple/certs/<alias>-cert.pub`. Background status checks with 5 minute TTL, shorter 30 second backoff on errors
+- Detail panel reflects external `purple vault sign` runs (CLI or another purple instance) within one render frame via mtime-based cache invalidation
+- Vault SSH address configurable per host (`# purple:vault-addr`), per provider (`vault_addr=`) or per CLI invocation (`purple vault sign --vault-addr`). Purple exports the resolved value as `VAULT_ADDR` on the `vault` subprocess, so you no longer need to export it in every shell you launch purple from
+- New "Vault SSH Role" and "Vault SSH Address" fields in the host and provider forms. Progressive disclosure: Address appears when Role is set, with provider inheritance hint
+- CLI: `purple vault sign <alias>` and `purple vault sign --all`, both accepting `--vault-addr <url>`. Shells out to `vault write -field=signed_key` so existing Vault authentication (VAULT_TOKEN, token helpers, OIDC, etc.) applies
+- Bulk sign detects concurrent external `~/.ssh/config` edits via mtime and merges instead of overwriting, so edits in another editor are preserved
+- Virtual tags `vault-ssh` (any host with a resolved role) and `vault-kv` (any host using the `vault:` askpass prefix) for filtering
+- Distinct from the HashiCorp Vault KV secrets engine used as a password source via the `vault:` askpass prefix. UI, CLI and docs keep the two engines strictly separated
+- Vault SSH address normalization: bare IP or hostname auto-expands to `https://IP:8200`. Explicit `http://` for dev-mode Vault servers
+- 30 second timeout on vault CLI subprocess. Previously hung indefinitely when the Vault server was unreachable
+- Friendly error messages for common Vault SSH failures: connection refused, connection timed out, host not found, TLS mismatch (HTTP vs HTTPS), permission denied, token expired
+- Signing progress shows animated spinner. Error messages stay visible until the next action (sticky status)
+- Pre-check on `V`: warns immediately when no Vault address is configured instead of failing silently after the confirm dialog
+- Detail panel Vault SSH section: shows role name instead of full mount path. Address moved to edit form (e) to save space
+- 1000+ new tests covering the Vault SSH write paths, wildcard safety invariants (proptest across 512 random configs), Match block inertness, CRLF preservation, rollback on write failure, mtime cache staleness, subprocess env propagation and CLI flag parsing
+
+## 2.30.1
+
+- Fix pattern tags missing from tag grouping tabs and counts
+- Fix tag picker showing (0) for tags that only exist on patterns
+- Fix generic search not matching pattern tags
+- Fix group-by-tag clearing when tag only exists on a pattern
+
+## 2.30.0
+
+- Color themes. 11 built-in themes with live preview (`m` key)
+- Custom themes from `~/.purple/themes/*.toml`
+- CLI: `purple theme list`, `purple theme set <name>` and `--theme <name>` session override
+- Pattern inheritance: ProxyJump, User and IdentityFile from pattern blocks (e.g. `Host *`, `Host web-*`) now inherited by matching hosts. ↗ indicator and ping logic reflect inherited ProxyJump
+- Edit form shows inherited values as dimmed placeholders with source pattern (e.g. `gateway  ← *`)
+- Self-referencing ProxyJump loop detection: ↗ in error color, ROUTE warning in detail panel and fix hint in edit form when a pattern assigns a host as its own jump host
+- Fix detail panel PATTERN MATCH section no longer shows hostname-matched patterns that SSH would not apply
+- Fix error messages now show in overlay footers instead of behind dimmed background
+- Fix editing multi-host patterns (e.g. `Host web-* db-*`) failing with false "no longer exists" error
+
+## 2.29.0
+
+- Progressive disclosure in host and provider forms. Required fields shown first, arrow down reveals optional fields
+- Demo mode (`purple --demo`) with synthetic data for screenshots and recordings
+
+## 2.28.0
+
+- Animation state separated from App into dedicated AnimationState module
+- Animated braille spinner for ping checking status
+
+## 2.27.3
+
+- New welcome screen logo (ANSI Shadow style)
+- Lowercase README badges
+
+## 2.27.2
+
+- Record connection history when running snippets on hosts via TUI
+
+## 2.27.1
+
+- Fix group bar selector not following selected host in tagged view
+- Tagged view group bar now shows only user tags. Provider tags no longer appear as tabs
+
+## 2.27.0
+
+- Cleaner host list and keycap-style footer keys
+- Streamlined columns: NAME, ADDRESS, TAGS (up to 3) and LAST. Auth, tunnel and ping moved to detail panel
+- ADDRESS column shows hostname:port (user moved to detail panel). Hidden when detail panel is open
+- ProxyJump hosts now inherit ping status from their bastion host instead of showing "can't ping directly"
+- Tags displayed without # prefix throughout the UI
+- Snippet parameter form shows discard confirmation when pressing Esc with modified values
+- Detail panel shows friendly password source labels (keychain, 1password, bitwarden, pass, vault) and ping RTT
+- Proxmox no longer injects resource type (qemu/lxc) as provider tag. Type is already in metadata
+- SSH key detail overlay now shows Esc/close footer
+- Online status dots use dimmed green to distinguish from success messages
+- Health summary spans (●23 ▲2 ✖1) available for group headers
+
+## 2.26.0
+
+- Live host health status with RTT measurement and auto-ping on startup
+- Status dots before each host: ● online, ▲ slow, ✖ down, ○ unchecked (color + shape for accessibility)
+- PING column shows response time (42ms, 1.2s, 10s+). Detail panel shows RTT under CONNECTION
+- Slow host detection with configurable threshold (default 200ms, set slow_threshold_ms in preferences)
+- Sort by health status: press s to cycle to "down first" (unreachable hosts at top)
+- Down-only filter: press ! to show only unreachable hosts
+- Ping results expire after 60 seconds with automatic cleanup
+- Auto-ping enabled by default (disable with auto_ping=false in preferences)
+- Provider sync status no longer flickers between updates
+
+## 2.25.0
+
+- Visual redesign with tab navigation, section cards and scoped search
+- Tab/Shift+Tab cycles through provider groups or tags. Esc resets to All
+- Search respects active tab: filters within the selected group only
+- Tag mode in navigation bar: when grouped by tag, top tags shown as tabs
+- Bordered host list and detail panel with section cards
+- Status indicators per host row: reachable, unreachable, checking
+- Green highlight for recent connections in Last column
+- Detail panel sections as visual cards with rounded borders
+- Last section stretches to fill panel height
+- Pattern match sections clearly labeled
+- All containers and tunnels shown (no more truncation)
+- Space-separated footer (cleaner look)
+- File explorer shortcut changed from f to F for consistency
+- Help screen updated with Tab/Shift+Tab, scoped search, aligned columns
+- Proxmox stopped VMs no longer marked stale. Stopped and no-IP VMs are included in sync with empty IP to prevent false stale detection
+- Collapsible groups removed; Tab/Shift+Tab tab navigation replaces Enter-to-collapse
+
 ## 2.24.0
 
 - Collapsible groups, Ctrl+A select all and smarter Proxmox OS detection

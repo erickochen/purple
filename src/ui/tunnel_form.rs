@@ -82,23 +82,23 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let footer_spans = if app.pending_discard_confirm {
         vec![
             Span::styled(" Discard changes? ", theme::error()),
-            Span::styled("y", theme::accent_bold()),
+            Span::styled(" y ", theme::footer_key()),
             Span::styled(" yes ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Esc", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
             Span::styled(" no", theme::muted()),
         ]
     } else {
         vec![
-            Span::styled(" Enter", theme::primary_action()),
+            Span::styled(" Enter ", theme::footer_key()),
             Span::styled(" save ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Tab", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Tab ", theme::footer_key()),
             Span::styled(" next ", theme::muted()),
-            Span::styled("Space", theme::accent_bold()),
+            Span::styled(" Space ", theme::footer_key()),
             Span::styled(" type ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Esc", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
             Span::styled(" cancel", theme::muted()),
         ]
     };
@@ -146,14 +146,26 @@ fn render_field_content(
         TunnelFormField::BindPort => &form.bind_port,
         TunnelFormField::RemoteHost => &form.remote_host,
         TunnelFormField::RemotePort => &form.remote_port,
-        TunnelFormField::Type => unreachable!(),
+        TunnelFormField::Type => {
+            debug_assert!(
+                false,
+                "Type field must be handled by the early-return branch above"
+            );
+            return;
+        }
     };
 
     let placeholder = match field {
         TunnelFormField::BindPort => "8080",
         TunnelFormField::RemoteHost => "localhost",
         TunnelFormField::RemotePort => "80",
-        TunnelFormField::Type => unreachable!(),
+        TunnelFormField::Type => {
+            debug_assert!(
+                false,
+                "Type field must be handled by the early-return branch above"
+            );
+            return;
+        }
     };
 
     let content = if value.is_empty() && is_focused {
@@ -174,6 +186,52 @@ fn render_field_content(
         let cursor_y = area.y;
         if area.width > 0 && cursor_x < area.x.saturating_add(area.width) {
             frame.set_cursor_position((cursor_x, cursor_y));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_field_content;
+    use crate::app::{TunnelForm, TunnelFormField};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+
+    // Every TunnelFormField variant must render without hitting the
+    // debug_assert fallback. Adding a new variant to the enum without
+    // handling it in render_field_content will cause the match below to
+    // fail to compile, flagging the gap before it reaches production.
+    #[test]
+    fn render_field_content_handles_every_variant() {
+        let form = TunnelForm::new();
+        let area = Rect::new(0, 0, 40, 1);
+        let backend = TestBackend::new(40, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let all: &[TunnelFormField] = &[
+            TunnelFormField::Type,
+            TunnelFormField::BindPort,
+            TunnelFormField::RemoteHost,
+            TunnelFormField::RemotePort,
+        ];
+
+        // Exhaustiveness guard: the compiler forces this match to cover
+        // every variant. Add new variants to `all` above when adding them
+        // to TunnelFormField.
+        for variant in all {
+            match variant {
+                TunnelFormField::Type
+                | TunnelFormField::BindPort
+                | TunnelFormField::RemoteHost
+                | TunnelFormField::RemotePort => {}
+            }
+        }
+
+        for variant in all {
+            terminal
+                .draw(|frame| render_field_content(frame, area, *variant, &form))
+                .unwrap();
         }
     }
 }

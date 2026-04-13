@@ -77,21 +77,21 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
     let mut footer_spans = vec![];
     if !is_included {
         footer_spans.extend([
-            Span::styled("  e", theme::accent_bold()),
+            Span::styled(" e ", theme::footer_key()),
             Span::styled(" edit ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
+            Span::raw("  "),
         ]);
     } else {
         footer_spans.push(Span::raw("  "));
     }
     footer_spans.extend([
-        Span::styled("T", theme::accent_bold()),
+        Span::styled(" T ", theme::footer_key()),
         Span::styled(" tunnels ", theme::muted()),
-        Span::styled("\u{2502} ", theme::muted()),
-        Span::styled("r", theme::accent_bold()),
+        Span::raw("  "),
+        Span::styled(" r ", theme::footer_key()),
         Span::styled(" snippet ", theme::muted()),
-        Span::styled("\u{2502} ", theme::muted()),
-        Span::styled("Esc", theme::accent_bold()),
+        Span::raw("  "),
+        Span::styled(" Esc ", theme::footer_key()),
         Span::styled(" back", theme::muted()),
     ]);
     lines.push(Line::from(""));

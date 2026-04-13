@@ -198,16 +198,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .highlight_style(theme::selected_row())
             .highlight_symbol("  ");
 
-        frame.render_stateful_widget(
-            list,
-            list_area,
-            &mut app.container_state.as_mut().unwrap().list_state,
-        );
+        frame.render_stateful_widget(list, list_area, &mut state.list_state);
     }
 
     // Action in progress
     if let Some(ci) = action_ci {
-        if let Some(ref msg) = app.container_state.as_ref().unwrap().action_in_progress {
+        if let Some(ref msg) = state.action_in_progress {
             let action_line = format!("  {}", msg);
             frame.render_widget(
                 Paragraph::new(action_line).style(theme::muted()),
@@ -219,20 +215,20 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // Footer
     let mut spans: Vec<Span<'_>> = Vec::new();
     let [k, l] = super::footer_action("s", " start ");
-    spans.extend([k, l, super::footer_sep()]);
+    spans.extend([k, l, Span::raw("  ")]);
     let [k, l] = super::footer_action("x", " stop ");
-    spans.extend([k, l, super::footer_sep()]);
+    spans.extend([k, l, Span::raw("  ")]);
     let [k, l] = super::footer_action("r", " restart ");
-    spans.extend([k, l, super::footer_sep()]);
+    spans.extend([k, l, Span::raw("  ")]);
     let [k, l] = super::footer_action("R", " refresh ");
-    spans.extend([k, l, super::footer_sep()]);
+    spans.extend([k, l, Span::raw("  ")]);
     let [k, l] = super::footer_action("Esc", " back");
     spans.extend([k, l]);
     super::render_footer_with_status(frame, chunks[footer_ci], spans, app);
 
     // Confirmation dialog for stop/restart
-    if let Some(ref state) = app.container_state {
-        if let Some((ref action, ref name, _)) = state.confirm_action {
+    if let Some(ref confirm_state) = app.container_state {
+        if let Some((ref action, ref name, _)) = confirm_state.confirm_action {
             let verb = action.as_str();
             let display_name = truncate_str(name, 30);
             let dialog_area = super::centered_rect_fixed(52, 7, frame.area());
@@ -249,10 +245,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 )),
                 Line::from(""),
                 Line::from(vec![
-                    Span::styled("    y", theme::danger()),
+                    Span::styled(" y ", theme::footer_key()),
                     Span::styled(" yes ", theme::muted()),
-                    Span::styled("\u{2502} ", theme::muted()),
-                    Span::styled("Esc", theme::accent_bold()),
+                    Span::raw("  "),
+                    Span::styled(" Esc ", theme::footer_key()),
                     Span::styled(" no", theme::muted()),
                 ]),
             ];
@@ -264,7 +260,86 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
     use ratatui::layout::{Constraint, Layout, Rect};
+
+    use crate::SshConfigFile;
+    use crate::app::{App, ContainerState};
+    use std::path::PathBuf;
+
+    fn make_app() -> App {
+        let config = SshConfigFile {
+            elements: SshConfigFile::parse_content(""),
+            path: PathBuf::from("/tmp/test_containers_config"),
+            crlf: false,
+            bom: false,
+        };
+        App::new(config)
+    }
+
+    #[test]
+    fn render_noops_when_container_state_is_none() {
+        let mut app = make_app();
+        assert!(app.container_state.is_none());
+        render_app(&mut app);
+    }
+
+    fn state_with(
+        loading: bool,
+        error: Option<String>,
+        action_in_progress: Option<String>,
+    ) -> ContainerState {
+        ContainerState {
+            alias: "test-host".to_string(),
+            askpass: None,
+            runtime: None,
+            containers: Vec::new(),
+            list_state: ratatui::widgets::ListState::default(),
+            loading,
+            error,
+            action_in_progress,
+            confirm_action: None,
+        }
+    }
+
+    fn render_app(app: &mut App) {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| super::render(frame, app)).unwrap();
+    }
+
+    #[test]
+    fn render_survives_empty_container_state() {
+        let mut app = make_app();
+        app.container_state = Some(state_with(false, None, None));
+        render_app(&mut app);
+    }
+
+    #[test]
+    fn render_survives_loading_state() {
+        let mut app = make_app();
+        app.container_state = Some(state_with(true, None, None));
+        render_app(&mut app);
+    }
+
+    #[test]
+    fn render_survives_error_state() {
+        let mut app = make_app();
+        app.container_state = Some(state_with(
+            false,
+            Some("docker not running".to_string()),
+            None,
+        ));
+        render_app(&mut app);
+    }
+
+    #[test]
+    fn render_survives_action_in_progress_state() {
+        let mut app = make_app();
+        app.container_state = Some(state_with(false, None, Some("stopping nginx".to_string())));
+        render_app(&mut app);
+    }
 
     #[test]
     fn layout_has_spacer_between_content_and_footer() {

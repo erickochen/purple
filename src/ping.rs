@@ -1,7 +1,7 @@
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::event::AppEvent;
 
@@ -48,22 +48,28 @@ fn ping_host_inner(
     let (done_tx, done_rx) = mpsc::channel();
     let addr_str_clone = addr_str.clone();
     thread::spawn(move || {
-        let result = match addr_str_clone.to_socket_addrs() {
+        // NOTE: RTT includes DNS resolution time, not just TCP connect.
+        // A slow DNS resolver can inflate the measured RTT.
+        let start = Instant::now();
+        let connected = match addr_str_clone.to_socket_addrs() {
             Ok(addrs) => addrs
                 .into_iter()
                 .any(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_ok()),
             Err(_) => false,
         };
-        let _ = done_tx.send(result);
+        let rtt_ms = if connected {
+            Some(start.elapsed().as_millis().min(u32::MAX as u128) as u32)
+        } else {
+            None
+        };
+        let _ = done_tx.send(rtt_ms);
     });
 
-    let reachable = done_rx
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap_or(false);
+    let rtt_ms = done_rx.recv_timeout(Duration::from_secs(5)).unwrap_or(None);
 
     let _ = tx.send(AppEvent::PingResult {
         alias: alias.to_string(),
-        reachable,
+        rtt_ms,
         generation,
     });
 }

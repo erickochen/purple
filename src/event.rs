@@ -12,7 +12,7 @@ pub enum AppEvent {
     Tick,
     PingResult {
         alias: String,
-        reachable: bool,
+        rtt_ms: Option<u32>,
         generation: u64,
     },
     SyncComplete {
@@ -76,6 +76,38 @@ pub enum AppEvent {
         alias: String,
         action: crate::containers::ContainerAction,
         result: Result<(), String>,
+    },
+    VaultSignResult {
+        alias: String,
+        /// Snapshot of the host's `CertificateFile` directive at signing time.
+        /// Carried in the event so the main loop never has to re-look up the
+        /// host (which would be O(n) and racy under concurrent renames). Empty
+        /// when the host has no `CertificateFile` set; `should_write_certificate_file`
+        /// uses this directly to decide whether to write a default directive.
+        certificate_file: String,
+        success: bool,
+        message: String,
+    },
+    VaultSignProgress {
+        alias: String,
+        done: usize,
+        total: usize,
+    },
+    VaultSignAllDone {
+        signed: u32,
+        failed: u32,
+        skipped: u32,
+        cancelled: bool,
+        aborted_message: Option<String>,
+        first_error: Option<String>,
+    },
+    CertCheckResult {
+        alias: String,
+        status: crate::vault_ssh::CertStatus,
+    },
+    CertCheckError {
+        alias: String,
+        message: String,
     },
     PollError,
 }
@@ -200,7 +232,12 @@ impl EventHandler {
                 | AppEvent::SnippetAllDone { .. }
                 | AppEvent::SnippetProgress { .. }
                 | AppEvent::ContainerListing { .. }
-                | AppEvent::ContainerActionComplete { .. } => preserved.push(event),
+                | AppEvent::ContainerActionComplete { .. }
+                | AppEvent::VaultSignResult { .. }
+                | AppEvent::VaultSignProgress { .. }
+                | AppEvent::VaultSignAllDone { .. }
+                | AppEvent::CertCheckResult { .. }
+                | AppEvent::CertCheckError { .. } => preserved.push(event),
                 _ => {}
             }
         }

@@ -1,6 +1,8 @@
 use std::io::BufRead;
 use std::path::Path;
 
+use log::{debug, info};
+
 use crate::quick_add;
 use crate::ssh_config::model::{HostEntry, SshConfigFile};
 
@@ -11,6 +13,7 @@ pub fn import_from_file(
     path: &Path,
     group: Option<&str>,
 ) -> Result<(usize, usize, usize, usize), String> {
+    info!("Import started: source={}", path.display());
     let file =
         std::fs::File::open(path).map_err(|e| format!("Can't open {}: {}", path.display(), e))?;
     let reader = std::io::BufReader::new(file);
@@ -57,12 +60,14 @@ pub fn import_from_file(
                 });
             }
             Err(_) => {
+                debug!("[config] Import: skipped unparseable line: {trimmed}");
                 parse_failures += 1;
             }
         }
     }
 
     let (imported, skipped) = add_entries(config, &entries, group)?;
+    info!("Import completed: {imported} hosts added, {skipped} skipped");
     Ok((imported, skipped, parse_failures, read_errors))
 }
 
@@ -97,6 +102,7 @@ pub fn import_from_known_hosts(
     config: &mut SshConfigFile,
     group: Option<&str>,
 ) -> Result<(usize, usize, usize, usize), String> {
+    info!("Import started: source=~/.ssh/known_hosts");
     let home = dirs::home_dir().ok_or("Could not determine home directory.")?;
     let known_hosts_path = home.join(".ssh").join("known_hosts");
 
@@ -135,6 +141,7 @@ pub fn import_from_known_hosts(
     }
 
     let (imported, skipped) = add_entries(config, &entries, group)?;
+    info!("Import completed: {imported} hosts added, {skipped} skipped");
     Ok((imported, skipped, parse_failures, read_errors))
 }
 

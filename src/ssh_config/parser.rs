@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use log::debug;
 
 use super::model::{
     ConfigElement, Directive, HostBlock, IncludeDirective, IncludedFile, SshConfigFile,
@@ -31,7 +32,18 @@ impl SshConfigFile {
 
         let crlf = content.contains("\r\n");
         let config_dir = path.parent().map(|p| p.to_path_buf());
-        let elements = Self::parse_content_with_includes(content, config_dir.as_deref(), depth);
+        let elements =
+            Self::parse_content_with_includes(content, config_dir.as_deref(), depth, Some(path));
+
+        let host_count = elements
+            .iter()
+            .filter(|e| matches!(e, super::model::ConfigElement::HostBlock(_)))
+            .count();
+        debug!(
+            "SSH config loaded: {} ({} hosts)",
+            path.display(),
+            host_count
+        );
 
         Ok(SshConfigFile {
             elements,
@@ -41,11 +53,23 @@ impl SshConfigFile {
         })
     }
 
+    /// Create an SshConfigFile from raw content string (for demo/test use).
+    /// Uses a synthetic path; the file is never read from or written to disk.
+    pub fn from_content(content: &str, synthetic_path: PathBuf) -> Self {
+        let elements = Self::parse_content_with_includes(content, None, MAX_INCLUDE_DEPTH, None);
+        SshConfigFile {
+            elements,
+            path: synthetic_path,
+            crlf: false,
+            bom: false,
+        }
+    }
+
     /// Parse SSH config content from a string (without Include resolution).
     /// Used by tests to create SshConfigFile from inline strings.
     #[allow(dead_code)]
     pub fn parse_content(content: &str) -> Vec<ConfigElement> {
-        Self::parse_content_with_includes(content, None, MAX_INCLUDE_DEPTH)
+        Self::parse_content_with_includes(content, None, MAX_INCLUDE_DEPTH, None)
     }
 
     /// Parse SSH config content, optionally resolving Include directives.
@@ -53,11 +77,13 @@ impl SshConfigFile {
         content: &str,
         config_dir: Option<&Path>,
         depth: usize,
+        config_path: Option<&Path>,
     ) -> Vec<ConfigElement> {
         let mut elements = Vec::new();
         let mut current_block: Option<HostBlock> = None;
 
-        for raw_line in content.lines() {
+        for (line_idx, raw_line) in content.lines().enumerate() {
+            let line_num = line_idx + 1;
             // Strip trailing \r characters that may be left when a file mixes
             // line endings or contains lone \r (old Mac style). Rust's
             // str::lines() splits on \n and strips \r from \r\n pairs, but
@@ -143,6 +169,13 @@ impl SshConfigFile {
                     });
                 } else {
                     // Unrecognized line format — preserve verbatim
+                    if let Some(p) = config_path {
+                        debug!(
+                            "[config] SSH config: unrecognized line {} in {}",
+                            line_num,
+                            p.display()
+                        );
+                    }
                     block.directives.push(Directive {
                         key: String::new(),
                         value: String::new(),
@@ -260,6 +293,7 @@ impl SshConfigFile {
                                     content,
                                     path.parent(),
                                     depth + 1,
+                                    Some(&path),
                                 );
                                 files.push(IncludedFile {
                                     path: path.clone(),
@@ -267,8 +301,8 @@ impl SshConfigFile {
                                 });
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "! Could not read Include file {}: {}",
+                                log::warn!(
+                                    "[config] Could not read Include file {}: {}",
                                     path.display(),
                                     e
                                 );

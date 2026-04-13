@@ -7,6 +7,10 @@ use unicode_width::UnicodeWidthStr;
 use super::theme;
 use crate::app::App;
 
+// Confirm dialogs are compact modals (y/Esc) with no separate footer row.
+// Status messages are not shown here. Any active status will be visible
+// once the user closes the dialog and returns to the parent screen.
+
 pub fn render(frame: &mut Frame, _app: &App, alias: &str) {
     let area = super::centered_rect_fixed(52, 7, frame.area());
 
@@ -26,10 +30,10 @@ pub fn render(frame: &mut Frame, _app: &App, alias: &str) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("    y", theme::danger()),
+            Span::styled(" y ", theme::footer_key()),
             Span::styled(" yes ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Esc", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
             Span::styled(" no", theme::muted()),
         ]),
     ];
@@ -65,10 +69,10 @@ pub fn render_host_key_reset(frame: &mut Frame, _app: &App, hostname: &str) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("    y", theme::danger()),
+            Span::styled(" y ", theme::footer_key()),
             Span::styled(" yes ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Esc", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
             Span::styled(" no", theme::muted()),
         ]),
     ];
@@ -99,10 +103,10 @@ pub fn render_confirm_import(frame: &mut Frame, _app: &App, count: usize) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("    y", theme::accent_bold()),
+            Span::styled(" y ", theme::footer_key()),
             Span::styled(" yes ", theme::muted()),
-            Span::styled("\u{2502} ", theme::muted()),
-            Span::styled("Esc", theme::accent_bold()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
             Span::styled(" no", theme::muted()),
         ]),
     ];
@@ -175,10 +179,10 @@ pub fn render_confirm_purge_stale(
     text.extend(host_lines);
     text.push(Line::from(""));
     text.push(Line::from(vec![
-        Span::styled("    y", theme::danger()),
+        Span::styled(" y ", theme::footer_key()),
         Span::styled(" yes ", theme::muted()),
-        Span::styled("\u{2502} ", theme::muted()),
-        Span::styled("Esc", theme::accent_bold()),
+        Span::raw("  "),
+        Span::styled(" Esc ", theme::footer_key()),
         Span::styled(" no", theme::muted()),
     ]));
 
@@ -186,13 +190,78 @@ pub fn render_confirm_purge_stale(
     frame.render_widget(paragraph, area);
 }
 
-/// Block-art logo for the welcome screen (4 lines).
+pub fn render_confirm_vault_sign(frame: &mut Frame, _app: &App, signable: &[String]) {
+    let count = signable.len();
+    // Preview first 5 aliases, append "...and N more" when truncated.
+    let preview_limit = 5;
+    let shown: Vec<&str> = signable
+        .iter()
+        .take(preview_limit)
+        .map(String::as_str)
+        .collect();
+    let preview_text = if count > preview_limit {
+        format!("  {} ... +{} more", shown.join(", "), count - preview_limit)
+    } else if count > 0 {
+        format!("  {}", shown.join(", "))
+    } else {
+        String::new()
+    };
+
+    // Height: top + main line + preview line + note line + spacer + footer + bottom = 9
+    let height = 9u16;
+    let area = super::centered_rect_fixed(72, height, frame.area());
+
+    frame.render_widget(Clear, area);
+
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(Span::styled(
+            " Sign Vault SSH Certificates ",
+            theme::accent(),
+        ))
+        .border_style(theme::accent());
+
+    let mut footer_spans: Vec<Span<'static>> = Vec::new();
+    for s in super::footer_action("y", " confirm ") {
+        footer_spans.push(s);
+    }
+    footer_spans.push(Span::raw("  "));
+    for s in super::footer_action("Esc", " cancel") {
+        footer_spans.push(s);
+    }
+
+    let text = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!(
+                "  Sign {} SSH certificate{} via the Vault SSH secrets engine?",
+                count,
+                if count == 1 { "" } else { "s" },
+            ),
+            theme::bold(),
+        )),
+        Line::from(Span::styled(preview_text, theme::muted())),
+        Line::from(Span::styled(
+            "  Hosts with a still-valid certificate are skipped.".to_string(),
+            theme::muted(),
+        )),
+        Line::from(""),
+        Line::from(footer_spans),
+    ];
+
+    let paragraph = Paragraph::new(text).block(block);
+    frame.render_widget(paragraph, area);
+}
+
+/// Block-art logo for the welcome screen (6 lines, ANSI Shadow style).
 /// Lines are trimmed; render code pads to max display width for alignment.
-const LOGO: [&str; 4] = [
-    "        \u{259C}   ",
-    "\u{259B}\u{258C}\u{258C}\u{258C}\u{259B}\u{2598}\u{259B}\u{258C}\u{2590} \u{2588}\u{258C}",
-    "\u{2599}\u{258C}\u{2599}\u{258C}\u{258C} \u{2599}\u{258C}\u{2590}\u{2596}\u{2599}\u{2596}",
-    "\u{258C}     \u{258C}     ",
+const LOGO: [&str; 6] = [
+    "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2557} \u{2588}\u{2588}\u{2557}   \u{2588}\u{2588}\u{2557}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2557} \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2557} \u{2588}\u{2588}\u{2557}     \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2557}",
+    "\u{2588}\u{2588}\u{2554}\u{2550}\u{2550}\u{2588}\u{2588}\u{2557}\u{2588}\u{2588}\u{2551}   \u{2588}\u{2588}\u{2551}\u{2588}\u{2588}\u{2554}\u{2550}\u{2550}\u{2588}\u{2588}\u{2557}\u{2588}\u{2588}\u{2554}\u{2550}\u{2550}\u{2588}\u{2588}\u{2557}\u{2588}\u{2588}\u{2551}     \u{2588}\u{2588}\u{2554}\u{2550}\u{2550}\u{2550}\u{2550}\u{255D}",
+    "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2554}\u{255D}\u{2588}\u{2588}\u{2551}   \u{2588}\u{2588}\u{2551}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2554}\u{255D}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2554}\u{255D}\u{2588}\u{2588}\u{2551}     \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2557}  ",
+    "\u{2588}\u{2588}\u{2554}\u{2550}\u{2550}\u{2550}\u{255D} \u{2588}\u{2588}\u{2551}   \u{2588}\u{2588}\u{2551}\u{2588}\u{2588}\u{2554}\u{2550}\u{2550}\u{2588}\u{2588}\u{2557}\u{2588}\u{2588}\u{2554}\u{2550}\u{2550}\u{2550}\u{255D} \u{2588}\u{2588}\u{2551}     \u{2588}\u{2588}\u{2554}\u{2550}\u{2550}\u{255D}  ",
+    "\u{2588}\u{2588}\u{2551}     \u{255A}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2554}\u{255D}\u{2588}\u{2588}\u{2551}  \u{2588}\u{2588}\u{2551}\u{2588}\u{2588}\u{2551}     \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2557}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2557}",
+    "\u{255A}\u{2550}\u{255D}      \u{255A}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{255D} \u{255A}\u{2550}\u{255D}  \u{255A}\u{2550}\u{255D}\u{255A}\u{2550}\u{255D}     \u{255A}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{255D}\u{255A}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{255D}",
 ];
 
 /// Typewriter delay: ms after logo reveal before text starts.
@@ -293,8 +362,8 @@ pub fn render_welcome(
         .max()
         .unwrap_or(0);
 
-    // border(2) + blank(3) + logo(4) + blank(3) + subtitle(1) + hint(1) + blank(1) + footer(1) + blank(3) = 21 base
-    let content_height = 21 + extra;
+    // border(2) + blank(3) + logo(6) + blank(3) + subtitle(1) + hint(1) + blank(1) + footer(1) + blank(3) = 23 base
+    let content_height = 23 + extra;
     // Minimum width: fits longest text line ("Your original config has been backed up")
     // with comfortable padding. Logo width + padding, or 56 chars minimum.
     let dialog_width = ((logo_max_w as u16) + 24).max(56);
@@ -345,7 +414,7 @@ pub fn render_welcome(
     text.push(Line::from(""));
     let hint_spans = vec![
         Span::styled("Press ", theme::muted()),
-        Span::styled("?", theme::accent_bold()),
+        Span::styled(" ? ", theme::footer_key()),
         Span::styled(" anytime for help.", theme::muted()),
     ];
     text.push(
@@ -380,7 +449,7 @@ pub fn render_welcome(
         text.push(Line::from(""));
         let hint_spans = vec![
             Span::styled("Press ", theme::muted()),
-            Span::styled("I", theme::accent_bold()),
+            Span::styled(" I ", theme::footer_key()),
             Span::styled(" to import them.", theme::muted()),
         ];
         text.push(
@@ -403,7 +472,7 @@ pub fn render_welcome(
     if char_budget > 0 {
         text.push(
             Line::from(vec![
-                Span::styled("Enter", theme::accent_bold()),
+                Span::styled(" Enter ", theme::footer_key()),
                 Span::styled(" continue", theme::muted()),
             ])
             .alignment(Alignment::Center),
@@ -438,7 +507,7 @@ fn welcome_height_and_lines(
     if has_backup {
         extra += 3;
     }
-    let height = 21 + extra;
+    let height = 23 + extra;
 
     // Text lines = height - border(2)
     let lines = height - 2;

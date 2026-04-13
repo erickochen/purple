@@ -149,37 +149,37 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         BrowserPane::Remote => fb.remote_selected.len(),
     };
 
-    footer_spans.push(Span::styled(" Enter", theme::accent_bold()));
+    footer_spans.push(Span::styled(" Enter ", theme::footer_key()));
     footer_spans.push(Span::styled(" copy ", theme::muted()));
-    footer_spans.push(Span::styled("\u{2502} ", theme::muted()));
-    footer_spans.push(Span::styled("Tab", theme::accent_bold()));
+    footer_spans.push(Span::raw("  "));
+    footer_spans.push(Span::styled(" Tab ", theme::footer_key()));
     footer_spans.push(Span::styled(" switch ", theme::muted()));
-    footer_spans.push(Span::styled("\u{2502} ", theme::muted()));
-    footer_spans.push(Span::styled("^Space", theme::accent_bold()));
+    footer_spans.push(Span::raw("  "));
+    footer_spans.push(Span::styled(" ^Space ", theme::footer_key()));
     footer_spans.push(Span::styled(" select ", theme::muted()));
-    footer_spans.push(Span::styled("\u{2502} ", theme::muted()));
-    footer_spans.push(Span::styled("^A", theme::accent_bold()));
+    footer_spans.push(Span::raw("  "));
+    footer_spans.push(Span::styled(" ^A ", theme::footer_key()));
     footer_spans.push(Span::styled(" all ", theme::muted()));
-    footer_spans.push(Span::styled("\u{2502} ", theme::muted()));
-    footer_spans.push(Span::styled("s", theme::accent_bold()));
+    footer_spans.push(Span::raw("  "));
+    footer_spans.push(Span::styled(" s ", theme::footer_key()));
     let sort_label = match fb.sort {
         BrowserSort::Name => " sort:name ",
         BrowserSort::Date => " sort:date\u{2193} ",
         BrowserSort::DateAsc => " sort:date\u{2191} ",
     };
     footer_spans.push(Span::styled(sort_label, theme::muted()));
-    footer_spans.push(Span::styled("\u{2502} ", theme::muted()));
-    footer_spans.push(Span::styled(".", theme::accent_bold()));
+    footer_spans.push(Span::raw("  "));
+    footer_spans.push(Span::styled(" . ", theme::footer_key()));
     footer_spans.push(Span::styled(" hidden ", theme::muted()));
-    footer_spans.push(Span::styled("\u{2502} ", theme::muted()));
-    footer_spans.push(Span::styled("R", theme::accent_bold()));
+    footer_spans.push(Span::raw("  "));
+    footer_spans.push(Span::styled(" R ", theme::footer_key()));
     footer_spans.push(Span::styled(" refresh ", theme::muted()));
-    footer_spans.push(Span::styled("\u{2502} ", theme::muted()));
-    footer_spans.push(Span::styled("Esc", theme::accent_bold()));
+    footer_spans.push(Span::raw("  "));
+    footer_spans.push(Span::styled(" Esc ", theme::footer_key()));
     footer_spans.push(Span::styled(" close", theme::muted()));
 
     if selected_count > 0 {
-        footer_spans.push(Span::styled("\u{2502} ", theme::muted()));
+        footer_spans.push(Span::raw("  "));
         footer_spans.push(Span::styled(
             format!("{} selected", selected_count),
             theme::accent_bold(),
@@ -422,10 +422,10 @@ fn render_confirm_dialog(
     frame.render_widget(Paragraph::new(lines), rows[0]);
 
     let footer = vec![
-        Span::styled(" y", theme::accent_bold()),
+        Span::styled(" y ", theme::footer_key()),
         Span::styled(" confirm ", theme::muted()),
-        Span::styled("\u{2502} ", theme::muted()),
-        Span::styled("Esc", theme::accent_bold()),
+        Span::raw("  "),
+        Span::styled(" Esc ", theme::footer_key()),
         Span::styled(" cancel", theme::muted()),
     ];
     frame.render_widget(Paragraph::new(Line::from(footer)), rows[2]);
@@ -503,7 +503,7 @@ fn render_error_dialog(frame: &mut Frame, message: &str, area: Rect) {
     frame.render_widget(Paragraph::new(lines), rows[0]);
 
     let footer = vec![
-        Span::styled(" Esc", theme::accent_bold()),
+        Span::styled(" Esc ", theme::footer_key()),
         Span::styled(" dismiss", theme::muted()),
     ];
     frame.render_widget(Paragraph::new(Line::from(footer)), rows[2]);

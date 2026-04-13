@@ -101,10 +101,10 @@ pub fn render(frame: &mut Frame, app: &mut App, alias: &str) {
             chunks[2],
             vec![
                 Span::styled(" Remove tunnel? ", theme::bold()),
-                Span::styled("y", theme::accent_bold()),
+                Span::styled(" y ", theme::footer_key()),
                 Span::styled(" yes ", theme::muted()),
-                Span::styled("\u{2502} ", theme::muted()),
-                Span::styled("Esc", theme::accent_bold()),
+                Span::raw("  "),
+                Span::styled(" Esc ", theme::footer_key()),
                 Span::styled(" no", theme::muted()),
             ],
             app,
@@ -112,31 +112,31 @@ pub fn render(frame: &mut Frame, app: &mut App, alias: &str) {
     } else {
         let mut spans: Vec<Span<'_>> = Vec::new();
         if is_active {
-            let [k, l] = super::footer_primary(" Enter", " stop ");
+            let [k, l] = super::footer_primary("Enter", " stop ");
             spans.extend([k, l]);
         } else if !app.tunnel_list.is_empty() {
-            let [k, l] = super::footer_primary(" Enter", " start ");
+            let [k, l] = super::footer_primary("Enter", " start ");
             spans.extend([k, l]);
         }
         if !is_readonly {
             if !spans.is_empty() {
-                spans.push(super::footer_sep());
+                spans.push(Span::raw("  "));
             }
             let [k, l] = super::footer_action("a", " add ");
             spans.extend([k, l]);
             if !app.tunnel_list.is_empty() {
-                spans.push(super::footer_sep());
+                spans.push(Span::raw("  "));
                 let [k, l] = super::footer_action("e", " edit ");
-                spans.extend([k, l, super::footer_sep()]);
+                spans.extend([k, l, Span::raw("  ")]);
                 let [k, l] = super::footer_action("d", " del ");
                 spans.extend([k, l]);
             }
         }
         if spans.is_empty() {
-            let [k, l] = super::footer_action(" Esc", " back");
+            let [k, l] = super::footer_action("Esc", " back");
             spans.extend([k, l]);
         } else {
-            spans.push(super::footer_sep());
+            spans.push(Span::raw("  "));
             let [k, l] = super::footer_action("Esc", " back");
             spans.extend([k, l]);
         }

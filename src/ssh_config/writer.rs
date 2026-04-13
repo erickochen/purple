@@ -2,6 +2,7 @@ use std::fs;
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
+use log::{debug, error};
 
 use super::model::{ConfigElement, SshConfigFile};
 use crate::fs_util;
@@ -13,6 +14,9 @@ impl SshConfigFile {
     /// Acquires an advisory lock to prevent concurrent writes from multiple
     /// purple processes or background sync threads.
     pub fn write(&self) -> Result<()> {
+        if crate::demo_flag::is_demo() {
+            return Ok(());
+        }
         // Resolve symlinks so we write through to the real file
         let target_path = fs::canonicalize(&self.path).unwrap_or_else(|_| self.path.clone());
 
@@ -30,6 +34,13 @@ impl SshConfigFile {
         let content = self.serialize();
 
         fs_util::atomic_write(&target_path, content.as_bytes())
+            .map_err(|err| {
+                error!(
+                    "[purple] SSH config write failed: {}: {err}",
+                    target_path.display()
+                );
+                err
+            })
             .with_context(|| format!("Failed to write SSH config to {}", target_path.display()))?;
 
         // Lock released on drop
@@ -113,7 +124,12 @@ impl SshConfigFile {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&backup_path, fs::Permissions::from_mode(0o600));
+            if let Err(e) = fs::set_permissions(&backup_path, fs::Permissions::from_mode(0o600)) {
+                debug!(
+                    "[config] Failed to set backup permissions on {}: {e}",
+                    backup_path.display()
+                );
+            }
         }
 
         Ok(())
@@ -133,7 +149,12 @@ impl SshConfigFile {
         backups.sort_by_key(|e| e.file_name());
         if backups.len() > keep {
             for old in &backups[..backups.len() - keep] {
-                let _ = fs::remove_file(old.path());
+                if let Err(e) = fs::remove_file(old.path()) {
+                    debug!(
+                        "[config] Failed to prune old backup {}: {e}",
+                        old.path().display()
+                    );
+                }
             }
         }
         Ok(())

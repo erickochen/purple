@@ -1,4 +1,5 @@
 use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
@@ -19,8 +20,8 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
     } else {
         0
     };
-    // 2 (border) + 1 (blank) + 4 (metadata) + 1 (blank) + 2 (header+sep) + hosts + overflow + 1 (blank)
-    let height = (11 + visible_hosts.max(1) + overflow_line) as u16;
+    // 2 (border) + 1 (blank) + 4 (metadata) + 1 (blank) + 2 (header+sep) + hosts + overflow + 1 (blank) + 1 (spacer) + 1 (footer)
+    let height = (13 + visible_hosts.max(1) + overflow_line) as u16;
     let width = frame.area().width.clamp(58, 80);
     let area = super::centered_rect_fixed(width, height, frame.area());
 
@@ -77,8 +78,23 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
 
     lines.push(Line::from(""));
 
+    let inner = block.inner(area);
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, area);
+
+    // Footer with Esc close
+    let footer_chunks = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .split(inner);
+
+    let footer_spans = vec![
+        Span::styled(" Esc ", theme::footer_key()),
+        Span::styled(" close", theme::muted()),
+    ];
+    super::render_footer_with_status(frame, footer_chunks[2], footer_spans, app);
 }
 
 fn detail_line<'a>(label: &'a str, value: &'a str) -> Line<'a> {

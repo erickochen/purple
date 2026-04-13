@@ -118,21 +118,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // Footer
     let mut spans: Vec<Span<'_>> = Vec::new();
     if state.all_done {
-        spans.push(Span::styled(" Esc", theme::accent_bold()));
+        spans.push(Span::styled(" Esc ", theme::footer_key()));
         spans.push(Span::styled(" close ", theme::muted()));
-        spans.push(Span::styled("\u{2502} ", theme::muted()));
-        spans.push(Span::styled("c", theme::accent_bold()));
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(" c ", theme::footer_key()));
         spans.push(Span::styled(" copy ", theme::muted()));
     } else {
-        spans.push(Span::styled(" Ctrl+C", theme::accent_bold()));
+        spans.push(Span::styled(" Ctrl+C ", theme::footer_key()));
         spans.push(Span::styled(" cancel ", theme::muted()));
     }
-    spans.push(Span::styled("\u{2502} ", theme::muted()));
-    spans.push(Span::styled("j/k", theme::accent_bold()));
+    spans.push(Span::raw("  "));
+    spans.push(Span::styled(" j/k ", theme::footer_key()));
     spans.push(Span::styled(" scroll ", theme::muted()));
-    spans.push(Span::styled("n/N", theme::accent_bold()));
+    spans.push(Span::styled(" n/N ", theme::footer_key()));
     spans.push(Span::styled(" next/prev host ", theme::muted()));
-    spans.push(Span::styled("g/G", theme::accent_bold()));
+    spans.push(Span::styled(" g/G ", theme::footer_key()));
     spans.push(Span::styled(" top/bottom", theme::muted()));
     super::render_footer_with_status(frame, chunks[2], spans, app);
 }

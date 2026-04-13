@@ -2,6 +2,8 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use log::debug;
+
 use crate::app::{SortMode, ViewMode};
 use crate::fs_util;
 
@@ -10,11 +12,15 @@ static PATH_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
 /// Override the preferences file path (used in tests to avoid writing to ~/.purple).
 #[cfg(test)]
 pub fn set_path_override(path: PathBuf) {
-    *PATH_OVERRIDE.lock().unwrap() = Some(path);
+    *PATH_OVERRIDE.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
 }
 
 fn path() -> Option<PathBuf> {
-    if let Some(p) = PATH_OVERRIDE.lock().unwrap().clone() {
+    if let Some(p) = PATH_OVERRIDE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
         return Some(p);
     }
     dirs::home_dir().map(|h| h.join(".purple/preferences"))
@@ -23,7 +29,15 @@ fn path() -> Option<PathBuf> {
 /// Load a value for a given key from ~/.purple/preferences.
 fn load_value(key: &str) -> Option<String> {
     let path = path()?;
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                debug!("[config] Failed to read preferences file: {e}");
+            }
+            return None;
+        }
+    };
     for line in content.lines() {
         let line = line.trim();
         if line.starts_with('#') || line.is_empty() {
@@ -40,6 +54,9 @@ fn load_value(key: &str) -> Option<String> {
 
 /// Save a key=value pair to ~/.purple/preferences. Preserves unknown keys and comments.
 fn save_value(key: &str, value: &str) -> io::Result<()> {
+    if crate::demo_flag::is_demo() {
+        return Ok(());
+    }
     let path = match path() {
         Some(p) => p,
         None => return Ok(()),
@@ -105,6 +122,9 @@ pub fn load_group_by() -> crate::app::GroupBy {
 
 /// Remove a key from ~/.purple/preferences. No-op if the key or file does not exist.
 fn remove_value(key: &str) -> io::Result<()> {
+    if crate::demo_flag::is_demo() {
+        return Ok(());
+    }
     let path = match path() {
         Some(p) => p,
         None => return Ok(()),
@@ -169,28 +189,6 @@ pub fn save_view_mode(mode: ViewMode) -> io::Result<()> {
     )
 }
 
-/// Load collapsed groups from ~/.purple/preferences.
-/// Returns a set of group header strings that were collapsed.
-/// Uses unit separator (U+001F) as delimiter to avoid conflicts with commas in tag names.
-pub fn load_collapsed_groups() -> std::collections::HashSet<String> {
-    load_value("collapsed_groups")
-        .filter(|v| !v.is_empty())
-        .map(|v| v.split('\x1f').map(|s| s.to_string()).collect())
-        .unwrap_or_default()
-}
-
-/// Save collapsed groups to ~/.purple/preferences.
-/// Uses unit separator (U+001F) as delimiter to avoid conflicts with commas in tag names.
-pub fn save_collapsed_groups(groups: &std::collections::HashSet<String>) -> io::Result<()> {
-    if groups.is_empty() {
-        remove_value("collapsed_groups")
-    } else {
-        let mut sorted: Vec<&str> = groups.iter().map(|s| s.as_str()).collect();
-        sorted.sort_unstable();
-        save_value("collapsed_groups", &sorted.join("\x1f"))
-    }
-}
-
 /// Load global askpass default from ~/.purple/preferences.
 pub fn load_askpass_default() -> Option<String> {
     load_value("askpass").filter(|v| !v.is_empty())
@@ -199,6 +197,42 @@ pub fn load_askpass_default() -> Option<String> {
 /// Save global askpass default to ~/.purple/preferences.
 pub fn save_askpass_default(source: &str) -> io::Result<()> {
     save_value("askpass", source)
+}
+
+/// Load slow threshold from ~/.purple/preferences. Returns 200 if missing or invalid.
+pub fn load_slow_threshold() -> u16 {
+    load_value("slow_threshold_ms")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(200)
+}
+
+/// Save slow threshold to ~/.purple/preferences.
+#[allow(dead_code)]
+pub fn save_slow_threshold(ms: u16) -> io::Result<()> {
+    save_value("slow_threshold_ms", &ms.to_string())
+}
+
+/// Load theme name from ~/.purple/preferences. Returns None if missing.
+pub fn load_theme() -> Option<String> {
+    load_value("theme").filter(|v| !v.is_empty())
+}
+
+/// Save theme name to ~/.purple/preferences.
+pub fn save_theme(name: &str) -> io::Result<()> {
+    save_value("theme", name)
+}
+
+/// Load auto_ping preference. Returns true if missing (default: enabled).
+pub fn load_auto_ping() -> bool {
+    load_value("auto_ping")
+        .map(|v| v != "false")
+        .unwrap_or(true)
+}
+
+/// Save auto_ping preference.
+#[allow(dead_code)]
+pub fn save_auto_ping(enabled: bool) -> io::Result<()> {
+    save_value("auto_ping", if enabled { "true" } else { "false" })
 }
 
 #[cfg(test)]
@@ -671,45 +705,6 @@ mod tests {
         });
     }
 
-    // --- Collapsed groups persistence ---
-
-    #[test]
-    fn save_load_collapsed_groups_roundtrip() {
-        with_temp_prefs("collapsed_roundtrip", |_path| {
-            let mut groups = std::collections::HashSet::new();
-            groups.insert("production".to_string());
-            groups.insert("staging".to_string());
-            save_collapsed_groups(&groups).unwrap();
-
-            let loaded = load_collapsed_groups();
-            assert_eq!(loaded, groups);
-        });
-    }
-
-    #[test]
-    fn save_load_collapsed_groups_empty() {
-        with_temp_prefs("collapsed_empty", |_path| {
-            let groups = std::collections::HashSet::new();
-            save_collapsed_groups(&groups).unwrap();
-
-            let loaded = load_collapsed_groups();
-            assert!(loaded.is_empty());
-        });
-    }
-
-    #[test]
-    fn save_load_collapsed_groups_special_chars() {
-        with_temp_prefs("collapsed_special", |_path| {
-            let mut groups = std::collections::HashSet::new();
-            groups.insert("us-east,prod".to_string());
-            save_collapsed_groups(&groups).unwrap();
-
-            let loaded = load_collapsed_groups();
-            assert_eq!(loaded, groups);
-            assert!(loaded.contains("us-east,prod"));
-        });
-    }
-
     // --- View mode defaults ---
 
     #[test]
@@ -729,5 +724,126 @@ mod tests {
             let mode = load_view_mode();
             assert_eq!(mode, ViewMode::Compact);
         });
+    }
+
+    // --- slow_threshold_ms ---
+
+    #[test]
+    fn load_slow_threshold_default() {
+        let content = "sort_mode=alpha\n";
+        let val = parse_value(content, "slow_threshold_ms");
+        let threshold: u16 = val.and_then(|v| v.parse().ok()).unwrap_or(200);
+        assert_eq!(threshold, 200);
+    }
+
+    #[test]
+    fn load_slow_threshold_custom() {
+        let content = "slow_threshold_ms=500\n";
+        let val = parse_value(content, "slow_threshold_ms");
+        let threshold: u16 = val.and_then(|v| v.parse().ok()).unwrap_or(200);
+        assert_eq!(threshold, 500);
+    }
+
+    #[test]
+    fn load_auto_ping_default_true() {
+        let content = "sort_mode=alpha\n";
+        let val = parse_value(content, "auto_ping");
+        let auto_ping = val.map(|v| v != "false").unwrap_or(true);
+        assert!(auto_ping);
+    }
+
+    #[test]
+    fn load_auto_ping_explicit_true() {
+        let content = "auto_ping=true\n";
+        let val = parse_value(content, "auto_ping");
+        let auto_ping = val.map(|v| v != "false").unwrap_or(true);
+        assert!(auto_ping);
+    }
+
+    #[test]
+    fn save_and_load_slow_threshold_roundtrip() {
+        with_temp_prefs("slow_threshold", |_path| {
+            save_slow_threshold(500).unwrap();
+            let loaded = load_slow_threshold();
+            assert_eq!(loaded, 500);
+        });
+    }
+
+    #[test]
+    fn save_and_load_auto_ping_roundtrip_true() {
+        with_temp_prefs("auto_ping_true", |_path| {
+            save_auto_ping(true).unwrap();
+            let loaded = load_auto_ping();
+            assert!(loaded);
+        });
+    }
+
+    #[test]
+    fn save_and_load_auto_ping_roundtrip_false() {
+        with_temp_prefs("auto_ping_false", |_path| {
+            save_auto_ping(false).unwrap();
+            let loaded = load_auto_ping();
+            assert!(!loaded);
+        });
+    }
+
+    #[test]
+    fn load_slow_threshold_invalid_defaults() {
+        let content = "slow_threshold_ms=abc\n";
+        let val = parse_value(content, "slow_threshold_ms");
+        let threshold: u16 = val.and_then(|v| v.parse().ok()).unwrap_or(200);
+        assert_eq!(threshold, 200);
+    }
+
+    #[test]
+    fn save_and_load_theme_roundtrip() {
+        with_temp_prefs("theme_roundtrip", |_path| {
+            save_theme("catppuccin-mocha").unwrap();
+            let loaded = load_theme();
+            assert_eq!(loaded, Some("catppuccin-mocha".to_string()));
+        });
+    }
+
+    #[test]
+    fn load_theme_missing_returns_none() {
+        with_temp_prefs("theme_missing", |path| {
+            std::fs::write(path, "sort_mode=alpha\n").unwrap();
+            let loaded = load_theme();
+            assert_eq!(loaded, None);
+        });
+    }
+
+    #[test]
+    fn load_auto_ping_explicit_false() {
+        let content = "auto_ping=false\n";
+        let val = parse_value(content, "auto_ping");
+        let auto_ping = val.map(|v| v != "false").unwrap_or(true);
+        assert!(!auto_ping);
+    }
+
+    // Verifies the poison-recovery pattern used by `path()` and `set_path_override()`.
+    // Uses a local Mutex to avoid poisoning the global PATH_OVERRIDE permanently
+    // (a poisoned Mutex cannot be un-poisoned, which would contaminate other tests).
+    // The production code uses the same `.lock().unwrap_or_else(|e| e.into_inner())`
+    // pattern, so this test proves the pattern survives a poisoned lock.
+    #[test]
+    fn recovered_lock_survives_poison() {
+        let lock: std::sync::Arc<std::sync::Mutex<Option<PathBuf>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        let poisoner = lock.clone();
+        let joined = std::thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("intentional poison for test");
+        })
+        .join();
+        assert!(joined.is_err(), "poisoning thread must have panicked");
+        assert!(lock.is_poisoned(), "mutex must be poisoned after panic");
+
+        // The exact pattern used by path() and set_path_override().
+        let recovered = lock.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            recovered.is_none(),
+            "recovered lock must expose inner value"
+        );
     }
 }

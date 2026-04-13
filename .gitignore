@@ -10,12 +10,15 @@
 .Trashes
 Icon?
 
-# VHS
-demo.tape
+# Demo
+demo-record.py
+demo-screenshots.py
+demo.mov
 
 # IDE
 .idea/
 .vscode/
+.zed/
 *.swp
 *.swo
 *~

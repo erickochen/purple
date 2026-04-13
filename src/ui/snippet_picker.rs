@@ -192,10 +192,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             frame,
             footer_area,
             vec![
-                Span::styled(" Enter", theme::primary_action()),
+                Span::styled(" Enter ", theme::footer_key()),
                 Span::styled(" select ", theme::muted()),
-                Span::styled("\u{2502} ", theme::muted()),
-                Span::styled("Esc", theme::accent_bold()),
+                Span::raw("  "),
+                Span::styled(" Esc ", theme::footer_key()),
                 Span::styled(" cancel", theme::muted()),
             ],
             app,
@@ -214,10 +214,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     format!(" Remove '{}'? ", super::truncate(name, 20)),
                     theme::bold(),
                 ),
-                Span::styled("y", theme::accent_bold()),
+                Span::styled(" y ", theme::footer_key()),
                 Span::styled(" yes ", theme::muted()),
-                Span::styled("\u{2502} ", theme::muted()),
-                Span::styled("Esc", theme::accent_bold()),
+                Span::raw("  "),
+                Span::styled(" Esc ", theme::footer_key()),
                 Span::styled(" no", theme::muted()),
             ],
             app,
@@ -225,23 +225,23 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     } else {
         let mut spans: Vec<Span<'_>> = Vec::new();
         if !app.snippet_store.snippets.is_empty() {
-            let [k, l] = super::footer_primary(" Enter", " run ");
-            spans.extend([k, l, super::footer_sep()]);
+            let [k, l] = super::footer_primary("Enter", " run ");
+            spans.extend([k, l, Span::raw("  ")]);
             let [k, l] = super::footer_action("!", " terminal ");
-            spans.extend([k, l, super::footer_sep()]);
+            spans.extend([k, l, Span::raw("  ")]);
         }
         let [k, l] = super::footer_action("a", " add ");
         spans.extend([k, l]);
         if !app.snippet_store.snippets.is_empty() {
-            spans.push(super::footer_sep());
+            spans.push(Span::raw("  "));
             let [k, l] = super::footer_action("e", " edit ");
-            spans.extend([k, l, super::footer_sep()]);
+            spans.extend([k, l, Span::raw("  ")]);
             let [k, l] = super::footer_action("d", " del ");
-            spans.extend([k, l, super::footer_sep()]);
+            spans.extend([k, l, Span::raw("  ")]);
             let [k, l] = super::footer_action("/", " search ");
             spans.extend([k, l]);
         }
-        spans.push(super::footer_sep());
+        spans.push(Span::raw("  "));
         let [k, l] = super::footer_action("Esc", " back");
         spans.extend([k, l]);
         super::render_footer_with_status(frame, footer_area, spans, app);

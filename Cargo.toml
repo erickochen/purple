@@ -1,8 +1,8 @@
 [package]
 name = "purple-ssh"
-version = "2.24.0"
+version = "2.35.0"
 edition = "2024"
-description = "Search your SSH config instantly, connect to any host with one keystroke and sync servers from 16 cloud providers. Visual file transfer, container management over SSH, password management, command snippets and MCP server for AI agent integration. Edits ~/.ssh/config with round-trip fidelity."
+description = "Open-source terminal SSH manager and SSH config editor. Search hundreds of hosts, sync from 16 clouds, transfer files, manage Docker and Podman over SSH, sign short-lived Vault SSH certs and expose an MCP server for AI agents. Rust TUI, MIT licensed."
 license = "MIT"
 repository = "https://github.com/erickochen/purple"
 homepage = "https://getpurple.sh"
@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["ssh", "ssh-client", "tui", "ssh-manager", "mcp"]
 categories = ["command-line-utilities", "development-tools"]
 rust-version = "1.86"
-exclude = [".github/", ".gitignore"]
+exclude = [".github/", ".gitignore", "demo.gif", "demo.webm", "screenshots/", "preview.png"]
 
 [lib]
 name = "purple_ssh"
@@ -40,10 +40,13 @@ quick-xml = { version = "0.39", features = ["serde", "serialize"] }
 rsa = { version = "0.9", features = ["sha2"] }
 base64 = "0.22"
 libc = "0.2"
+log = "0.4"
+simplelog = "0.12"
 
 [dev-dependencies]
 mockito = "1.7.2"
 proptest = "1"
+tempfile = "3"
 
 [profile.release]
 strip = true

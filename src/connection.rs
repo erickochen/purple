@@ -2,11 +2,67 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
+use log::{debug, error, info, warn};
 
 /// Result of an SSH connection attempt.
 pub struct ConnectResult {
     pub status: std::process::ExitStatus,
     pub stderr_output: String,
+}
+
+/// Returns true if the current process is running inside a tmux session.
+#[cfg(unix)]
+pub fn is_in_tmux() -> bool {
+    std::env::var("TMUX").is_ok()
+}
+
+/// Returns true if the current process is running inside a tmux session.
+#[cfg(not(unix))]
+pub fn is_in_tmux() -> bool {
+    false
+}
+
+/// Open an SSH connection in a new tmux window.
+/// Returns immediately after the window is created. The SSH session runs
+/// asynchronously in the new window. Returns an error if tmux is not
+/// available or the window cannot be created.
+///
+/// This path deliberately does not wire up SSH_ASKPASS. The caller in `main.rs`
+/// guards this with `askpass.is_none()`, because an askpass-backed host needs an
+/// inherited stdin (so purple's askpass subprocess can print back to the ssh
+/// parent) and that inheritance does not survive the `tmux new-window` fork.
+/// Hosts with a password source therefore keep using the suspend-TUI `connect()`
+/// flow instead.
+pub fn connect_tmux_window(alias: &str, config_path: &Path, has_active_tunnel: bool) -> Result<()> {
+    info!("SSH connection via tmux: {alias}");
+
+    let config_str = config_path
+        .to_str()
+        .context("SSH config path is not valid UTF-8")?;
+
+    let mut args = vec!["new-window", "-n", alias, "--", "ssh", "-F", config_str];
+
+    if has_active_tunnel {
+        args.extend(["-o", "ClearAllForwardings=yes"]);
+    }
+
+    args.extend(["--", alias]);
+
+    debug!("tmux args: {:?}", args);
+
+    let status = Command::new("tmux")
+        .args(&args)
+        .status()
+        .with_context(|| format!("Failed to launch tmux new-window for '{alias}'"))?;
+
+    if status.success() {
+        info!("tmux window created: {alias}");
+        Ok(())
+    } else {
+        let code = status.code().unwrap_or(-1);
+        error!("tmux new-window failed for {alias} (exit {code})");
+        anyhow::bail!("tmux new-window exited with code {code}")
+    }
 }
 
 /// RAII guard that restores the signal mask when dropped.
@@ -66,8 +122,8 @@ impl Drop for SignalMaskGuard {
 /// Uses the system `ssh` binary with inherited stdin/stdout. Stderr is piped and
 /// forwarded to real stderr in real time so the output is captured for error detection.
 /// Passes `-F <config_path>` so the alias resolves against the correct config file.
-/// When `askpass` is Some, sets SSH_ASKPASS environment variables so SSH retrieves
-/// the password from the configured source via purple's askpass handler.
+/// When `askpass` is Some, delegates to `askpass_env::configure_ssh_command` to wire up
+/// SSH_ASKPASS, SSH_ASKPASS_REQUIRE=force and the PURPLE_* env vars.
 pub fn connect(
     alias: &str,
     config_path: &Path,
@@ -75,6 +131,9 @@ pub fn connect(
     bw_session: Option<&str>,
     has_active_tunnel: bool,
 ) -> Result<ConnectResult> {
+    info!("SSH connection started: {alias}");
+    debug!("SSH command: ssh -F {} -- {alias}", config_path.display());
+
     let mut cmd = Command::new("ssh");
     cmd.arg("-F").arg(config_path);
 
@@ -91,16 +150,7 @@ pub fn connect(
         .stderr(std::process::Stdio::piped());
 
     if askpass.is_some() {
-        let exe = std::env::current_exe()
-            .ok()
-            .map(|p| p.to_string_lossy().to_string())
-            .or_else(|| std::env::args().next())
-            .unwrap_or_else(|| "purple".to_string());
-        cmd.env("SSH_ASKPASS", &exe)
-            .env("SSH_ASKPASS_REQUIRE", "prefer")
-            .env("PURPLE_ASKPASS_MODE", "1")
-            .env("PURPLE_HOST_ALIAS", alias)
-            .env("PURPLE_CONFIG_PATH", config_path.as_os_str());
+        crate::askpass_env::configure_ssh_command(&mut cmd, alias, config_path);
     }
 
     if let Some(token) = bw_session {
@@ -158,10 +208,32 @@ pub fn connect(
     let status = child
         .wait()
         .with_context(|| format!("Failed to wait for ssh for '{}'", alias))?;
-    let stderr_output = stderr_thread.join().unwrap_or_default();
+    let stderr_output = stderr_thread.join().unwrap_or_else(|_| {
+        warn!("[purple] Stderr capture thread panicked for {alias}");
+        String::new()
+    });
 
     // _signal_guard drops here, restoring the original signal mask.
     // Any pending SIGINT from Ctrl+C during SSH is safely consumed.
+
+    let code = status.code().unwrap_or(-1);
+    if code == 0 {
+        info!("SSH connection ended: {alias} (exit 0)");
+    } else {
+        error!("[external] SSH connection failed: {alias} (exit {code})");
+        if !stderr_output.is_empty() {
+            let stderr = stderr_output.trim();
+            let lower = stderr.to_lowercase();
+            // Match local key permission errors like "Permissions 0644 for '~/.ssh/id_rsa'
+            // are too open" but not remote auth rejections ("Permission denied") or
+            // generic "no permission" errors from the remote host.
+            if lower.contains("are too open") || lower.contains("bad permissions") {
+                warn!("[config] SSH key permission issue: {stderr}");
+            } else {
+                debug!("[external] SSH stderr: {stderr}");
+            }
+        }
+    }
 
     Ok(ConnectResult {
         status,
@@ -353,5 +425,77 @@ Host key verification failed.
         assert!(result.is_some());
         let (hostname, _) = result.unwrap();
         assert_eq!(hostname, "::1");
+    }
+
+    #[test]
+    fn connect_tmux_window_fails_gracefully_outside_tmux_session() {
+        // When no tmux server is running (or tmux is absent), should return an error.
+        // Skip if we're actually inside a live tmux session (the command would succeed).
+        // Holds TMUX_LOCK so the env-mutating tests below cannot flip TMUX between
+        // the guard read and the call to connect_tmux_window.
+        let _guard = TMUX_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        if std::env::var("TMUX").is_ok() {
+            return;
+        }
+        let result = connect_tmux_window(
+            "test-host",
+            Path::new("/tmp/__purple_test_nonexistent_config__"),
+            false,
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("tmux") || err.contains("No such file"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn connect_tmux_window_with_tunnel_does_not_panic() {
+        // Verify has_active_tunnel=true doesn't panic and fails gracefully.
+        // Skip if inside a live tmux session. TMUX_LOCK prevents the env-mutating
+        // tests from racing this guard read.
+        let _guard = TMUX_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        if std::env::var("TMUX").is_ok() {
+            return;
+        }
+        let result = connect_tmux_window(
+            "tunnel-host",
+            Path::new("/tmp/__purple_test_nonexistent_config__"),
+            true,
+        );
+        assert!(result.is_err());
+    }
+
+    /// Mutex to serialise tests that mutate the TMUX env var.
+    static TMUX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn is_in_tmux_returns_true_when_set() {
+        let _guard = TMUX_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let prev = std::env::var("TMUX").ok();
+        // SAFETY: TMUX_LOCK serialises all env mutations in this test suite.
+        unsafe { std::env::set_var("TMUX", "/tmp/tmux-1000/default,12345,0") };
+        let result = is_in_tmux();
+        // SAFETY: TMUX_LOCK held, restoring previous value.
+        match prev {
+            Some(v) => unsafe { std::env::set_var("TMUX", v) },
+            None => unsafe { std::env::remove_var("TMUX") },
+        }
+        assert!(result);
+    }
+
+    #[test]
+    fn is_in_tmux_returns_false_when_unset() {
+        let _guard = TMUX_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let prev = std::env::var("TMUX").ok();
+        // SAFETY: TMUX_LOCK serialises all env mutations in this test suite.
+        unsafe { std::env::remove_var("TMUX") };
+        let result = is_in_tmux();
+        // SAFETY: TMUX_LOCK held, restoring previous value.
+        if let Some(v) = prev {
+            unsafe { std::env::set_var("TMUX", v) };
+        }
+        assert!(!result);
     }
 }

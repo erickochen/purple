@@ -154,10 +154,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     // Footer
     let spans = vec![
-        Span::styled(" Enter", theme::primary_action()),
+        Span::styled(" Enter ", theme::footer_key()),
         Span::styled(" details ", theme::muted()),
-        Span::styled("\u{2502} ", theme::muted()),
-        Span::styled("Esc", theme::accent_bold()),
+        Span::raw("  "),
+        Span::styled(" Esc ", theme::footer_key()),
         Span::styled(" back", theme::muted()),
     ];
     super::render_footer_with_status(frame, inner_chunks[3], spans, app);

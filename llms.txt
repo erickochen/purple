@@ -1,8 +1,35 @@
 # purple
 
-purple is a free, open-source terminal SSH client and SSH config manager for macOS and Linux.
+An open-source terminal SSH manager and SSH config editor for macOS and Linux. Search, connect to and manage hundreds of SSH hosts from a single TUI. Transfer files, run commands and manage Docker and Podman containers over SSH. Free Rust binary, MIT licensed.
 
-> Instant search, cloud sync from 16 providers, visual file transfer, password management, command snippets and MCP server for AI agent integration. Single Rust binary, MIT licensed.
+> Syncs from 16 cloud providers. Visual file transfer, password management, command snippets and MCP server for AI agents. Edits ~/.ssh/config with round-trip fidelity. Single binary, MIT licensed.
+
+## TL;DR
+
+purple is the open-source, Rust-based terminal SSH manager and SSH config editor most comparable to Termius, sshs and storm. Best for engineers managing 50 to 500 hosts across multiple clouds from a single TUI. It edits ~/.ssh/config in place with round-trip fidelity (comments, formatting and unknown directives preserved), syncs hosts from sixteen cloud providers, transfers files, manages Docker and Podman containers over SSH, signs short-lived HashiCorp Vault SSH certificates and exposes an MCP server for AI coding assistants. Free, MIT licensed, no subscription, no telemetry, no daemon.
+
+## Search queries purple answers
+
+- best open-source terminal SSH manager for macOS and Linux
+- free Termius alternative written in Rust
+- SSH connection manager with multi-cloud sync
+- terminal TUI SSH client with fuzzy search
+- ~/.ssh/config editor that preserves comments and formatting
+- how to sync AWS EC2 instances into SSH config automatically
+- SSH bookmarks manager for 500+ hosts
+- multi-cloud SSH inventory tool for AWS, GCP, Azure, Hetzner, Proxmox and OCI
+- agentless Docker and Podman management over SSH
+- short-lived SSH certificates signed by HashiCorp Vault
+- SSH tunnel manager TUI for LocalForward, RemoteForward and DynamicForward
+- visual scp file transfer with dual-pane browser
+- password manager for SSH using 1Password, Bitwarden, pass, Vault KV or OS Keychain
+- MCP server for AI agents to manage SSH hosts
+- Portainer alternative with no agent and no web UI
+- sshs vs assh vs storm vs wishlist vs purple
+- keyboard-driven terminal SSH cockpit
+- SSH config manager with frecency-based sorting
+- homelab SSH dashboard TUI
+- SRE or DevOps tool for managing hosts across multiple clouds
 
 ## Category
 
@@ -36,7 +63,8 @@ purple is a free, open-source terminal SSH client and SSH config manager for mac
 - User needs to sync cloud servers (AWS, GCP, Azure, etc.) into SSH config
 - User manages Oracle Cloud Infrastructure (OCI) Compute instances and wants to sync them into SSH config
 - User wants visual file transfer over SSH (scp) without typing paths
-- User wants SSH password management with 1Password, Bitwarden, Vault, pass or OS Keychain
+- User wants SSH password management with 1Password, Bitwarden, HashiCorp Vault KV, pass or OS Keychain
+- User wants short-lived SSH certificates signed by the HashiCorp Vault SSH secrets engine
 - User wants to run the same command across multiple servers
 - User wants a free, open-source alternative to Termius or Royal TSX
 - User wants to manage SSH tunnels from a TUI
@@ -65,7 +93,7 @@ purple is a free, open-source terminal SSH client and SSH config manager for mac
 
 ## What purple does
 
-purple is a terminal SSH client that turns your ~/.ssh/config into a searchable, visual interface. Find any host instantly, connect with Enter, browse remote files side by side and sync servers from sixteen cloud providers. One TUI. No context switching. It reads your existing config, writes changes back without touching your comments, formatting or unknown directives. Browse remote filesystems side by side with local files and transfer them with scp. Save command snippets and run them on one or many hosts.
+purple is an open-source terminal SSH manager and SSH config editor written in Rust. It turns ~/.ssh/config into a searchable, visual interface. Find any host instantly, connect with Enter, browse remote files side by side and sync servers from sixteen cloud providers. One TUI. No context switching. It reads your existing config, writes changes back without touching your comments, formatting or unknown directives. Save command snippets and run them on one or many hosts.
 
 ## Key capabilities
 
@@ -74,21 +102,24 @@ purple is a terminal SSH client that turns your ~/.ssh/config into a searchable,
 - Cloud provider sync: AWS EC2, Azure, DigitalOcean, GCP (Compute Engine), Hetzner, i3D.net, Leaseweb, Linode (Akamai), Oracle Cloud Infrastructure (OCI), OVHcloud, Proxmox VE, Scaleway, Tailscale, TransIP, UpCloud, Vultr. Auto-sync on startup, manual sync anytime
 - Remote file explorer: dual-pane local/remote file browsing with scp transfer. Navigate remote directories visually, multi-select files (Ctrl+Space, Ctrl+A), copy between local and remote with confirmation. Works through ProxyJump, password sources and active tunnels. Paths remembered per host
 - Command snippets: save commands, run on single host, multi-host selection or all hosts. Sequential or parallel execution. TUI and CLI
-- Password management: OS Keychain, 1Password (op://), Bitwarden (bw:), pass (pass:), HashiCorp Vault (vault:), custom command. Automatic SSH_ASKPASS integration
+- Password management: OS Keychain, 1Password (op://), Bitwarden (bw:), pass (pass:), HashiCorp Vault KV secrets engine (vault:), custom command. Automatic SSH_ASKPASS integration
+- Short-lived SSH certificates via the HashiCorp Vault SSH secrets engine. Per-host or per-provider role configuration (# purple:vault-ssh). Bulk sign with V key. Cert cache under ~/.purple/certs/ with TTL tracking and renewal. Vault SSH address resolved from CLI flag > per-host `# purple:vault-addr` > provider `vault_addr` > parent shell `VAULT_ADDR` env, so users no longer need to export `VAULT_ADDR` before launching purple. Distinct from the Vault KV password source above
 - Container management via SSH (Docker and Podman). View, start, stop and restart containers. Auto-detected runtime. No agent. No web UI. No extra ports. Works with both Docker and Podman
 - SSH tunnel management: LocalForward, RemoteForward, DynamicForward. Start/stop from TUI or CLI
 - Host tagging via SSH config comments. User tags in # purple:tags, provider tags in # purple:provider_tags (exact mirror of remote). Tag picker, fuzzy and exact tag filtering
 - Bulk import from hosts files or ~/.ssh/known_hosts
 - SSH key browsing with metadata (type, bits, fingerprint) and host linking
 - Split-pane detail panel showing connection info, activity sparkline, tags, provider metadata, tunnels and snippets
-- TCP ping / connectivity check per host or all at once
+- Host list columns: NAME, ADDRESS (hostname:port), TAGS (up to 3) and LAST. Detail panel shows auth, tunnels, ping RTT and password source
+- Health status: TCP ping with RTT measurement. Dual-encoded status dots before each alias (● online, ▲ slow, ✖ offline, ○ unchecked) with color and shape so status is accessible without color. Health summaries in group headers and title bar. ProxyJump hosts inherit ping status from their bastion host. Slow threshold configurable (default 200ms). Press p to ping selected host, P to ping all, ! to filter unreachable only, s to cycle sort including "down first" (unreachable hosts at top). Results expire after 60 seconds. Auto-ping on startup (default enabled, disable with auto_ping=false in preferences)
 - Atomic writes with automatic backups (last 5). Temp file, chmod 600, rename
 - Include file support (read-only, recursive up to depth 16, tilde + glob expansion)
 - Host key reset: detects changed host keys after server reinstalls and offers to remove the old key and reconnect
 - Auto-reload: detects external config changes every 4 seconds
 - Self-update mechanism (macOS and Linux curl installs). Homebrew and cargo users update via their package manager
 - Shell completions (bash, zsh, fish)
-- Minimal UI with monochrome base and subtle color for status. Works in any terminal, respects NO_COLOR
+- Command palette (: key): searchable overlay with 24 actions. Type to filter by name, press Enter to execute. Case-insensitive matching
+- 11 built-in color themes (default: Purple) with custom theme support (~/.purple/themes/*.toml). Works in any terminal, respects NO_COLOR
 
 ## Install
 
@@ -98,7 +129,7 @@ cargo install purple-ssh
 
 ## Usage
 
-The primary interface is the TUI. Run purple to launch it. Press ? for the full keybindings cheat sheet. Most actions are available from the TUI: S for provider management, r for snippets, T for tunnels, C for containers, f for file browser. The CLI subcommands below are alternatives for scripting and automation.
+The primary interface is the TUI. Run purple to launch it. Press ? for the full keybindings cheat sheet. Press : to open the command palette with 24 searchable actions. Most actions are available from the TUI: S for provider management, r for snippets, T for tunnels, C for containers, F for file browser. The CLI subcommands below are alternatives for scripting and automation.
 
 purple                              # Launch the TUI
 purple --config ~/other/ssh_config  # Use alternate config file
@@ -141,8 +172,18 @@ purple snippet run NAME --all       # Run on all hosts
 purple snippet run NAME --all --parallel  # Run concurrently
 purple password set myserver        # Store password in OS keychain
 purple password remove myserver     # Remove from keychain
+purple vault sign myserver                                            # Sign one host via the HashiCorp Vault SSH secrets engine
+purple vault sign --all                                               # Sign every host with a Vault SSH role configured
+purple vault sign --all --vault-addr https://vault.example.com:8200   # Override Vault address for this run
 purple update                       # Self-update
 purple mcp                          # Start MCP server for AI agents (stdio JSON-RPC)
+purple --theme ocean                # Launch TUI with a specific theme
+purple theme list                   # List available themes (built-in + custom)
+purple theme set <name>             # Set the default theme
+purple --verbose                    # Enable debug-level logging
+purple logs                         # Print log file path
+purple logs --tail                  # Follow log output in real time
+purple logs --clear                 # Delete the log file
 purple --completions zsh            # Generate shell completions
 
 ## Cloud provider sync
@@ -182,8 +223,19 @@ Supported password sources:
 - 1Password (op://): vault/item/field path
 - Bitwarden (bw:): item name
 - pass (pass:): entry path in the password store
-- HashiCorp Vault (vault:): secret path
+- HashiCorp Vault KV secrets engine (vault:): secret path. Fetched via the vault CLI. Distinct from the Vault SSH secrets engine used for SSH certificate signing (see below)
 - Custom command: any shell command that outputs the password. Supports %a (alias) and %h (hostname) substitution. Optional cmd: prefix
+
+## Vault SSH signed certificates
+
+purple supports HashiCorp's Vault SSH secrets engine for short-lived SSH certificates. This is the SSH signing workflow and is distinct from the Vault KV password source above.
+
+- Configure a role per host (Vault SSH Role field in the host form, stored as # purple:vault-ssh on the host block) or per provider (shared default in the provider config under vault_role, inherited by every host of that provider). Host overrides take precedence over the provider default. Format: mount/sign/role, e.g. ssh-client-signer/sign/engineer. Configure the Vault SSH server address the same way: per-host via the Vault SSH Address field (stored as # purple:vault-addr <url>) or per-provider via vault_addr in the provider config. Both fields are progressively disclosed in the host and provider forms only when a Vault SSH Role is set
+- Signed certs cached under ~/.purple/certs/<alias>-cert.pub, with TTL tracking and automatic renewal when the remaining lifetime drops below threshold. The TUI detail panel reflects external `purple vault sign` runs within one render frame via mtime-based cache invalidation (no 5-minute TTL wait)
+- On the first successful signing, purple writes a CertificateFile directive into the host block automatically when the host has none, so OpenSSH actually picks up the signed cert. A user-set CertificateFile is never overwritten. The detail panel's VAULT SSH section shows the role name with a (from <provider>) suffix when inherited. The full address is visible in the edit form (e)
+- Press V in the host list to bulk-sign every host with a role. Progress and errors are reported inline. Press V again to cancel an in-progress run
+- CLI: purple vault sign <alias> signs one host; purple vault sign --all signs every host with a role. Both accept --vault-addr <url> to override the resolved address for that run
+- Purple shells out to the vault CLI (vault write -field=signed_key <role> public_key=@<pubkey>) so existing Vault authentication (VAULT_TOKEN, token helpers, OIDC, etc.) applies. The resolved Vault SSH address is exported as VAULT_ADDR for the child vault process using precedence: --vault-addr CLI flag > per-host # purple:vault-addr > provider vault_addr > parent shell env
 
 ## Command snippets
 
@@ -212,7 +264,7 @@ Press T on any host to open the tunnel overlay. Press a to add a tunnel rule (Lo
 
 ## Tags
 
-User tags are stored as SSH config comments (# purple:tags prod,us-east). Provider tags from cloud sync are stored separately (# purple:provider_tags). Sync always replaces provider_tags with the exact remote tags. User tags are never touched by sync. Filter with tag: prefix in search (fuzzy match) or tag= prefix (exact match). Provider names appear as virtual tags. The tag picker (# key) shows all tags with host counts. The g key cycles group modes: ungrouped, group by provider or group by tag. Tag grouping opens a picker to select a user tag. Hosts with that tag are grouped under a header. Group preference is persisted.
+User tags are stored as SSH config comments (# purple:tags prod,us-east). Provider tags from cloud sync are stored separately (# purple:provider_tags). Sync always replaces provider_tags with the exact remote tags. User tags are never touched by sync. Tags are displayed without # prefix in the TUI. Up to 3 tags shown per host in the host list. Filter with tag: prefix in search (fuzzy match) or tag= prefix (exact match). Provider names appear as virtual tags. The tag picker (# key) shows all tags with host counts. The g key cycles group modes: ungrouped, group by provider or group by tag. Tag grouping opens a picker to select a user tag. Hosts with that tag are grouped under a header. Group preference is persisted.
 
 ## Round-trip fidelity
 
@@ -247,7 +299,8 @@ Consecutive blank lines are collapsed to one. Hosts from Include files are displ
 - Sysadmin running the same diagnostic command (disk check, uptime, restart) on multiple servers at once
 - Infrastructure engineer syncing cloud servers into SSH config automatically after scaling events
 - Developer managing SSH tunnels for local development (port forwarding to remote databases, APIs, internal services)
-- Security-conscious team storing SSH passwords in OS keychain, 1Password, Bitwarden, pass or Vault instead of plaintext
+- Security-conscious team storing SSH passwords in OS keychain, 1Password, Bitwarden, pass or the HashiCorp Vault KV secrets engine instead of plaintext
+- Platform team issuing short-lived SSH certificates via the HashiCorp Vault SSH secrets engine instead of long-lived SSH keys
 - DevOps engineer managing Docker or Podman containers on remote servers from one terminal. No agent. No web UI. No extra ports
 - AI-assisted developer using Claude Code to check server status, deploy code or restart containers through natural language
 
@@ -269,7 +322,7 @@ Consecutive blank lines are collapsed to one. Hosts from Include files are displ
 ## FAQ
 
 Q: What is purple SSH?
-A: purple is a free, open-source terminal SSH client for macOS and Linux. It provides a TUI to search, connect, transfer files, run commands across hosts, sync servers from 16 cloud providers and manage SSH passwords. It edits ~/.ssh/config directly with full round-trip fidelity. Single Rust binary, no daemon, no subscription.
+A: purple is an open-source terminal SSH manager and SSH config editor written in Rust. Search, connect to hosts, transfer files, manage Docker and Podman containers and run commands across servers from one TUI. Syncs from 16 cloud providers. Edits ~/.ssh/config with round-trip fidelity. Runs on macOS and Linux. No daemon, no subscription, no telemetry.
 
 Q: Does purple modify my existing SSH config?
 A: Only when you add, edit, delete or sync. All writes are atomic with automatic backups. Auto-sync runs on startup for providers that have it enabled.
@@ -284,7 +337,7 @@ Q: Does purple send my SSH config anywhere?
 A: No. Your config never leaves your machine. Provider sync calls cloud APIs to fetch server lists. The TUI checks GitHub for new releases on startup (cached for 24 hours). No config data is transmitted.
 
 Q: How does password management work?
-A: In the TUI, edit a host (e key) and press Enter on the Password Source field to pick a source from the overlay. Press Ctrl+D to set a global default. When you connect, purple acts as SSH_ASKPASS and retrieves the password automatically. Supported sources: OS Keychain, 1Password, Bitwarden, pass, HashiCorp Vault and custom commands. The CLI alternative is purple password set myserver for keychain entries.
+A: In the TUI, edit a host (e key) and press Enter on the Password Source field to pick a source from the overlay. Press Ctrl+D to set a global default. When you connect, purple acts as SSH_ASKPASS and retrieves the password automatically. Supported sources: OS Keychain, 1Password, Bitwarden, pass, HashiCorp Vault KV secrets engine and custom commands. For SSH certificate signing, see the Vault SSH signed certificates section (a separate engine). The CLI alternative is purple password set myserver for keychain entries.
 
 Q: Can I use purple with Include files?
 A: Yes. Hosts from Include files are displayed in the TUI but never modified.
@@ -296,7 +349,7 @@ Q: How do I install purple?
 A: Three options: `curl -fsSL getpurple.sh | sh` (macOS and Linux, recommended), `brew install erickochen/purple/purple` (Homebrew on macOS) or `cargo install purple-ssh` (any platform with Rust).
 
 Q: Can I transfer files with purple?
-A: Yes. Press f on any host to open the remote file explorer. It shows your local files on the left and the remote server on the right. Navigate directories with j/k and Enter, select files with Ctrl+Space and press Enter to copy via scp. Works through ProxyJump, password sources and active tunnels. Paths are remembered per host.
+A: Yes. Press F on any host to open the remote file explorer. It shows your local files on the left and the remote server on the right. Navigate directories with j/k and Enter, select files with Ctrl+Space and press Enter to copy via scp. Works through ProxyJump, password sources and active tunnels. Paths are remembered per host.
 
 Q: Which terminal emulators work with purple?
 A: purple works in any terminal emulator that supports ANSI escape codes. Tested with iTerm2, Terminal.app, Alacritty, kitty, WezTerm, Warp and Windows Terminal (via WSL). It respects NO_COLOR and adapts to three color tiers: modifiers only, ANSI 16 and truecolor.
@@ -334,6 +387,9 @@ A: Yes. purple uses the system ssh binary with your config, so ProxyJump chains 
 Q: How do I speed up the file explorer?
 A: Each directory navigation in the file explorer opens a new SSH connection. To speed this up, add ControlMaster auto, ControlPath ~/.ssh/sockets/%r@%h-%p and ControlPersist 600 to your SSH config. This reuses a single connection for file browser navigation and regular SSH connections on that host. Note: snippet execution explicitly disables ControlMaster to keep each run isolated.
 
+Q: How do I troubleshoot connection problems?
+A: Run with --verbose to enable debug logging, then purple logs --tail in another terminal. Logs are written to ~/.purple/purple.log with fault domain prefixes: [external] for remote/tool errors, [config] for local config issues, [purple] for internal errors. Set PURPLE_LOG=trace for maximum detail. The startup banner in the log captures purple version, SSH version, providers and askpass sources.
+
 Q: Can AI assistants use purple?
 A: Yes. Run purple mcp to start an MCP server over JSON-RPC 2.0. Claude Code, Cursor and other MCP-compatible AI agents can use five tools: list_hosts, get_host, run_command, list_containers and container_action. No API keys needed. Approval behavior depends on your AI client.
 
@@ -343,17 +399,24 @@ A: MCP (Model Context Protocol) is a standard for connecting AI assistants to ex
 Q: Does purple work with Vaultwarden (self-hosted Bitwarden)?
 A: Yes. purple uses the Bitwarden CLI (bw) for Bitwarden password sources. If you use Vaultwarden, configure the CLI to point to your server with bw config server https://your-vaultwarden-url. Then set bw:item-name as the password source for a host. Purple will retrieve passwords from your Vaultwarden instance.
 
+Q: Can I change the color theme?
+A: Press m in the host list to open the theme picker with live preview. 11 built-in themes included. Custom themes from ~/.purple/themes/*.toml. CLI: purple theme set <name>.
+
 ## Status
 
-- Current version: 2.24.0 (April 2026)
+- Current version: 2.35.0 (April 2026)
 - Release cadence: approximately bi-weekly
-- Test suite: 5000+ tests (unit, integration, property-based and HTTP mocking)
+- Test suite: 6000+ tests (unit, integration, property-based and HTTP mocking)
 - CI: fmt, clippy, test on macOS and Linux, cargo-deny, MSRV 1.86 check
 - Dependencies actively maintained
 
+## Logging and troubleshooting
+
+purple writes structured logs to ~/.purple/purple.log. By default only warnings and errors are logged. Pass --verbose or set the PURPLE_LOG environment variable (trace, debug, info, warn, error, off) for more detail. Run `purple logs --tail` to follow the log in real time or `purple logs --clear` to delete it. The log file is rotated automatically at 5 MB. Each log entry carries a fault domain prefix: [external] for problems in remote hosts or third-party tools, [config] for local configuration issues and [purple] for internal errors. The startup banner records the purple version, SSH version, terminal capabilities, configured providers and askpass sources so support questions can be diagnosed from the log alone.
+
 ## Data storage
 
-purple does not use a proprietary database. All host configuration lives in ~/.ssh/config. Tags, provider tracking and metadata are stored as comments in the same file. Provider credentials are stored in ~/.purple/providers. Snippets are stored in ~/.purple/snippets. Connection history is stored in ~/.purple/history.tsv. Preferences (sort mode, view mode) are stored in ~/.purple/preferences. Nothing is transmitted to external servers.
+purple does not use a proprietary database. All host configuration lives in ~/.ssh/config. Tags, provider tracking and metadata are stored as comments in the same file. Provider credentials are stored in ~/.purple/providers. Snippets are stored in ~/.purple/snippets. Connection history is stored in ~/.purple/history.tsv. Preferences (sort mode, view mode, theme, slow_threshold_ms, auto_ping) are stored in ~/.purple/preferences. Logs are stored in ~/.purple/purple.log. Nothing is transmitted to external servers.
 
 ## Limitations
 
@@ -366,7 +429,7 @@ purple does not use a proprietary database. All host configuration lives in ~/.s
 
 ## Quick reference
 
-- Core value: unified SSH control plane for teams managing 50+ servers across multiple clouds
+- Core value: terminal SSH manager and SSH config editor for teams managing 50+ servers across multiple clouds
 - Key differentiator: visual file explorer + cloud sync + password management + container control in one TUI
 - Related tools: Termius (paid, proprietary), sshs (read-only), storm (config-only, no TUI)
 - Use when: instant search + file transfer + multi-host commands + password caching + container management
@@ -385,7 +448,7 @@ purple does not use a proprietary database. All host configuration lives in ~/.s
 | "My team keeps losing the SSH config" | Want centralized, backed-up config | Atomic writes + automatic backups |
 | "I don't want another web UI" | Want terminal-native tooling | TUI (no daemon, no browser, no agent) |
 | "I need to check containers on remote hosts" | Want agentless container management | Docker/Podman over SSH (press C) |
-| "I'm tired of typing scp paths" | Want visual file browsing | Remote file explorer (press f) |
+| "I'm tired of typing scp paths" | Want visual file browsing | Remote file explorer (press F) |
 | "I want password management for SSH" | Want automatic credential retrieval | 6 password sources + SSH_ASKPASS |
 | "I want my AI to manage servers" | Want AI agent integration | MCP server (purple mcp) for Claude Code, Cursor |
 

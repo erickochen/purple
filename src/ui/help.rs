@@ -17,7 +17,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let use_two_cols = is_host_list && frame.area().width >= 96;
 
     let (col1, col2) = if is_host_list {
-        host_list_columns()
+        host_list_columns(app)
     } else {
         let lines = match return_screen {
             Screen::FileBrowser { .. } => file_browser_lines(),
@@ -30,7 +30,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Screen::KeyDetail { .. } => key_detail_lines(),
             Screen::HostDetail { .. } => host_detail_lines(),
             Screen::TagPicker => tag_picker_lines(),
-            Screen::GroupTagPicker => group_tag_picker_lines(),
+            Screen::ThemePicker => vec![
+                help_line("j/k", "up / down"),
+                help_line("Enter", "select theme"),
+                help_line("?", "help"),
+                help_line("Esc", "cancel"),
+            ],
             _ => vec![],
         };
         (lines, vec![])
@@ -124,15 +129,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let can_scroll = total_lines > max_body;
     let mut spans: Vec<Span<'_>> = Vec::new();
     if can_scroll {
-        let [k, l] = super::footer_action(" j/k", " scroll ");
+        let [k, l] = super::footer_action("j/k", " scroll ");
         spans.extend([k, l]);
-        spans.push(super::footer_sep());
+        spans.push(Span::raw("  "));
     } else {
         spans.push(Span::raw(" "));
     }
     let [k, l] = super::footer_action("Esc", " close");
     spans.extend([k, l]);
-    frame.render_widget(Paragraph::new(Line::from(spans)), rows[2]);
+    super::render_footer_with_status(frame, rows[2], spans, app);
 }
 
 fn context_title(screen: &Screen) -> &'static str {
@@ -148,7 +153,7 @@ fn context_title(screen: &Screen) -> &'static str {
         Screen::KeyDetail { .. } => "Key Detail",
         Screen::HostDetail { .. } => "All Directives",
         Screen::TagPicker => "Tags",
-        Screen::GroupTagPicker => "Group by Tag",
+        Screen::ThemePicker => "Theme",
         _ => "Help",
     }
 }
@@ -175,62 +180,114 @@ fn blank() -> Line<'static> {
     Line::from("")
 }
 
-fn host_list_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
+fn host_list_columns(_app: &App) -> (Vec<Line<'static>>, Vec<Line<'static>>) {
+    // Both columns are aligned: section headers at matching heights.
+    // Each section pair has matching blank/header lines to stay in sync.
     let mut col1 = vec![blank()];
-    col1.extend(section_header("NAVIGATE"));
-    col1.push(help_line("j/k", "up / down"));
-    col1.push(help_line("PgDn/PgUp", "page down / up"));
-    col1.push(help_line("Enter", "connect (on group: collapse)"));
-    col1.push(help_line("/", "search"));
-    col1.push(help_line("#", "filter by tag"));
-    col1.push(blank());
-    col1.extend(section_header("VIEW"));
-    col1.push(help_line("v", "detail panel"));
-    col1.push(help_line("s", "cycle sort"));
-    col1.push(help_line("g", "group (off/provider/tag)"));
-    col1.push(help_line("[ / ]", "scroll detail"));
-    col1.push(help_line("tag:name", "fuzzy tag filter"));
-    col1.push(help_line("tag=name", "exact tag filter"));
-    col1.push(blank());
-    col1.extend(section_header("FORMS"));
-    col1.push(help_line("Tab", "next field"));
-    col1.push(help_line("Shift+Tab", "prev field"));
-    col1.push(help_line("Enter", "save / picker"));
-    col1.push(help_line("Space", "toggle / cycle"));
-    col1.push(help_line("^D", "set default"));
-    col1.push(help_line("Esc", "cancel"));
-    col1.push(blank());
-    col1.push(help_line("y", "copy ssh command"));
-    col1.push(help_line("x", "copy config block"));
-    col1.push(help_line("X", "purge stale"));
-
     let mut col2 = vec![blank()];
+
+    // Row 1: NAVIGATE / MANAGE HOSTS
+    col1.extend(section_header("NAVIGATE"));
     col2.extend(section_header("MANAGE HOSTS"));
+
+    col1.push(help_line("j/k", "up / down"));
     col2.push(help_line("a", "add host"));
+
+    col1.push(help_line("PgDn/PgUp", "page down / up"));
     col2.push(help_line("A", "add pattern"));
+
+    col1.push(help_line("Enter", "connect"));
     col2.push(help_line("e", "edit"));
+
+    col1.push(help_line("Tab", "next group"));
     col2.push(help_line("d", "del"));
+
+    col1.push(help_line("Shift+Tab", "prev group"));
     col2.push(help_line("c", "clone"));
+
+    col1.push(help_line("/", "search (scoped)"));
     col2.push(help_line("u", "undo del"));
+
+    col1.push(help_line("#", "filter by tag"));
     col2.push(help_line("t", "tag (inline)"));
+
+    col1.push(help_line("Esc", "clear filter / quit"));
     col2.push(help_line("i", "all directives"));
+
+    // Row 2: VIEW / CONNECT AND RUN
+    col1.push(blank());
     col2.push(blank());
+
+    col1.extend(section_header("VIEW"));
     col2.extend(section_header("CONNECT AND RUN"));
+
+    col1.push(help_line("v", "detail panel"));
     col2.push(help_line("^Space", "multi-select"));
+
+    col1.push(help_line("s", "cycle sort"));
     col2.push(help_line("^A", "select all / none"));
+
+    col1.push(help_line("g", "group (off/provider/tag)"));
     col2.push(help_line("r", "run snippet"));
+
+    col1.push(help_line("[ / ]", "scroll detail"));
     col2.push(help_line("R", "run on all visible"));
+
+    col1.push(help_line("tag:name", "fuzzy tag filter"));
     col2.push(help_line("p/P", "ping / all"));
+
+    col1.push(help_line("tag=name", "exact tag filter"));
+    col2.push(help_line("!", "down-only filter"));
+
+    // Row 3: CLIPBOARD / TOOLS
+    col1.push(blank());
     col2.push(blank());
+
+    col1.extend(section_header("CLIPBOARD"));
     col2.extend(section_header("TOOLS"));
-    col2.push(help_line("f", "file explorer"));
+
+    col1.push(help_line("y", "copy ssh command"));
+    col2.push(help_line("F", "file explorer"));
+
+    col1.push(help_line("x", "copy config block"));
     col2.push(help_line("T", "tunnels"));
+
+    col1.push(help_line("X", "purge stale"));
     col2.push(help_line("C", "containers"));
+
+    col1.push(blank());
     col2.push(help_line("K", "SSH keys"));
+
+    // Row 4: FORMS / continued TOOLS + quit
+    col1.extend(section_header("FORMS"));
     col2.push(help_line("S", "providers"));
+
+    // Always show V so the Vault SSH feature is discoverable. When no role is
+    // configured yet, the keybinding still appears with the same label; the
+    // status message produced by the handler explains where to configure it.
+    col1.push(blank());
+    col2.push(help_line("V", "vault sign"));
+
+    col1.push(help_line("Tab", "next field"));
     col2.push(help_line("I", "import known_hosts"));
-    col2.push(blank());
+
+    col1.push(help_line("Shift+Tab", "prev field"));
+    col2.push(help_line("m", "theme"));
+
+    col1.push(blank());
+    col2.push(help_line(":", "search commands"));
+
+    col1.push(help_line("Enter", "save / picker"));
     col2.push(help_line("q/Esc", "quit"));
+
+    col1.push(help_line("Space", "toggle / cycle"));
+    col2.push(blank());
+
+    col1.push(help_line("^D", "set default"));
+    col2.push(blank());
+
+    col1.push(help_line("Esc", "cancel"));
+    col2.push(blank());
 
     (col1, col2)
 }
@@ -333,15 +390,6 @@ fn tag_picker_lines() -> Vec<Line<'static>> {
     lines
 }
 
-fn group_tag_picker_lines() -> Vec<Line<'static>> {
-    let mut lines = vec![blank()];
-    lines.push(help_line("j/k", "up / down"));
-    lines.push(help_line("Enter", "group by tag"));
-    lines.push(help_line("PgDn/PgUp", "page down / up"));
-    lines.push(help_line("q/Esc", "cancel"));
-    lines
-}
-
 fn providers_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
     lines.push(help_line("j/k", "up / down"));
@@ -361,9 +409,19 @@ mod tests {
     use ratatui::layout::Rect;
     use ratatui::style::Modifier;
 
+    fn empty_app() -> App {
+        let config = crate::ssh_config::model::SshConfigFile {
+            elements: Vec::new(),
+            path: std::path::PathBuf::from("/tmp/purple_help_test"),
+            crlf: false,
+            bom: false,
+        };
+        App::new(config)
+    }
+
     #[test]
     fn host_list_produces_two_column_groups() {
-        let (col1, col2) = host_list_columns();
+        let (col1, col2) = host_list_columns(&empty_app());
         assert!(!col1.is_empty(), "column 1 should have content");
         assert!(!col2.is_empty(), "column 2 should have content");
     }
@@ -513,7 +571,7 @@ mod tests {
 
     #[test]
     fn host_list_col2_contains_all_tool_shortcuts() {
-        let (col1, col2) = host_list_columns();
+        let (col1, col2) = host_list_columns(&empty_app());
         let all_text: String = col1
             .iter()
             .chain(col2.iter())
@@ -536,12 +594,12 @@ mod tests {
 
     #[test]
     fn host_list_col1_contains_navigate_view_forms() {
-        let (col1, _) = host_list_columns();
+        let (col1, _) = host_list_columns(&empty_app());
         let text: String = col1.iter().map(|l| l.to_string()).collect();
         for desc in &[
             "up / down",
             "page down / up",
-            "connect (on group: collapse)",
+            "connect",
             "search",
             "filter by tag",
             "detail panel",
@@ -605,5 +663,19 @@ mod tests {
         assert!(!lines.is_empty());
         let text: String = lines.iter().map(|l| l.to_string()).collect();
         assert!(text.contains("filter by tag"), "should have Enter shortcut");
+    }
+
+    #[test]
+    fn host_list_contains_palette_shortcut() {
+        let (col1, col2) = host_list_columns(&empty_app());
+        let all_text: String = col1
+            .iter()
+            .chain(col2.iter())
+            .map(|l| l.to_string())
+            .collect();
+        assert!(
+            all_text.contains("commands"),
+            "help should mention command palette"
+        );
     }
 }

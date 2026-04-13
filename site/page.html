@@ -3,26 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>purple. Terminal SSH Client for macOS &amp; Linux | Free</title>
-<meta name="description" content="Terminal SSH client with Docker and Podman container management over SSH. No agent required. Search hundreds of hosts, transfer files visually, sync from 16 cloud providers. Free, open-source Rust binary for macOS and Linux.">
-<meta name="keywords" content="SSH client, terminal SSH client, Docker TUI, Podman TUI, agentless container management, Portainer alternative, Docker container manager terminal, SSH config manager, SSH connection manager, SSH file transfer, cloud SSH sync, open source SSH client, Oracle Cloud Infrastructure, OCI, Oracle Cloud, AWS EC2, MCP server, Model Context Protocol, AI agent integration, Claude Code SSH">
+<title>purple - Terminal SSH Manager and SSH Config Editor in Rust</title>
+<meta name="description" content="Open-source terminal SSH manager and ~/.ssh/config editor. Fuzzy search hundreds of hosts, sync AWS, GCP, Azure and 13 more clouds, transfer files, manage Docker and Podman over SSH, sign short-lived Vault SSH certs. Free Termius alternative in Rust.">
+<meta name="keywords" content="ssh manager, ssh client, ssh config editor, terminal ssh manager, tui ssh, rust ssh tui, ratatui, termius alternative, sshs alternative, ssh bookmarks manager, cloud ssh sync, multi-cloud ssh inventory, ssh tunnel manager, sftp client, scp file transfer, docker over ssh, podman over ssh, agentless container management, portainer alternative, hashicorp vault ssh, short-lived ssh certificates, mcp server, model context protocol, claude code ssh, devops, sysadmin, homelab">
 <meta name="robots" content="index, follow">
 <meta name="author" content="Eric Kochen">
-<meta name="color-scheme" content="dark light">
-<meta property="og:title" content="purple. Terminal SSH client with file transfer and cloud sync">
-<meta property="og:description" content="Terminal SSH client with Docker and Podman container management. Manage containers over SSH, no agent required. Search hundreds of hosts, sync from 16 cloud providers. Free, open-source.">
+<meta name="color-scheme" content="dark">
+<meta property="og:title" content="purple - Terminal SSH Manager and SSH Config Editor in Rust">
+<meta property="og:description" content="Open-source terminal SSH manager and ~/.ssh/config editor. Fuzzy search hundreds of hosts, sync AWS, GCP, Azure and 13 more clouds, transfer files, manage Docker and Podman over SSH, sign short-lived Vault SSH certs. Free Termius alternative in Rust.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://getpurple.sh">
 <meta property="og:image" content="https://raw.githubusercontent.com/erickochen/purple/master/preview.png">
 <meta property="og:image:type" content="image/png">
-<meta property="og:image:alt" content="purple terminal SSH client showing host list with search and cloud sync">
+<meta property="og:image:alt" content="purple terminal SSH manager showing host list with search, cloud sync and detail panel">
 <meta property="og:image:width" content="1300">
 <meta property="og:image:height" content="600">
 <meta property="og:locale" content="en_US">
 <meta property="og:site_name" content="purple">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="purple. Terminal SSH client with file transfer and cloud sync">
-<meta name="twitter:description" content="Terminal SSH client with Docker and Podman container management. Manage containers over SSH, no agent required. Search hundreds of hosts, sync from 16 cloud providers. Free, open-source.">
+<meta name="twitter:title" content="purple - Terminal SSH Manager and SSH Config Editor in Rust">
+<meta name="twitter:description" content="Open-source terminal SSH manager and ~/.ssh/config editor. Fuzzy search hundreds of hosts, sync AWS, GCP, Azure and 13 more clouds, transfer files, manage Docker and Podman over SSH, sign short-lived Vault SSH certs. Free Termius alternative in Rust.">
 <meta name="twitter:image" content="https://raw.githubusercontent.com/erickochen/purple/master/preview.png">
 <link rel="canonical" href="https://getpurple.sh">
 <link rel="alternate" hreflang="en" href="https://getpurple.sh">
@@ -34,16 +34,16 @@
   "@type": "SoftwareApplication",
   "name": "purple",
   "alternateName": "purple-ssh",
-  "description": "Terminal SSH client to search, connect to and manage SSH servers. Visual file transfer, cloud sync from 16 providers, container management (Docker and Podman), password management, command snippets and tunnel management. Edits ~/.ssh/config directly with round-trip fidelity.",
+  "description": "Open-source terminal SSH manager and SSH config editor written in Rust. Search, connect to and manage hundreds of SSH hosts from a single TUI. Syncs servers from 16 cloud providers including AWS, Azure, GCP, Hetzner, Proxmox and OCI, transfers files via scp, manages Docker and Podman containers over SSH, signs short-lived HashiCorp Vault SSH certificates and exposes an MCP server for AI agents. Edits ~/.ssh/config with round-trip fidelity.",
   "applicationCategory": "DeveloperApplication",
   "applicationSubCategory": "Terminal User Interface",
   "operatingSystem": "macOS, Linux",
   "url": "https://getpurple.sh",
   "downloadUrl": "https://getpurple.sh",
   "installUrl": "https://github.com/erickochen/purple/releases",
-  "softwareVersion": "2.24.0",
+  "softwareVersion": "2.35.0",
   "datePublished": "2024-10-01",
-  "dateModified": "2026-04-01",
+  "dateModified": "2026-04-12",
   "softwareRequirements": "macOS or Linux",
   "programmingLanguage": "Rust",
   "license": "https://opensource.org/licenses/MIT",
@@ -69,7 +69,8 @@
     "Command snippets with multi-host and parallel execution",
     "Remote file explorer with dual-pane local/remote browsing and scp transfer",
     "Cloud provider sync: AWS EC2, Azure, DigitalOcean, GCP (Compute Engine), Hetzner, i3D.net, Leaseweb, Linode (Akamai), Oracle Cloud Infrastructure (OCI), OVHcloud, Proxmox VE, Scaleway, Tailscale, TransIP, UpCloud, Vultr",
-    "Password management: OS Keychain, 1Password, Bitwarden, pass, HashiCorp Vault, custom commands",
+    "Password management: OS Keychain, 1Password, Bitwarden, pass, HashiCorp Vault KV secrets engine, custom commands",
+    "Short-lived SSH certificates signed via the HashiCorp Vault SSH secrets engine",
     "Bulk import from hosts files and known_hosts",
     "SSH key management",
     "Atomic writes with automatic backups",
@@ -97,7 +98,7 @@
       "name": "Can I transfer files between local and remote servers with purple?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes. Press f on any host to open the remote file explorer. It shows local files on the left and the remote server on the right. Navigate directories, select files and copy them between machines via scp. Works through ProxyJump chains, password sources and active tunnels."
+        "text": "Yes. Press F on any host to open the remote file explorer. It shows local files on the left and the remote server on the right. Navigate directories, select files and copy them between machines via scp. Works through ProxyJump chains, password sources and active tunnels."
       }
     },
     {
@@ -121,7 +122,7 @@
       "name": "How does SSH password management work in purple?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Set a password source per host via the TUI or a global default. When you connect, purple acts as SSH_ASKPASS and retrieves the password automatically. Supported sources: OS Keychain, 1Password, Bitwarden, pass, HashiCorp Vault and custom commands."
+        "text": "Set a password source per host via the TUI or a global default. When you connect, purple acts as SSH_ASKPASS and retrieves the password automatically. Supported sources: OS Keychain, 1Password, Bitwarden, pass, HashiCorp Vault KV secrets engine and custom commands. For short-lived SSH certificates purple also integrates with the HashiCorp Vault SSH secrets engine (a separate engine)."
       }
     },
     {
@@ -227,6 +228,14 @@
         "@type": "Answer",
         "text": "Yes. Run purple mcp to start a Model Context Protocol server over JSON-RPC 2.0. Claude Code, Cursor and other MCP-compatible AI agents can use five tools: list_hosts, get_host, run_command, list_containers and container_action. No API keys needed. Approval behavior depends on your AI client."
       }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I troubleshoot connection problems?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Run with --verbose to enable debug logging, then purple logs --tail in another terminal. Logs are written to ~/.purple/purple.log with fault domain prefixes: [external] for remote/tool errors, [config] for local config issues. Set PURPLE_LOG=trace for maximum detail."
+      }
     }
   ]
 }
@@ -237,7 +246,7 @@
   "@type": "WebSite",
   "url": "https://getpurple.sh",
   "name": "purple",
-  "description": "Terminal SSH client for macOS and Linux"
+  "description": "Open-source terminal SSH manager and SSH config editor in Rust"
 }
 </script>
 <script type="application/ld+json">
@@ -254,31 +263,25 @@
 </script>
 <style>
 :root {
-  --bg: #060606;
-  --bg-s: #0e0e0e;
-  --bg-t: #171717;
-  --fg: #d4d4d4;
-  --fg-2: #777;
-  --fg-3: #3a3a3a;
-  --border: #1c1c1c;
-  --accent: #9333ea;
-  --accent-soft: rgba(147, 51, 234, 0.12);
+  --bg: #0a0a14;
+  --bg-s: #0f0f1e;
+  --bg-t: #161628;
+  --fg: #e0d6f0;
+  --fg-2: #8878a8;
+  --fg-3: #3d3558;
+  --border: #2a2045;
+  --accent: #b44aff;
+  --accent-soft: rgba(180, 74, 255, 0.1);
+  --cyan: #00f0ff;
+  --cyan-soft: rgba(0, 240, 255, 0.08);
+  --magenta: #ff2a6d;
+  --green: #05ffa1;
+  --red: #ff2a6d;
+  --yellow: #f0e030;
   --mono: "SF Mono", "Fira Code", "JetBrains Mono", "Cascadia Code", Menlo, Monaco, "Courier New", monospace;
+  --glow-accent: 0 0 20px rgba(180, 74, 255, 0.3), 0 0 60px rgba(180, 74, 255, 0.1);
+  --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.3), 0 0 60px rgba(0, 240, 255, 0.1);
 }
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #faf9f7;
-    --bg-s: #f0eee9;
-    --bg-t: #e5e2dc;
-    --fg: #1a1a1a;
-    --fg-2: #6b6b6b;
-    --fg-3: #c0bdb6;
-    --border: #e0ddd8;
-    --accent: #7c22ce;
-    --accent-soft: rgba(124, 34, 206, 0.08);
-  }
-}
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
@@ -289,37 +292,93 @@ body {
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-/* ── Entrance ── */
+/* ── Scanlines ── */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+  will-change: transform;
+}
+
+/* ── Animations ── */
 @keyframes up {
-  from { opacity: 0; transform: translateY(20px); }
+  from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.hero-inner > * {
-  opacity: 0;
-  animation: up 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-.hero-inner > :nth-child(1) { animation-delay: 0s; }
-.hero-inner > :nth-child(2) { animation-delay: 0.08s; }
-.hero-inner > :nth-child(3) { animation-delay: 0.16s; }
-.hero-inner > :nth-child(4) { animation-delay: 0.24s; }
-.hero-inner > :nth-child(5) { animation-delay: 0.4s; }
-
-/* ── Cursor ── */
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* ── Cursor ── */
 .cursor {
   display: inline-block;
-  width: 3px;
+  width: 8px;
+  height: 1.1em;
+  background: var(--cyan);
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+  box-shadow: 0 0 8px var(--cyan);
+}
+.h1-cursor {
+  width: 0.06em;
   height: 0.75em;
   background: var(--accent);
-  margin-left: 6px;
+  margin-left: 0.04em;
   vertical-align: baseline;
-  animation: blink 1s step-end infinite;
+  box-shadow: 0 0 12px var(--accent);
 }
+
+/* ── Terminal frame ── */
+.terminal {
+  background: var(--bg-s);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  box-shadow: var(--glow-accent), inset 0 1px 0 rgba(180, 74, 255, 0.1);
+}
+.terminal-bar {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  position: relative;
+  background: rgba(180, 74, 255, 0.03);
+}
+.terminal-dots { display: flex; gap: 7px; }
+.terminal-dots span { width: 10px; height: 10px; border-radius: 50%; }
+.dot-close { background: var(--magenta); box-shadow: 0 0 6px var(--magenta); }
+.dot-min { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.dot-max { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.terminal-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.7rem;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.terminal-body { padding: 20px 20px 16px; text-align: left; }
 
 /* ── Hero ── */
 .hero {
@@ -335,10 +394,34 @@ body {
 .hero::before {
   content: "";
   position: absolute;
-  width: 700px;
-  height: 700px;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 0%, var(--bg) 100%),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 79px,
+      rgba(180, 74, 255, 0.07) 79px,
+      rgba(180, 74, 255, 0.07) 80px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 79px,
+      rgba(180, 74, 255, 0.07) 79px,
+      rgba(180, 74, 255, 0.07) 80px
+    );
+  pointer-events: none;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 0%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 0%, transparent 100%);
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  width: 800px;
+  height: 800px;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--accent-soft) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(180, 74, 255, 0.12) 0%, rgba(0, 240, 255, 0.04) 40%, transparent 70%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -55%);
@@ -346,21 +429,35 @@ body {
 }
 .hero-inner {
   text-align: center;
-  max-width: 680px;
+  max-width: 1000px;
+  width: 100%;
   position: relative;
   z-index: 1;
 }
+.hero-inner > * {
+  opacity: 0;
+  animation: up 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.hero-inner > :nth-child(1) { animation-delay: 0s; }
+.hero-inner > :nth-child(2) { animation-delay: 0.08s; }
+.hero-inner > :nth-child(3) { animation-delay: 0.16s; }
 h1 {
   font-size: clamp(3.5rem, 10vw, 6rem);
   font-weight: 700;
   letter-spacing: -0.05em;
   line-height: 1;
   margin-bottom: 16px;
+  text-shadow: 0 0 80px rgba(180, 74, 255, 0.4), 0 0 160px rgba(180, 74, 255, 0.15);
 }
-h1 .dot { color: var(--accent); }
-.h1-sub { display: block; font-size: clamp(0.9rem, 2vw, 1.1rem); color: var(--fg-2); font-weight: 400; letter-spacing: -0.01em; margin-top: 12px; }
-@media (prefers-color-scheme: dark) {
-  h1 { text-shadow: 0 0 120px rgba(147, 51, 234, 0.25); }
+h1 .dot { color: var(--cyan); text-shadow: 0 0 20px var(--cyan); }
+.h1-sub {
+  display: block;
+  font-size: clamp(0.9rem, 2vw, 1.1rem);
+  color: var(--fg-2);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 16px;
 }
 .tagline {
   font-size: clamp(0.9rem, 2vw, 1.1rem);
@@ -369,300 +466,191 @@ h1 .dot { color: var(--accent); }
   font-weight: 400;
   letter-spacing: -0.01em;
 }
-.install-box {
-  background: var(--bg-s);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px 20px;
-  display: inline-flex;
+
+/* ── Install block ── */
+.prompt-line {
+  display: flex;
   align-items: center;
-  gap: 16px;
-  font-size: 0.9rem;
-  transition: border-color 0.25s;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  min-height: 1.6em;
 }
-.install-box:hover { border-color: var(--accent); }
-.install-box code { color: var(--fg); }
-.dim { color: var(--fg-3); }
+.prompt-char { color: var(--cyan); margin-right: 8px; font-weight: 600; flex-shrink: 0; text-shadow: 0 0 8px var(--cyan); }
+.typed-text { color: var(--fg); white-space: pre; }
+.install-output { font-size: 0.8rem; color: var(--fg-2); line-height: 1.8; padding: 4px 0 0; }
+.install-output .success { color: var(--green); font-weight: 600; text-shadow: 0 0 8px var(--green); }
+.copy-inline { margin-left: auto; flex-shrink: 0; }
 .copy-btn {
   background: none;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   color: var(--fg-2);
-  padding: 5px 12px;
+  padding: 4px 12px;
   font-family: inherit;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   cursor: pointer;
   transition: all 0.25s;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.copy-btn:hover { border-color: var(--accent); color: var(--fg); }
-.alt {
-  margin-top: 20px;
-  font-size: 0.8rem;
+.copy-btn:hover { border-color: var(--cyan); color: var(--cyan); box-shadow: var(--glow-cyan); }
+.alt-installs {
+  font-size: 0.75rem;
   color: var(--fg-3);
-  letter-spacing: -0.01em;
+  padding: 8px 0 0;
+  line-height: 1.7;
 }
-.alt a {
-  color: var(--fg-2);
-  text-decoration: none;
-  border-bottom: 1px solid var(--border);
-  transition: all 0.25s;
-}
-.alt a:hover { color: var(--accent); border-color: var(--accent); }
-
-/* ── Preview ── */
-.preview {
-  margin-top: 48px;
-  max-width: 480px;
-  width: 100%;
-  background: var(--bg-s);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  text-align: left;
-}
-.preview-bar {
-  padding: 7px 14px;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.65rem;
-  color: var(--fg-3);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.preview-bar::before {
-  content: "";
-  display: inline-flex;
-  gap: 5px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--fg-3);
-  box-shadow: 11px 0 0 var(--fg-3), 22px 0 0 var(--fg-3);
-}
-.preview-bar span { margin-left: 24px; }
-.preview-body {
-  padding: 6px 0;
-}
-.preview-row {
-  display: grid;
-  grid-template-columns: 120px 100px 1fr;
-  padding: 2px 14px;
-  font-size: 0.7rem;
-  color: var(--fg-2);
-  line-height: 1.6;
-}
-.preview-row.sel {
-  background: var(--accent-soft);
-  color: var(--fg);
-}
-.preview-row .h { color: var(--fg-3); }
-.preview-row .t { color: var(--fg-3); font-size: 0.65rem; }
-.preview-row.sel .h,
-.preview-row.sel .t { color: var(--fg-2); }
-.preview-foot {
-  padding: 5px 14px;
-  border-top: 1px solid var(--border);
-  font-size: 0.6rem;
-  color: var(--fg-3);
-}
+.prompt-char-dim { color: var(--fg-3); margin-right: 8px; }
 
 /* ── Content ── */
 .content {
-  max-width: 760px;
+  max-width: 960px;
   margin: 0 auto;
   padding: 0 24px 80px;
-  position: relative;
 }
 
 /* ── Demo ── */
 .demo {
-  width: min(760px, calc(100vw - 32px));
+  width: 100%;
   margin: 0 auto 100px;
 }
 .demo img, .demo video {
   width: 100%;
   height: auto;
-  border-radius: 10px;
+  border-radius: 4px;
   border: 1px solid var(--border);
   display: block;
+  box-shadow: var(--glow-accent);
 }
 
-/* ── Intro ── */
-.intro {
-  text-align: center;
-  max-width: 600px;
+/* ── Story ── */
+.story {
+  max-width: 620px;
   margin: 0 auto 100px;
   color: var(--fg-2);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   line-height: 1.75;
 }
-.intro code {
+.story p { margin-bottom: 16px; }
+.story p:last-child { margin-bottom: 0; }
+.story code {
   font-size: 0.85em;
   background: var(--bg-s);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 2px;
   border: 1px solid var(--border);
+  color: var(--cyan);
 }
+.story strong { color: var(--fg); font-weight: 600; }
 
-/* ── Pillars ── */
-.pillars {
+/* ── Features ── */
+.features {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
+  grid-template-columns: 1fr;
+  gap: 0;
+  max-width: 620px;
+  margin: 0 auto 100px;
+}
+.feat {
+  display: grid;
+  grid-template-columns: 2.2em 1fr;
+  align-items: baseline;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  transition: background 0.25s;
+}
+.feat:first-child { border-top: 1px solid var(--border); }
+.feat:hover { background: var(--accent-soft); }
+.feat-icon { font-size: 1rem; line-height: 1.6; }
+.feat-text { color: var(--fg-2); }
+.feat-text strong { color: var(--fg); font-weight: 600; }
+
+/* ── Providers ── */
+.providers-section {
+  text-align: center;
   margin-bottom: 100px;
 }
-.pillar {
-  background: var(--bg);
-  padding: 28px 24px;
-}
-.pillar h2 {
-  font-size: 0.85rem;
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: var(--fg);
-  letter-spacing: -0.02em;
-  text-transform: none;
-}
-.pillar h2::before { content: none; }
-.pillar p {
-  font-size: 0.8rem;
-  color: var(--fg-2);
-  line-height: 1.6;
-}
-
-/* ── Sections ── */
-section { margin-bottom: 72px; }
-h2 {
-  font-size: 0.85rem;
-  font-weight: 600;
+.providers-label {
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: var(--accent);
-  margin-bottom: 20px;
-}
-h2::before {
-  content: "// ";
   color: var(--fg-3);
-}
-section > p {
-  color: var(--fg-2);
-  font-size: 0.85rem;
   margin-bottom: 16px;
-  line-height: 1.7;
-  max-width: 580px;
 }
-section code {
-  font-size: 0.85em;
+.providers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  list-style: none;
+  max-width: 700px;
+  margin: 0 auto;
+}
+.providers li {
   background: var(--bg-s);
-  padding: 2px 6px;
-  border-radius: 4px;
   border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 5px 12px;
+  font-size: 0.72rem;
+  color: var(--fg-2);
+  transition: all 0.25s;
+  letter-spacing: 0.02em;
+}
+.providers li:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: var(--cyan-soft);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
 }
 
 /* ── Divider ── */
 .divider {
   border: none;
   border-top: 1px solid var(--border);
-  margin: 72px 0;
+  margin: 0 0 100px;
+  box-shadow: 0 1px 12px rgba(180, 74, 255, 0.08);
 }
 
-/* ── Features ── */
-.features {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
+/* ── FAQ (man page) ── */
+.faq { margin-bottom: 80px; }
+.faq-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fg-3);
+  margin-bottom: 16px;
+  text-align: center;
 }
-.feature {
-  background: var(--bg);
-  padding: 16px 20px;
-}
-.feature strong {
-  display: block;
-  font-size: 0.8rem;
-  font-weight: 600;
-  margin-bottom: 2px;
-  color: var(--fg);
-  letter-spacing: -0.02em;
-}
-.feature span {
-  font-size: 0.78rem;
-  color: var(--fg-2);
-  line-height: 1.5;
-}
-
-/* ── Providers ── */
-.providers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 20px;
-  list-style: none;
-}
-.providers li {
+.man-page {
   background: var(--bg-s);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 14px;
-  font-size: 0.78rem;
-  color: var(--fg-2);
-  transition: all 0.25s;
+  border-radius: 4px;
+  padding: 20px 24px;
+  max-width: 700px;
+  margin: 0 auto;
+  box-shadow: inset 0 1px 0 rgba(180, 74, 255, 0.06);
 }
-.providers li:hover {
-  border-color: var(--accent);
-  color: var(--fg);
-  background: var(--accent-soft);
-}
-
-/* ── Comparison ── */
-.vs-list > div {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.83rem;
-  color: var(--fg-2);
-  line-height: 1.65;
-}
-.vs-list > div:last-child { border-bottom: none; }
-.vs-list strong { color: var(--fg); font-weight: 600; }
-
-/* ── Use cases ── */
-.use-cases {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.use-cases div {
-  background: var(--bg);
-  padding: 16px 20px;
-  font-size: 0.8rem;
-  color: var(--fg-2);
-  line-height: 1.55;
-}
-
-/* ── FAQ ── */
-.faq details {
-  border-bottom: 1px solid var(--border);
-}
-.faq details:first-child {
-  border-top: 1px solid var(--border);
-}
-.faq summary {
-  padding: 14px 0;
+.man-head, .man-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--cyan);
   font-weight: 600;
-  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.man-head { margin-bottom: 16px; }
+.man-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.man-page details {
+  border-bottom: 1px solid var(--border);
+}
+.man-page details:last-of-type { border-bottom: none; }
+.man-page summary {
+  padding: 10px 0;
+  font-weight: 600;
+  font-size: 0.82rem;
   cursor: pointer;
   list-style: none;
   display: flex;
@@ -672,65 +660,57 @@ section code {
   transition: color 0.25s;
   letter-spacing: -0.01em;
 }
-.faq summary::-webkit-details-marker { display: none; }
-.faq summary:hover { color: var(--accent); }
-.faq summary::after {
+.man-page summary::-webkit-details-marker { display: none; }
+.man-page summary:hover { color: var(--accent); text-shadow: 0 0 12px rgba(180, 74, 255, 0.3); }
+.man-page summary::after {
   content: "+";
   font-size: 1rem;
   color: var(--fg-3);
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), color 0.3s;
   flex-shrink: 0;
   margin-left: 16px;
 }
-.faq details[open] summary::after {
+.man-page details[open] summary::after {
   transform: rotate(45deg);
-  color: var(--accent);
+  color: var(--cyan);
+  text-shadow: 0 0 8px var(--cyan);
 }
-.faq .a-wrap {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.faq details[open] .a-wrap {
-  grid-template-rows: 1fr;
-}
-.faq .answer {
-  overflow: hidden;
-  font-size: 0.83rem;
+.man-page .answer {
+  font-size: 0.8rem;
   color: var(--fg-2);
   line-height: 1.7;
-  max-width: 580px;
+  max-width: 600px;
+  padding-bottom: 12px;
 }
-.faq details[open] .answer {
-  padding-bottom: 16px;
-}
-.faq .answer code {
+.man-page .answer code {
   font-size: 0.85em;
-  background: var(--bg-s);
+  background: var(--bg);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 2px;
   border: 1px solid var(--border);
+  color: var(--cyan);
 }
 
 /* ── CTA ── */
 .cta {
   text-align: center;
-  padding: 72px 0 0;
+  padding: 0 0 20px;
 }
-.cta .install-box { margin-bottom: 20px; }
-.links {
-  display: flex;
-  justify-content: center;
-  gap: 24px;
-  font-size: 0.8rem;
-}
-.links a {
-  color: var(--fg-2);
-  text-decoration: none;
-  border-bottom: 1px solid var(--border);
+.cta-install {
+  background: var(--bg-s);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 0.9rem;
   transition: all 0.25s;
+  margin-bottom: 20px;
 }
-.links a:hover { color: var(--accent); border-color: var(--accent); }
+.cta-install:hover { border-color: var(--accent); box-shadow: var(--glow-accent); }
+.cta-install code { color: var(--fg); }
+.dim { color: var(--fg-3); }
 
 /* ── Footer ── */
 footer {
@@ -738,26 +718,41 @@ footer {
   padding: 56px 24px 40px;
   color: var(--fg-3);
   font-size: 0.75rem;
+  letter-spacing: 0.02em;
 }
 footer a {
   color: var(--fg-3);
   text-decoration: none;
   transition: color 0.25s;
 }
-footer a:hover { color: var(--accent); }
+footer a:hover { color: var(--cyan); }
+footer .sep { margin: 0 0.3em; }
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
   body { font-size: 14px; }
-  .hero { min-height: 92svh; }
-  .pillars { grid-template-columns: 1fr; }
-  .features { grid-template-columns: 1fr; }
-  .use-cases { grid-template-columns: 1fr; }
-  .install-box { padding: 12px 16px; font-size: 0.85rem; gap: 12px; }
-  .alt { font-size: 0.75rem; }
+  .hero { min-height: 92svh; padding: 0 16px; }
+  .terminal { max-width: 100%; }
+  .terminal-body { padding: 16px 14px; }
+  .prompt-line { font-size: 0.75rem; }
+  .install-output { font-size: 0.7rem; }
+  .alt-installs { font-size: 0.65rem; }
+  .content { padding: 0 16px 60px; }
+  .demo { margin-bottom: 72px; }
+  .story { margin-bottom: 72px; }
+  .features { margin-bottom: 72px; }
+  .providers-section { margin-bottom: 72px; }
+  .divider { margin-bottom: 72px; }
+  .man-page { padding: 16px; }
+  .cta-install { padding: 12px 16px; gap: 12px; font-size: 0.8rem; }
 }
-@media (max-width: 380px) {
-  .install-box { flex-direction: column; gap: 8px; }
+@media (max-width: 480px) {
+  h1 { margin-bottom: 12px; }
+  .tagline { margin-bottom: 32px; }
+  .prompt-line { font-size: 0.7rem; }
+  .copy-inline { display: none; }
+  .cta-install { flex-direction: column; gap: 8px; font-size: 0.75rem; }
+  .man-head span:nth-child(2), .man-foot span:nth-child(2) { display: none; }
 }
 </style>
 </head>
@@ -765,94 +760,92 @@ footer a:hover { color: var(--accent); }
 
 <div class="hero">
   <div class="hero-inner">
-    <h1>purple<span class="dot">.</span><span class="cursor" aria-hidden="true"></span> <span class="h1-sub">Terminal SSH client.</span></h1>
-    <p class="tagline">Find any server. Connect in a keystroke.</p>
-    <div class="install-box">
-      <code><span class="dim">$</span> curl -fsSL getpurple.sh | sh</code>
-      <button class="copy-btn" onclick="copy(this)">copy</button>
-    </div>
-    <p class="alt">
-      or <a href="https://github.com/erickochen/homebrew-purple" rel="noopener">brew install erickochen/purple/purple</a>
-      or <a href="https://crates.io/crates/purple-ssh" rel="noopener">cargo install purple-ssh</a>
-    </p>
-    <div class="preview" aria-hidden="true">
-      <div class="preview-bar"><span>Search. Select. Connect.</span></div>
-      <div class="preview-body">
-        <div class="preview-row sel"><span>web-prod-1</span><span class="h">10.0.1.5</span><span class="t">prod, aws</span></div>
-        <div class="preview-row"><span>db-staging</span><span class="h">10.0.2.10</span><span class="t">staging</span></div>
-        <div class="preview-row"><span>api-eu-west</span><span class="h">10.0.3.1</span><span class="t">prod, gcp</span></div>
-        <div class="preview-row"><span>monitor</span><span class="h">10.0.4.2</span><span class="t">infra</span></div>
+    <h1>purple<span class="dot">.</span><span class="cursor h1-cursor"></span> <span class="h1-sub">One terminal. All your servers.</span></h1>
+    <h2 class="tagline">Open-source terminal SSH manager and SSH config editor for macOS and Linux. Search, connect, transfer files and manage containers. All from one TUI.</h2>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dots">
+          <span class="dot-close"></span>
+          <span class="dot-min"></span>
+          <span class="dot-max"></span>
+        </span>
+        <span class="terminal-title">purple</span>
       </div>
-      <div class="preview-foot">4 hosts │ Enter connect │ / search │ ? help</div>
+      <div class="terminal-body">
+        <div class="prompt-line">
+          <span class="prompt-char">$</span>
+          <span class="typed-text" id="typed-cmd"></span><span class="cursor" id="typing-cursor"></span>
+          <button class="copy-btn copy-inline" id="copy-btn" onclick="copy(this)" style="display:none">copy</button>
+        </div>
+        <div class="install-output" id="install-output" style="display:none">
+          <div>Downloading purple v2.35.0 for darwin-arm64...</div>
+          <div>Installing to /usr/local/bin/purple... <span class="success">done.</span></div>
+        </div>
+        <div class="alt-installs" id="alt-installs" style="display:none">
+          <div><span class="prompt-char-dim">$</span> brew install erickochen/purple/purple</div>
+          <div><span class="prompt-char-dim">$</span> cargo install purple-ssh</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
 <main class="content">
 
-  <p class="intro">Your SSH config has 500 hosts. You need the right one now. purple gives you instant search, visual file transfer and cloud sync in a TUI that edits your <code>~/.ssh/config</code> directly. No context switching.</p>
-
   <div class="demo">
     <video autoplay loop muted playsinline
            width="1920" height="900"
            poster="https://raw.githubusercontent.com/erickochen/purple/master/demo.gif"
-           aria-label="purple terminal SSH client demo: searching hosts, managing Docker containers, transferring files, connecting via SSH and syncing cloud providers in the terminal">
+           aria-label="purple terminal SSH client demo: searching hosts, managing containers, transferring files and syncing cloud providers">
       <source src="https://raw.githubusercontent.com/erickochen/purple/master/demo.webm" type="video/webm">
       <img src="https://raw.githubusercontent.com/erickochen/purple/master/demo.gif"
            alt="purple terminal SSH client demo" loading="lazy" decoding="async" width="1920" height="900">
     </video>
   </div>
 
-  <div class="pillars">
-    <div class="pillar">
-      <h2>16-provider cloud sync</h2>
-      <p>AWS, GCP, Azure and 13 more. Servers sync in. Decommissioned ones get flagged, not lost.</p>
+  <div class="story">
+    <p>I had a perfectly good SSH config. Clean, well-organized, no complaints. That part worked.</p>
+    <p>What didn't work was the six other things I needed to do every day. Every container check was <code>ssh</code>, <code>docker ps</code>, scroll, repeat. Every file transfer was remembering <code>scp</code> flags. Every new cloud VM meant opening a console, copying an IP, editing my config by hand. And running the same command across a dozen hosts? That was either a bash loop or a whole Ansible setup for a one-liner.</p>
+    <p><strong>So I put all of it in one terminal.</strong></p>
+  </div>
+
+  <div class="features">
+    <div class="feat">
+      <span class="feat-icon">🔍</span>
+      <span class="feat-text"><strong>Find any host in a keystroke.</strong> Fuzzy matching across hostnames, IPs, tags and users. Your most-used servers float to the top automatically. Press <code>:</code> for a command palette with all 24 actions.</span>
     </div>
-    <div class="pillar">
-      <h2>Visual file transfer</h2>
-      <p>Dual-pane explorer. Browse remote files, copy with Enter. No scp paths to remember.</p>
+    <div class="feat">
+      <span class="feat-icon">☁️</span>
+      <span class="feat-text"><strong>Pull servers from 16 cloud providers.</strong> AWS, Azure, GCP, Hetzner, DigitalOcean, Proxmox VE, Tailscale and 9 more. New VMs sync in, IPs stay current, decommissioned hosts get flagged.</span>
     </div>
-    <div class="pillar">
-      <h2>Instant access</h2>
-      <p>Search 500 hosts, connect in a keystroke. Frecency sorting learns what you use most.</p>
+    <div class="feat">
+      <span class="feat-icon">🐳</span>
+      <span class="feat-text"><strong>See and control containers remotely.</strong> Docker and Podman over plain SSH. Start, stop, restart without installing anything on the remote.</span>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">📂</span>
+      <span class="feat-text"><strong>Browse and copy files between machines.</strong> Dual-pane file explorer. Local filesystem on one side, remote on the other. Handles ProxyJump chains and tunnels.</span>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">⚡</span>
+      <span class="feat-text"><strong>Run one command on many hosts.</strong> Pick a snippet, select your targets, execute. Results stream in per host.</span>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">🔑</span>
+      <span class="feat-text"><strong>Passwords handled for you.</strong> Plugs into OS Keychain, 1Password, Bitwarden, pass, the HashiCorp Vault KV secrets engine or a custom script. Credentials are fetched at connect time.</span>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">📜</span>
+      <span class="feat-text"><strong>Short-lived SSH certificates.</strong> Integrates with the HashiCorp Vault SSH secrets engine. Configure a role per host or per provider, press V to bulk-sign. Cached under ~/.purple/certs with automatic renewal.</span>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">🤖</span>
+      <span class="feat-text"><strong>Let AI agents manage your servers.</strong> Built-in MCP server. Claude Code, Cursor and other tools get direct access to your hosts and containers.</span>
     </div>
   </div>
 
-  <section id="quick-start">
-    <h2>Quick start</h2>
-    <div class="features" style="grid-template-columns: repeat(4, 1fr)">
-      <div class="feature"><strong>1. Install</strong><span>curl -fsSL getpurple.sh | sh</span></div>
-      <div class="feature"><strong>2. Launch</strong><span>purple</span></div>
-      <div class="feature"><strong>3. Sync</strong><span>S to add a cloud provider</span></div>
-      <div class="feature"><strong>4. Connect</strong><span>/ to search, Enter to connect</span></div>
-    </div>
-  </section>
-
-  <section id="features">
-    <h2>SSH client features</h2>
-    <div class="features">
-      <div class="feature"><strong>Search</strong><span>Fuzzy search across aliases, hostnames, users and tags</span></div>
-      <div class="feature"><strong>Snippets</strong><span>Run the same command on 50 servers. Sequential or parallel</span></div>
-      <div class="feature"><strong>Tags</strong><span>Organize by environment, team or project. Filter with #tags</span></div>
-      <div class="feature"><strong>Docker &amp; Podman</strong><span>Manage containers on remote hosts over SSH. Start, stop and restart without leaving the terminal. Auto-detects Docker or Podman. No agent. No web UI.</span></div>
-      <div class="feature"><strong>Tunnels</strong><span>Manage port forwards per host. Start and stop from the TUI</span></div>
-      <div class="feature"><strong>Passwords</strong><span>OS Keychain, 1Password, Bitwarden, pass, HashiCorp Vault or custom commands. Automatic on connect</span></div>
-      <div class="feature"><strong>Round-trip fidelity</strong><span>Comments, formatting and unknown directives stay untouched</span></div>
-      <div class="feature"><strong>SSH keys</strong><span>Browse keys with metadata and see which hosts use each key</span></div>
-      <div class="feature"><strong>Soft-delete</strong><span>Disappeared cloud hosts are dimmed, not deleted. Purge when ready</span></div>
-      <div class="feature"><strong>Bulk import</strong><span>Press I to import from known_hosts, or use the CLI for hosts files</span></div>
-      <div class="feature"><strong>Atomic writes</strong><span>Temp file, chmod 600, rename. With automatic backups</span></div>
-      <div class="feature"><strong>Detail panel</strong><span>Connection info, activity, provider metadata, tunnels and snippets</span></div>
-      <div class="feature"><strong>Ping</strong><span>Check which servers are reachable before you connect</span></div>
-      <div class="feature"><strong>AI Agent Integration</strong><span>MCP server for Claude Code, Cursor and other AI agents. Five tools to list hosts, run commands and manage containers over JSON-RPC 2.0</span></div>
-    </div>
-  </section>
-
-  <hr class="divider">
-
-  <section id="cloud-sync">
-    <h2>Cloud provider SSH sync: AWS, Azure, GCP, OCI and 12 more</h2>
-    <p>Pull servers from sixteen cloud providers directly into your <code>~/.ssh/config</code>. The DevOps SSH tool for multi-cloud teams. Sync adds new hosts, updates changed IPs and stores provider tags separately. Your own tags are never touched. Provider metadata (region, plan, OS, status) is stored in config comments and displayed in the detail panel.</p>
+  <div class="providers-section">
+    <div class="providers-label">Cloud providers</div>
     <ul class="providers">
       <li>AWS EC2</li>
       <li>Azure</li>
@@ -862,7 +855,7 @@ footer a:hover { color: var(--accent); }
       <li>i3D.net</li>
       <li>Leaseweb</li>
       <li>Linode</li>
-      <li>Oracle Cloud (OCI)</li>
+      <li>Oracle Cloud</li>
       <li>OVHcloud</li>
       <li>Proxmox VE</li>
       <li>Scaleway</li>
@@ -871,140 +864,53 @@ footer a:hover { color: var(--accent); }
       <li>UpCloud</li>
       <li>Vultr</li>
     </ul>
-    <p>Press <code>S</code> in the TUI to manage providers and trigger a sync. Preview changes with <code>purple sync --dry-run</code> from the CLI. Remove deleted hosts with <code>--remove</code>.</p>
-  </section>
-
-  <section id="round-trip">
-    <h2>Your config, respected</h2>
-    <p>purple reads and writes <code>~/.ssh/config</code> directly with full round-trip fidelity. Comments, indentation, unknown directives, CRLF line endings and Include files are all preserved. Every write is atomic with automatic backups.</p>
-  </section>
-
-  <section id="rust">
-    <h2>Built with Rust</h2>
-    <p>Starts instantly. No dependencies to install. No daemon running in the background. Won't corrupt your config. Single binary. MIT licensed. 5000+ tests.</p>
-  </section>
+  </div>
 
   <hr class="divider">
 
-  <section id="use-cases">
-    <h2>Who uses purple</h2>
-    <div class="use-cases">
-      <div>SRE managing 200 servers across AWS, GCP, Oracle Cloud and Hetzner. Search, tag and connect in seconds.</div>
-      <div>Developer transferring config files and logs between servers without typing scp paths.</div>
-      <div>Freelancer managing client infrastructure across multiple clouds from one TUI.</div>
-      <div>Sysadmin running the same diagnostic command on 50 servers at once with snippets.</div>
-      <div>Homelab operator managing Docker stacks across three VPS hosts. View, start and stop containers over SSH without Portainer.</div>
-      <div>AI-assisted developer using Claude Code or Cursor to manage servers through natural language. purple mcp bridges your AI assistant to your SSH fleet.</div>
-    </div>
-  </section>
-
-  <section id="vs">
-    <h2>Why purple vs other SSH tools</h2>
-    <div class="vs-list">
-      <div id="vs-manual"><strong>vs. manual SSH config editing.</strong> Keep your existing config. purple adds instant search, tags, cloud sync, snippets, password management and a visual file explorer on top.</div>
-      <div id="vs-termius"><strong>vs. Termius / Royal TSX.</strong> Free forever. No subscription, no vendor lock-in. Edits your real SSH config directly. Your config, your rules.</div>
-      <div id="vs-storm"><strong>vs. storm / sshs.</strong> Full TUI with config editing, cloud sync from 16 providers, visual file transfer, snippets and password management. Not just a host selector.</div>
-      <div id="vs-ansible"><strong>vs. Ansible / Fabric.</strong> Run ad-hoc commands on 50 servers without writing playbooks or inventory files. Snippets with parallel execution, zero setup.</div>
-      <div id="vs-portainer"><strong>vs. Portainer / Dockhand / Lazydocker.</strong> Manage containers through your existing SSH connection. No agent to install, no web UI to host, no ports to open. Works with Docker and Podman across your fleet.</div>
-    </div>
-  </section>
-
-  <hr class="divider">
-
-  <section id="faq">
-    <h2>FAQ</h2>
-    <div class="faq">
+  <div class="faq">
+    <div class="faq-label">FAQ</div>
+    <div class="man-page">
+      <div class="man-head"><span>PURPLE(1)</span><span>General Commands Manual</span><span>PURPLE(1)</span></div>
       <details>
-        <summary>What is purple SSH?</summary>
-        <div class="a-wrap"><div class="answer">A free, open-source terminal SSH client. Search hundreds of hosts, connect instantly, transfer files visually, run commands across servers, sync from sixteen cloud providers and handle SSH passwords automatically. Single Rust binary for macOS and Linux.</div></div>
+        <summary>Does purple modify my SSH config?</summary>
+        <div class="answer">Only when you explicitly add, edit, delete or sync. All writes are atomic with automatic backups. Comments, indentation and unknown directives are preserved.</div>
       </details>
       <details>
-        <summary>Can I transfer files between local and remote servers with purple?</summary>
-        <div class="a-wrap"><div class="answer">Yes. Press <code>f</code> on any host to open the remote file explorer. Local files on the left, remote on the right. Navigate directories, select files and copy between machines with <code>Enter</code>. Works through ProxyJump chains, password sources and active tunnels.</div></div>
+        <summary>Does it need a daemon or background process?</summary>
+        <div class="answer">No. Single binary. Run it, use it, close it.</div>
       </details>
       <details>
-        <summary>What cloud providers does purple support?</summary>
-        <div class="a-wrap"><div class="answer">AWS EC2, Azure, DigitalOcean, GCP (Compute Engine), Hetzner, i3D.net, Leaseweb, Linode (Akamai), Oracle Cloud Infrastructure (OCI), OVHcloud, Proxmox VE, Scaleway, Tailscale, TransIP, UpCloud and Vultr. Each provider is configured with an API token or credentials profile.</div></div>
+        <summary>Does it send my config anywhere?</summary>
+        <div class="answer">No. Your config never leaves your machine. Provider sync calls cloud APIs to fetch server lists. The TUI checks GitHub for new releases on startup (cached 24 hours). That's it.</div>
       </details>
       <details>
-        <summary>How do command snippets work in purple?</summary>
-        <div class="a-wrap"><div class="answer">Save commands and run them on remote hosts via SSH. In the TUI, press <code>r</code> to run on the selected host, <code>Ctrl+Space</code> to multi-select hosts then <code>r</code>, or <code>R</code> to run on all visible hosts. The CLI alternative supports tag-based targeting (<code>--tag prod</code>) and parallel execution (<code>--parallel</code>).</div></div>
-      </details>
-      <details>
-        <summary>How does SSH password management work in purple?</summary>
-        <div class="a-wrap"><div class="answer">Set a password source per host via the TUI or a global default. When you connect, purple acts as SSH_ASKPASS and retrieves the password automatically. Supported: OS Keychain, 1Password, Bitwarden, pass, HashiCorp Vault and custom commands.</div></div>
-      </details>
-      <details>
-        <summary>Can I manage Docker or Podman containers with purple?</summary>
-        <div class="a-wrap"><div class="answer">Yes. Press <code>C</code> on any host to list all containers over SSH. Start, stop and restart without leaving the TUI. Purple auto-detects Docker or Podman. No agent. No web UI. No extra ports.</div></div>
-      </details>
-      <details>
-        <summary>Does purple modify my existing SSH config?</summary>
-        <div class="a-wrap"><div class="answer">Only when you add, edit, delete or sync. All writes are atomic with automatic backups.</div></div>
-      </details>
-      <details>
-        <summary>Will purple break my SSH config comments or formatting?</summary>
-        <div class="a-wrap"><div class="answer">No. Comments, indentation and unknown directives are preserved through every read-write cycle.</div></div>
-      </details>
-      <details>
-        <summary>Does purple need a daemon or background process?</summary>
-        <div class="a-wrap"><div class="answer">No. Single binary. Run it, use it, close it.</div></div>
-      </details>
-      <details>
-        <summary>Does purple send my SSH config anywhere?</summary>
-        <div class="a-wrap"><div class="answer">No. Your config never leaves your machine. Provider sync calls cloud APIs to fetch server lists. The TUI checks GitHub for new releases on startup (cached 24 hours).</div></div>
-      </details>
-      <details>
-        <summary>Can I use purple with SSH Include files?</summary>
-        <div class="a-wrap"><div class="answer">Yes. Hosts from Include files are displayed in the TUI but never modified. Resolved recursively up to depth 16 with tilde and glob expansion.</div></div>
-      </details>
-      <details>
-        <summary>How do I sync Google Cloud (GCP) instances with purple?</summary>
-        <div class="a-wrap"><div class="answer">In the TUI, press <code>S</code> to open the provider list, then add GCP. Fill in your service account JSON key file path, project ID and optionally specific zones. Purple creates a JWT and exchanges it for an access token automatically. The CLI alternative is <code>purple provider add gcp --token /path/to/sa-key.json --project my-project</code>.</div></div>
-      </details>
-      <details>
-        <summary>How do I sync Azure VMs with purple?</summary>
-        <div class="a-wrap"><div class="answer">In the TUI, press <code>S</code> to open the provider list, then add Azure. Fill in your service principal JSON file path and subscription IDs. The CLI alternative is <code>purple provider add azure --token /path/to/sp.json --regions SUBSCRIPTION_ID</code>. Supports both az CLI and portal credential formats.</div></div>
-      </details>
-      <details>
-        <summary>How do I sync Oracle Cloud Infrastructure (OCI) instances with purple?</summary>
-        <div class="a-wrap"><div class="answer">In the TUI, press <code>S</code> to open the provider list, then add Oracle. Fill in your OCI config file path, compartment OCID and regions. The CLI alternative is <code>purple provider add oracle --token ~/.oci/config --compartment OCID --regions eu-amsterdam-1</code>. Requires IAM policies: read instance-family and read virtual-network-family.</div></div>
-      </details>
-      <details>
-        <summary>How do I sync AWS EC2 instances with purple?</summary>
-        <div class="a-wrap"><div class="answer">In the TUI, press <code>S</code> to open the provider list, then add AWS. Select your regions from the region picker and fill in your credentials profile or access key. The CLI alternative is <code>purple provider add aws --profile default --regions us-east-1,eu-west-1</code>. EC2 tags are synced (excluding internal aws:* tags). AMI names are resolved for OS metadata.</div></div>
-      </details>
-      <details>
-        <summary>Is purple a Portainer alternative?</summary>
-        <div class="a-wrap"><div class="answer">For container visibility and basic lifecycle control (start, stop, restart) over SSH, yes. Press <code>C</code> on any host to see its containers. No agent to install, no web UI to host, no ports to open. Works with Docker and Podman. Purple does not provide container creation, registry management or role-based access control.</div></div>
-      </details>
-      <details>
-        <summary>How does purple compare to Lazydocker?</summary>
-        <div class="a-wrap"><div class="answer">Lazydocker manages Docker locally on the host where it is installed. purple manages containers on remote servers over SSH from your local machine. Use Lazydocker for single-host local management. Use purple for multi-host remote management across your fleet.</div></div>
+        <summary>Can I manage Docker containers with purple?</summary>
+        <div class="answer">Yes. Press <code>C</code> on any host to list all containers over SSH. Start, stop, restart. Auto-detects Docker or Podman. No agent, no web UI, no extra ports.</div>
       </details>
       <details>
         <summary>Can AI assistants use purple?</summary>
-        <div class="a-wrap"><div class="answer">Yes. Run <code>purple mcp</code> to start a Model Context Protocol server over JSON-RPC 2.0. Claude Code, Cursor and other MCP-compatible AI agents can use five tools: list_hosts, get_host, run_command, list_containers and container_action. No API keys needed. Approval behavior depends on your AI client.</div></div>
+        <div class="answer">Yes. Run <code>purple mcp</code> to start the MCP server. Claude Code, Cursor and other agents get five tools: list_hosts, get_host, run_command, list_containers and container_action.</div>
       </details>
+      <details>
+        <summary>How do I troubleshoot connection problems?</summary>
+        <div class="answer">Run with <code>--verbose</code> to enable debug logging, then <code>purple logs --tail</code> in another terminal. Logs are written to <code>~/.purple/purple.log</code> with fault domain prefixes: <code>[external]</code> for remote/tool errors, <code>[config]</code> for local config issues. Set <code>PURPLE_LOG=trace</code> for maximum detail.</div>
+      </details>
+      <div class="man-foot"><span>purple v2.35.0</span><span>2026-04-12</span><span>PURPLE(1)</span></div>
     </div>
-  </section>
+  </div>
 
   <div class="cta">
-    <div class="install-box">
+    <div class="cta-install">
       <code><span class="dim">$</span> curl -fsSL getpurple.sh | sh</code>
       <button class="copy-btn" onclick="copy(this)">copy</button>
-    </div>
-    <div class="links">
-      <a href="https://github.com/erickochen/purple" rel="noopener">GitHub</a>
-      <a href="https://github.com/erickochen/purple/blob/master/README.md" rel="noopener">Docs</a>
-      <a href="https://crates.io/crates/purple-ssh" rel="noopener">crates.io</a>
     </div>
   </div>
 
 </main>
 
 <footer>
-  <a href="https://github.com/erickochen/purple" rel="noopener">GitHub</a> · <a href="https://crates.io/crates/purple-ssh" rel="noopener">crates.io</a> · MIT License · v2.24.0
+  <a href="https://github.com/erickochen/purple" rel="noopener">GitHub</a> &middot; <a href="https://github.com/erickochen/purple/wiki" rel="noopener">Docs</a> &middot; <a href="https://crates.io/crates/purple-ssh" rel="noopener">crates.io</a> &middot; MIT License &middot; Rust &middot; 6000+ tests
 </footer>
 
 <script>
@@ -1014,6 +920,32 @@ function copy(btn) {
     setTimeout(function() { btn.textContent = "copy"; }, 2000);
   }).catch(function() {});
 }
+(function() {
+  var cmd = "curl -fsSL getpurple.sh | sh";
+  var el = document.getElementById("typed-cmd");
+  var cursor = document.getElementById("typing-cursor");
+  var output = document.getElementById("install-output");
+  var copyBtn = document.getElementById("copy-btn");
+  var altInstalls = document.getElementById("alt-installs");
+  var i = 0;
+  function type() {
+    if (i < cmd.length) {
+      el.textContent += cmd[i];
+      i++;
+      setTimeout(type, 35 + Math.random() * 25);
+    } else {
+      setTimeout(function() {
+        cursor.style.display = "none";
+        copyBtn.style.display = "";
+        output.style.display = "block";
+        setTimeout(function() {
+          altInstalls.style.display = "block";
+        }, 300);
+      }, 400);
+    }
+  }
+  setTimeout(type, 1400);
+})();
 </script>
 </body>
 </html>
