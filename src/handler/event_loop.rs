@@ -628,7 +628,7 @@ pub(crate) fn handle_vault_sign_all_done(
         if failed > 0 {
             app.set_sticky_status(msg, true);
         } else {
-            app.set_status(msg, false);
+            app.set_info_status(msg);
         }
         return std::ops::ControlFlow::Break(()); // caller should `continue`
     }
@@ -641,7 +641,7 @@ pub(crate) fn handle_vault_sign_all_done(
             if failed > 0 {
                 app.set_sticky_status(summary_msg, true);
             } else {
-                app.set_status(summary_msg, false);
+                app.set_info_status(summary_msg);
             }
         } else if app.external_config_changed() {
             // The on-disk ssh config (or an include) was modified
@@ -693,13 +693,20 @@ pub(crate) fn handle_vault_sign_all_done(
                         } else {
                             app.update_last_modified();
                             app.reload_hosts();
-                            app.set_status(
-                                format!(
+                            if failed > 0 {
+                                app.set_sticky_status(
+                                    format!(
+                                        "{} External ssh config edits detected, merged {} CertificateFile directives.",
+                                        summary_msg, reapplied
+                                    ),
+                                    true,
+                                );
+                            } else {
+                                app.set_info_status(format!(
                                     "{} External ssh config edits detected, merged {} CertificateFile directives.",
                                     summary_msg, reapplied
-                                ),
-                                failed > 0,
-                            );
+                                ));
+                            }
                         }
                     } else {
                         app.reload_hosts();
@@ -736,13 +743,13 @@ pub(crate) fn handle_vault_sign_all_done(
             if failed > 0 {
                 app.set_sticky_status(summary_msg, true);
             } else {
-                app.set_status(summary_msg, false);
+                app.set_info_status(summary_msg);
             }
         }
     } else if failed > 0 {
         app.set_sticky_status(summary_msg, true);
     } else {
-        app.set_status(summary_msg, false);
+        app.set_info_status(summary_msg);
     }
     std::ops::ControlFlow::Continue(()) // normal flow
 }

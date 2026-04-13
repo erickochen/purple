@@ -18,7 +18,7 @@ fn placeholder_for(field: FormField, is_pattern: bool) -> String {
             }
         }
         FormField::Alias if is_pattern => "10.0.0.* or *.example.com".to_string(),
-        FormField::Alias => "prod, staging, db-01".to_string(),
+        FormField::Alias => "e.g. prod or db-01".to_string(),
         FormField::Hostname => "192.168.1.1 or example.com".to_string(),
         FormField::User => "root".to_string(),
         FormField::Port => "22".to_string(),
@@ -26,11 +26,13 @@ fn placeholder_for(field: FormField, is_pattern: bool) -> String {
         FormField::ProxyJump => "Enter to pick a host".to_string(),
         // SSH secrets engine role (signs SSH certificates). Distinct from
         // Vault KV used in Password Source (vault:path/to/secret).
-        FormField::VaultSsh => "e.g. ssh-client-signer/sign/my-role".to_string(),
+        FormField::VaultSsh => {
+            "e.g. ssh-client-signer/sign/my-role (auth via vault login)".to_string()
+        }
         FormField::VaultAddr => {
             "e.g. http://127.0.0.1:8200 (inherits from provider or env when empty)".to_string()
         }
-        FormField::Tags => "prod, staging, us-east".to_string(),
+        FormField::Tags => "e.g. prod, staging, us-east (comma-separated)".to_string(),
     }
 }
 
@@ -120,8 +122,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     frame.render_widget(block, block_area);
 
     // Suppress cursor when a picker overlay is visible above this form
-    let picker_open =
-        app.ui.show_key_picker || app.ui.show_proxyjump_picker || app.ui.show_password_picker;
+    let picker_open = app.ui.show_key_picker
+        || app.ui.show_proxyjump_picker
+        || app.ui.show_password_picker
+        || app.ui.show_vault_role_picker;
+    let has_vault_roles = !app.vault_role_candidates().is_empty();
 
     // Compute provider vault role hint for the VaultSsh field placeholder
     let vault_provider_hint: Option<(String, String)> =
@@ -211,6 +216,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             picker_open,
             vault_provider_hint.as_ref(),
             vault_addr_provider_hint.as_ref(),
+            has_vault_roles,
         );
     }
 
@@ -279,6 +285,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // Password source picker popup overlay
     if app.ui.show_password_picker {
         render_password_picker_overlay(frame, app);
+    }
+
+    // Vault role picker popup overlay
+    if app.ui.show_vault_role_picker {
+        render_vault_role_picker_overlay(frame, app);
     }
 }
 
@@ -433,6 +444,38 @@ fn render_proxyjump_picker_overlay(frame: &mut Frame, app: &mut App) {
     frame.render_stateful_widget(list, area, &mut app.ui.proxyjump_picker_state);
 }
 
+fn render_vault_role_picker_overlay(frame: &mut Frame, app: &mut App) {
+    let candidates = app.vault_role_candidates();
+
+    let height = (candidates.len() as u16 + 2).min(12);
+    let width = frame.area().width.clamp(50, 64);
+    let area = super::centered_rect_fixed(width, height, frame.area());
+    frame.render_widget(Clear, area);
+
+    let max_role = (width as usize).saturating_sub(6);
+    let items: Vec<ListItem> = candidates
+        .iter()
+        .map(|role| {
+            ListItem::new(Line::from(Span::styled(
+                format!("  {}", super::truncate(role, max_role)),
+                theme::bold(),
+            )))
+        })
+        .collect();
+
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(Span::styled(" Vault SSH Role ", theme::brand()))
+        .border_style(theme::accent());
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(theme::selected_row())
+        .highlight_symbol("  ");
+
+    frame.render_stateful_widget(list, area, &mut app.ui.vault_role_picker_state);
+}
+
 fn render_password_picker_overlay(frame: &mut Frame, app: &mut App) {
     let sources = crate::askpass::PASSWORD_SOURCES;
     let height = sources.len() as u16 + 5; // items + borders + spacer + footer
@@ -526,6 +569,7 @@ fn render_field_content(
     picker_open: bool,
     vault_provider_hint: Option<&(String, String)>,
     vault_addr_provider_hint: Option<&(String, String)>,
+    has_vault_roles: bool,
 ) {
     let is_focused = form.focused_field == field;
 
@@ -545,7 +589,7 @@ fn render_field_content(
     let is_picker = matches!(
         field,
         FormField::IdentityFile | FormField::ProxyJump | FormField::AskPass
-    );
+    ) || (field == FormField::VaultSsh && has_vault_roles);
 
     // Inherited hint for this field (value + source pattern).
     let inherited_hint = match field {
@@ -604,7 +648,12 @@ fn render_field_content(
         let inner_width = area.width as usize;
         let arrow_pos = inner_width.saturating_sub(1);
         let (display, display_style) = if value.is_empty() {
-            (placeholder_for(field, form.is_pattern), theme::muted())
+            let ph = if field == FormField::VaultSsh {
+                "Enter to pick a role or type one".to_string()
+            } else {
+                placeholder_for(field, form.is_pattern)
+            };
+            (ph, theme::muted())
         } else {
             (value.to_string(), theme::bold())
         };

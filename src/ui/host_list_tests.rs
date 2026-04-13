@@ -523,3 +523,36 @@ fn columns_detail_mode_collapse_priority() {
     assert_eq!(cols_very_narrow.history, 0);
     assert_eq!(cols_very_narrow.tags, 0, "tags should hide after history");
 }
+
+// --- tag_bar_spans tests ---
+
+#[test]
+fn tag_bar_empty_input_shows_cursor_then_placeholder() {
+    let spans = super::tag_bar_spans("", &[]);
+    let texts: Vec<&str> = spans.iter().map(|s| s.content.as_ref()).collect();
+    // " tags: " then cursor "_" then placeholder hint
+    assert_eq!(texts[0], " tags: ");
+    assert_eq!(texts[1], "_");
+    assert!(texts[2].contains("e.g."));
+}
+
+#[test]
+fn tag_bar_with_input_shows_input_then_cursor() {
+    let spans = super::tag_bar_spans("prod, staging", &[]);
+    let texts: Vec<&str> = spans.iter().map(|s| s.content.as_ref()).collect();
+    assert_eq!(texts[0], " tags: ");
+    assert_eq!(texts[1], "prod, staging");
+    assert_eq!(texts[2], "_");
+    assert_eq!(texts.len(), 3);
+}
+
+#[test]
+fn tag_bar_with_provider_tags_shows_prefix() {
+    let ptags = vec!["cloud".to_string(), "eu".to_string()];
+    let spans = super::tag_bar_spans("web", &ptags);
+    let texts: Vec<&str> = spans.iter().map(|s| s.content.as_ref()).collect();
+    assert_eq!(texts[0], " tags: ");
+    assert_eq!(texts[1], "[cloud, eu] ");
+    assert_eq!(texts[2], "web");
+    assert_eq!(texts[3], "_");
+}

@@ -1273,10 +1273,13 @@ fn run_tui(mut app: App) -> Result<()> {
                                     askpass,
                                 };
                             } else {
-                                app.set_status(
-                                    format!("SSH to {} exited with code {}.", alias, code),
-                                    true,
-                                );
+                                let reason = connection::stderr_summary(&cr.stderr_output);
+                                let msg = if let Some(reason) = reason {
+                                    format!("SSH to {} failed. {}", alias, reason)
+                                } else {
+                                    format!("SSH to {} exited with code {}.", alias, code)
+                                };
+                                app.set_status(msg, true);
                             }
                         } else if let Some((ref msg, is_error)) = vault_msg {
                             app.set_status(msg.clone(), is_error);

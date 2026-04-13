@@ -1263,18 +1263,33 @@ fn search_footer_spans<'a>() -> Vec<Span<'a>> {
     ]
 }
 
+/// Build the spans for the tag input bar. Extracted for testability.
+fn tag_bar_spans<'a>(input: &'a str, provider_tags: &[String]) -> Vec<Span<'a>> {
+    let mut spans = vec![Span::styled(" tags: ", theme::accent_bold())];
+    if !provider_tags.is_empty() {
+        let ptags = provider_tags.join(", ");
+        spans.push(Span::styled(format!("[{}] ", ptags), theme::muted()));
+    }
+    if input.is_empty() {
+        spans.push(Span::styled("_", theme::accent()));
+        spans.push(Span::styled(
+            "  e.g. prod, staging, us-east",
+            theme::muted(),
+        ));
+    } else {
+        spans.push(Span::raw(input));
+        spans.push(Span::styled("_", theme::accent()));
+    }
+    spans
+}
+
 fn render_tag_bar(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let input = app.tags.input.as_deref().unwrap_or("");
-    let mut spans = vec![Span::styled(" tags: ", theme::accent_bold())];
-    // Show read-only provider tags if present
-    if let Some(host) = app.selected_host() {
-        if !host.provider_tags.is_empty() {
-            let ptags = host.provider_tags.join(", ");
-            spans.push(Span::styled(format!("[{}] ", ptags), theme::muted()));
-        }
-    }
-    spans.push(Span::raw(input));
-    spans.push(Span::styled("_", theme::accent()));
+    let provider_tags = app
+        .selected_host()
+        .map(|h| h.provider_tags.clone())
+        .unwrap_or_default();
+    let spans = tag_bar_spans(input, &provider_tags);
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 

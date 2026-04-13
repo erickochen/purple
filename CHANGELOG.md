@@ -1,3 +1,15 @@
+## 2.36.0
+
+- Vault SSH role picker and smarter defaults
+- Vault SSH Role field offers a picker when roles are already configured on other hosts or providers. Press Enter to pick or type one manually ([#26](https://github.com/erickochen/purple/issues/26))
+- Scheme-aware default ports for Vault address: `:443` for https, `:80` for http, `:8200` for bare hostnames
+- Vault SSH placeholder hints explain authentication flow ("auth via vault login")
+- SSH disconnect reasons shown in toast instead of just "exited with code 255". Full stderr context joined with pipe separators so you see why the connection was closed
+- Vault batch signing completion status now properly clears the sticky progress footer
+- Tags and alias placeholder hints clarified to avoid comma confusion
+- Tag input bar shows placeholder with cursor before hint text when empty
+- Updated dependencies to latest compatible versions
+
 ## 2.35.1
 
 - Internal cleanup. Leaner App struct and event loop

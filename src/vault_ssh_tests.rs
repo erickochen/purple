@@ -477,7 +477,7 @@ fn normalize_vault_addr_full_https_url() {
 fn normalize_vault_addr_https_without_port() {
     assert_eq!(
         normalize_vault_addr("https://vault.example.com"),
-        "https://vault.example.com:8200"
+        "https://vault.example.com:443"
     );
 }
 
@@ -503,7 +503,7 @@ fn normalize_vault_addr_ipv6_with_port() {
 fn normalize_vault_addr_url_with_path_no_port() {
     assert_eq!(
         normalize_vault_addr("http://vault.host/v1"),
-        "http://vault.host:8200/v1"
+        "http://vault.host:80/v1"
     );
 }
 
@@ -511,7 +511,7 @@ fn normalize_vault_addr_url_with_path_no_port() {
 fn normalize_vault_addr_trailing_slash() {
     assert_eq!(
         normalize_vault_addr("http://vault.host/"),
-        "http://vault.host:8200/"
+        "http://vault.host:80/"
     );
 }
 
@@ -519,7 +519,7 @@ fn normalize_vault_addr_trailing_slash() {
 fn normalize_vault_addr_uppercase_scheme() {
     assert_eq!(
         normalize_vault_addr("HTTP://vault.host"),
-        "HTTP://vault.host:8200"
+        "HTTP://vault.host:80"
     );
 }
 
@@ -530,7 +530,7 @@ fn normalize_vault_addr_unknown_scheme_passthrough() {
 
 #[test]
 fn normalize_vault_addr_ipv6_https_without_port() {
-    assert_eq!(normalize_vault_addr("https://[::1]"), "https://[::1]:8200");
+    assert_eq!(normalize_vault_addr("https://[::1]"), "https://[::1]:443");
 }
 
 #[test]

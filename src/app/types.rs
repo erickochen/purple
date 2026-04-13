@@ -537,6 +537,8 @@ pub struct UiSelection {
     pub password_picker_state: ListState,
     pub show_proxyjump_picker: bool,
     pub proxyjump_picker_state: ListState,
+    pub show_vault_role_picker: bool,
+    pub vault_role_picker_state: ListState,
     pub tag_picker_state: ListState,
     pub theme_picker_state: ListState,
     pub theme_picker_builtins: Vec<crate::ui::theme::ThemeDef>,

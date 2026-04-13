@@ -22,6 +22,12 @@ pub(super) fn handle_form(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    // Dispatch to vault role picker if it's open
+    if app.ui.show_vault_role_picker {
+        super::picker::handle_vault_role_picker(app, key);
+        return;
+    }
+
     // Handle discard confirmation dialog
     if app.pending_discard_confirm {
         match key.code {
@@ -126,6 +132,16 @@ pub(super) fn handle_form(app: &mut App, key: KeyEvent) {
                 app.ui.proxyjump_picker_state = ratatui::widgets::ListState::default();
                 if !candidates.is_empty() {
                     app.ui.proxyjump_picker_state.select(Some(0));
+                }
+            }
+            FormField::VaultSsh => {
+                let candidates = app.vault_role_candidates();
+                if candidates.is_empty() {
+                    submit_form(app);
+                } else {
+                    app.ui.show_vault_role_picker = true;
+                    app.ui.vault_role_picker_state = ratatui::widgets::ListState::default();
+                    app.ui.vault_role_picker_state.select(Some(0));
                 }
             }
             FormField::AskPass => {

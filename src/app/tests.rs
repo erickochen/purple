@@ -3729,7 +3729,7 @@ fn pattern_placeholder_text() {
     use crate::app::FormField;
     use crate::ui::host_form::{placeholder_text, placeholder_text_pattern};
     // Regular host placeholder
-    assert_eq!(placeholder_text(FormField::Alias), "prod, staging, db-01");
+    assert_eq!(placeholder_text(FormField::Alias), "e.g. prod or db-01");
     // Pattern placeholder
     assert_eq!(
         placeholder_text_pattern(FormField::Alias),
@@ -6449,6 +6449,22 @@ fn vault_signing_lifecycle() {
     assert_eq!(
         app.status.as_ref().unwrap().text,
         "Signed 0 of 1 certificate. 1 failed: timeout"
+    );
+}
+
+#[test]
+fn vault_signing_success_clears_sticky_progress() {
+    let mut app = make_app("");
+    // Sticky progress during signing
+    app.set_sticky_status("Signing 3/3: last-server (V to cancel)", false);
+    assert!(app.status.as_ref().unwrap().sticky);
+
+    // Success summary via set_info_status replaces sticky footer
+    app.set_info_status("Signed 3 of 3 certificates.");
+    assert!(!app.status.as_ref().unwrap().sticky);
+    assert_eq!(
+        app.status.as_ref().unwrap().text,
+        "Signed 3 of 3 certificates."
     );
 }
 

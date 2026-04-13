@@ -280,6 +280,40 @@ impl App {
         super::cycle_selection(&mut self.ui.proxyjump_picker_state, len, true);
     }
 
+    /// Collect unique Vault SSH roles from all hosts and providers, sorted.
+    pub fn vault_role_candidates(&self) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut roles = Vec::new();
+        for host in &self.hosts {
+            if let Some(ref role) = host.vault_ssh {
+                if seen.insert(role.clone()) {
+                    roles.push(role.clone());
+                }
+            }
+        }
+        // Also collect from provider configs.
+        for section in &self.provider_config.sections {
+            let role = section.vault_role.trim();
+            if !role.is_empty() && seen.insert(role.to_string()) {
+                roles.push(role.to_string());
+            }
+        }
+        roles.sort();
+        roles
+    }
+
+    /// Move vault role picker selection up.
+    pub fn select_prev_vault_role(&mut self) {
+        let len = self.vault_role_candidates().len();
+        super::cycle_selection(&mut self.ui.vault_role_picker_state, len, false);
+    }
+
+    /// Move vault role picker selection down.
+    pub fn select_next_vault_role(&mut self) {
+        let len = self.vault_role_candidates().len();
+        super::cycle_selection(&mut self.ui.vault_role_picker_state, len, true);
+    }
+
     /// Collect all unique tags from hosts, sorted alphabetically.
     pub fn collect_unique_tags(&self) -> Vec<String> {
         let mut seen = std::collections::HashSet::new();

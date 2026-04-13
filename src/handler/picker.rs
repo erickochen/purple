@@ -143,3 +143,29 @@ pub(super) fn handle_proxyjump_picker(app: &mut App, key: KeyEvent) {
         _ => {}
     }
 }
+
+pub(super) fn handle_vault_role_picker(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.ui.show_vault_role_picker = false;
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            app.select_next_vault_role();
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            app.select_prev_vault_role();
+        }
+        KeyCode::Enter => {
+            let candidates = app.vault_role_candidates();
+            if let Some(index) = app.ui.vault_role_picker_state.selected() {
+                if let Some(role) = candidates.get(index) {
+                    app.form.vault_ssh = role.clone();
+                    app.form.sync_cursor_to_end();
+                    app.set_status(format!("Vault SSH role set to {}.", role), false);
+                }
+            }
+            app.ui.show_vault_role_picker = false;
+        }
+        _ => {}
+    }
+}

@@ -241,6 +241,27 @@ pub fn connect(
     })
 }
 
+/// Extract a concise reason from SSH stderr for display in the toast.
+/// Joins all non-empty, non-banner lines with ` | ` so the full context
+/// is visible. Truncates to 200 chars (char-safe) if needed.
+pub fn stderr_summary(stderr: &str) -> Option<String> {
+    let summary: String = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('@'))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if summary.is_empty() {
+        return None;
+    }
+    if summary.len() > 200 {
+        let truncated: String = summary.chars().take(197).collect();
+        Some(format!("{truncated}..."))
+    } else {
+        Some(summary)
+    }
+}
+
 /// Parse host key verification error from SSH stderr output.
 /// Returns (hostname, known_hosts_path) if the error is a changed host key.
 ///
@@ -497,5 +518,71 @@ Host key verification failed.
             unsafe { std::env::set_var("TMUX", v) };
         }
         assert!(!result);
+    }
+
+    // --- first_stderr_line tests ---
+
+    #[test]
+    fn stderr_summary_joins_all_lines() {
+        let stderr = "channel 0: open failed: administratively prohibited: open failed\n\
+                      stdio forwarding failed\n\
+                      Connection closed by UNKNOWN port 65535\n";
+        let result = stderr_summary(stderr);
+        assert_eq!(
+            result.as_deref(),
+            Some(
+                "channel 0: open failed: administratively prohibited: open failed | stdio forwarding failed | Connection closed by UNKNOWN port 65535"
+            )
+        );
+    }
+
+    #[test]
+    fn stderr_summary_skips_banner_lines() {
+        let stderr = "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
+                      @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n\
+                      @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
+                      IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n";
+        let result = stderr_summary(stderr);
+        assert_eq!(
+            result.as_deref(),
+            Some("IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!")
+        );
+    }
+
+    #[test]
+    fn stderr_summary_returns_none_for_empty() {
+        assert!(stderr_summary("").is_none());
+        assert!(stderr_summary("   \n  \n").is_none());
+        assert!(stderr_summary("@@@@@\n@@@@@\n").is_none());
+    }
+
+    #[test]
+    fn stderr_summary_truncates_long_output() {
+        let long = "x".repeat(250);
+        let result = stderr_summary(&long).unwrap();
+        assert_eq!(result.len(), 200);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn stderr_summary_truncates_multibyte_safely() {
+        // Each '日' is 3 bytes. 100 chars = 300 bytes, exceeds the 200-char limit.
+        let long = "日".repeat(100);
+        let result = stderr_summary(&long).unwrap();
+        assert!(result.ends_with("..."));
+        // Must not panic and must be valid UTF-8
+        assert!(result.len() <= 600); // 197 chars * 3 bytes + 3 bytes for "..."
+    }
+
+    #[test]
+    fn stderr_summary_simple_errors() {
+        assert_eq!(
+            stderr_summary("Connection refused\n").as_deref(),
+            Some("Connection refused")
+        );
+        assert_eq!(
+            stderr_summary("Permission denied (publickey).\n").as_deref(),
+            Some("Permission denied (publickey).")
+        );
     }
 }

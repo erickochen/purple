@@ -384,7 +384,7 @@ fn placeholder_for(field: ProviderFormField, provider_name: &str) -> &'static st
         },
         ProviderFormField::IdentityFile => "Enter to pick a key",
         ProviderFormField::VaultRole => {
-            "e.g. ssh-client-signer/sign/my-role (inherited by all hosts)"
+            "e.g. ssh-client-signer/sign/my-role (vault login; inherited)"
         }
         ProviderFormField::VaultAddr => "e.g. http://127.0.0.1:8200 (inherited by all hosts)",
         ProviderFormField::VerifyTls | ProviderFormField::AutoSync => "",

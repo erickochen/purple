@@ -63,10 +63,11 @@ pub fn is_valid_vault_addr(s: &str) -> bool {
 }
 
 /// Normalize a vault address so bare IPs and hostnames work.
-/// Prepends `https://` when no scheme is present and appends `:8200`
-/// (Vault's default port) when no port is specified. The default
-/// scheme is `https://` because production Vault always uses TLS.
-/// Dev-mode users can set `http://` explicitly.
+/// Prepends `https://` when no scheme is present and appends a default
+/// port when none is specified: `:80` for `http://`, `:443` for
+/// `https://`, `:8200` for bare hostnames (Vault's default). The
+/// default scheme is `https://` because production Vault always uses
+/// TLS. Dev-mode users can set `http://` explicitly.
 pub fn normalize_vault_addr(s: &str) -> String {
     let trimmed = s.trim();
     // Case-insensitive scheme detection.
@@ -94,11 +95,20 @@ pub fn normalize_vault_addr(s: &str) -> String {
     if has_port {
         with_scheme
     } else {
-        // Insert :8200 after the authority, before any path.
+        // Use the scheme's standard port when the user typed an explicit scheme,
+        // otherwise fall back to Vault's default port (8200).
+        let default_port = if lower.starts_with("http://") {
+            80
+        } else if lower.starts_with("https://") {
+            443
+        } else {
+            8200
+        };
         let path_start = scheme_len + authority.len();
         format!(
-            "{}:8200{}",
+            "{}:{}{}",
             &with_scheme[..path_start],
+            default_port,
             &with_scheme[path_start..]
         )
     }

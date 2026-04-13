@@ -258,6 +258,8 @@ impl App {
                 password_picker_state: ListState::default(),
                 show_proxyjump_picker: false,
                 proxyjump_picker_state: ListState::default(),
+                show_vault_role_picker: false,
+                vault_role_picker_state: ListState::default(),
                 tag_picker_state: ListState::default(),
                 theme_picker_state: ListState::default(),
                 theme_picker_builtins: Vec::new(),
