@@ -177,7 +177,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
   "url": "https://getpurple.sh",
   "downloadUrl": "https://getpurple.sh",
   "installUrl": "https://github.com/erickochen/purple/releases",
-  "softwareVersion": "2.36.0",
+  "softwareVersion": "2.36.1",
   "datePublished": "2024-10-01",
   "dateModified": "2026-04-13",
   "softwareRequirements": "macOS or Linux",
@@ -914,7 +914,7 @@ footer .sep { margin: 0 0.3em; }
           <button class="copy-btn copy-inline" id="copy-btn" onclick="copy(this)" style="display:none">copy</button>
         </div>
         <div class="install-output" id="install-output" style="display:none">
-          <div>Downloading purple v2.36.0 for darwin-arm64...</div>
+          <div>Downloading purple v2.36.1 for darwin-arm64...</div>
           <div>Installing to /usr/local/bin/purple... <span class="success">done.</span></div>
         </div>
         <div class="alt-installs" id="alt-installs" style="display:none">
@@ -1032,7 +1032,7 @@ footer .sep { margin: 0 0.3em; }
         <summary>How do I troubleshoot connection problems?</summary>
         <div class="answer">Run with <code>--verbose</code> to enable debug logging, then <code>purple logs --tail</code> in another terminal. Logs are written to <code>~/.purple/purple.log</code> with fault domain prefixes: <code>[external]</code> for remote/tool errors, <code>[config]</code> for local config issues. Set <code>PURPLE_LOG=trace</code> for maximum detail.</div>
       </details>
-      <div class="man-foot"><span>purple v2.36.0</span><span>2026-04-13</span><span>PURPLE(1)</span></div>
+      <div class="man-foot"><span>purple v2.36.1</span><span>2026-04-13</span><span>PURPLE(1)</span></div>
     </div>
   </div>
 
@@ -1493,7 +1493,7 @@ A: Press m in the host list to open the theme picker with live preview. 11 built
 
 ## Status
 
-- Current version: 2.36.0 (April 2026)
+- Current version: 2.36.1 (April 2026)
 - Release cadence: approximately bi-weekly
 - Test suite: 6000+ tests (unit, integration, property-based and HTTP mocking)
 - CI: fmt, clippy, test on macOS and Linux, cargo-deny, MSRV 1.86 check

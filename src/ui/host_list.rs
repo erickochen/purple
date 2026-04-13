@@ -909,17 +909,52 @@ fn build_host_item<'a>(
     };
     spans.push(status_span);
 
-    let alias_truncated = super::truncate(&host.alias, ctx.cols.alias);
-    spans.push(Span::styled(
-        format!("{:<width$}", alias_truncated, width = ctx.cols.alias),
-        alias_style,
-    ));
+    let has_jump = !host.proxy_jump.is_empty();
+    let has_tunnels = ctx.tunnel_active || host.tunnel_count > 0;
+
+    // In detail mode the ADDRESS column is hidden, so append indicators
+    // directly after the alias to keep them visible.
+    if ctx.cols.detail_mode {
+        let indicator_w = (if has_jump { 2 } else { 0 }) + (if has_tunnels { 2 } else { 0 });
+        let alias_budget = ctx.cols.alias.saturating_sub(indicator_w);
+        let alias_truncated = super::truncate(&host.alias, alias_budget);
+        let alias_w = alias_truncated.width();
+        spans.push(Span::styled(alias_truncated, alias_style));
+        if has_jump {
+            let jump_style = if crate::ssh_config::model::proxy_jump_contains_self(
+                &host.proxy_jump,
+                &host.alias,
+            ) {
+                theme::error()
+            } else {
+                theme::muted()
+            };
+            spans.push(Span::styled(" \u{2197}", jump_style)); // ↗
+        }
+        if has_tunnels {
+            let tunnel_style = if ctx.tunnel_active {
+                theme::version()
+            } else {
+                theme::muted()
+            };
+            spans.push(Span::styled(" \u{21C4}", tunnel_style)); // ⇄
+        }
+        let pad = ctx.cols.alias.saturating_sub(alias_w + indicator_w);
+        if pad > 0 {
+            spans.push(Span::raw(" ".repeat(pad)));
+        }
+    } else {
+        let alias_truncated = super::truncate(&host.alias, ctx.cols.alias);
+        spans.push(Span::styled(
+            format!("{:<width$}", alias_truncated, width = ctx.cols.alias),
+            alias_style,
+        ));
+    }
     // === ADDRESS column (flex width): hostname:port with indicators ===
     // Hidden in detail_mode (cols.host == 0).
     if ctx.cols.host > 0 {
         spans.push(Span::raw(gap.clone()));
         let has_port = host.port != 22;
-        let has_jump = !host.proxy_jump.is_empty();
         let port_suffix = if has_port {
             format!(":{}", host.port)
         } else {
@@ -927,7 +962,6 @@ fn build_host_item<'a>(
         };
         let port_suffix_w = port_suffix.width();
         let jump_w = if has_jump { 2 } else { 0 }; // " ↗"
-        let has_tunnels = ctx.tunnel_active || host.tunnel_count > 0;
         let tunnel_w = if has_tunnels { 2 } else { 0 }; // " ⇄"
         let suffix_w = port_suffix_w + jump_w + tunnel_w;
         let hostname_budget = ctx.cols.host.saturating_sub(suffix_w);

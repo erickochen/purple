@@ -207,8 +207,8 @@ pub fn render_confirm_vault_sign(frame: &mut Frame, _app: &App, signable: &[Stri
         String::new()
     };
 
-    // Height: top + main line + preview line + note line + spacer + footer + bottom = 9
-    let height = 9u16;
+    // Height: top + main + blank + preview + blank + note + spacer + footer + bottom = 11
+    let height = 11u16;
     let area = super::centered_rect_fixed(72, height, frame.area());
 
     frame.render_widget(Clear, area);
@@ -240,7 +240,9 @@ pub fn render_confirm_vault_sign(frame: &mut Frame, _app: &App, signable: &[Stri
             ),
             theme::bold(),
         )),
+        Line::from(""),
         Line::from(Span::styled(preview_text, theme::muted())),
+        Line::from(""),
         Line::from(Span::styled(
             "  Hosts with a still-valid certificate are skipped.".to_string(),
             theme::muted(),

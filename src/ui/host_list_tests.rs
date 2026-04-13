@@ -556,3 +556,165 @@ fn tag_bar_with_provider_tags_shows_prefix() {
     assert_eq!(texts[2], "web");
     assert_eq!(texts[3], "_");
 }
+
+// =========================================================================
+// build_host_item detail-mode indicator tests
+// =========================================================================
+
+use super::{HostItemContext, build_host_item};
+use crate::ssh_config::model::HostEntry;
+
+fn detail_columns(alias: usize) -> Columns {
+    Columns {
+        alias,
+        host: 0,
+        tags: 0,
+        history: 0,
+        gap: 2,
+        flex_gap: 0,
+        detail_mode: true,
+    }
+}
+
+fn full_columns(alias: usize, host: usize) -> Columns {
+    Columns {
+        alias,
+        host,
+        tags: 0,
+        history: 0,
+        gap: 2,
+        flex_gap: 0,
+        detail_mode: false,
+    }
+}
+
+/// Render a ListItem to a plain string via a ratatui List + Buffer.
+fn render_item_to_string(item: ratatui::widgets::ListItem<'_>, width: u16) -> String {
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::widgets::{List, Widget};
+    let area = Rect::new(0, 0, width, 1);
+    let mut buf = Buffer::empty(area);
+    let list = List::new(vec![item]);
+    list.render(area, &mut buf);
+    let mut s = String::new();
+    for x in 0..width {
+        let cell = &buf[(x, 0)];
+        s.push_str(cell.symbol());
+    }
+    s
+}
+
+fn make_ctx<'a>(cols: &'a Columns, tunnel_active: bool, detail_mode: bool) -> HostItemContext<'a> {
+    let ping = Box::leak(Box::new(std::collections::HashMap::new()));
+    let history = Box::leak(Box::new(crate::history::ConnectionHistory::default()));
+    HostItemContext {
+        ping_status: ping,
+        history,
+        tunnel_active,
+        query: None,
+        cols,
+        multi_selected: false,
+        group_by: &GroupBy::None,
+        detail_mode,
+        spinner_tick: 0,
+    }
+}
+
+#[test]
+fn detail_mode_no_indicators() {
+    let cols = detail_columns(20);
+    let host = HostEntry {
+        alias: "web-server".into(),
+        ..Default::default()
+    };
+    let ctx = make_ctx(&cols, false, true);
+    let item = build_host_item(&host, &ctx);
+    let rendered = render_item_to_string(item, 30);
+    assert!(rendered.contains("web-server"));
+    assert!(!rendered.contains('\u{2197}'), "no jump indicator expected");
+    assert!(
+        !rendered.contains('\u{21C4}'),
+        "no tunnel indicator expected"
+    );
+}
+
+#[test]
+fn detail_mode_jump_indicator_visible() {
+    let cols = detail_columns(20);
+    let host = HostEntry {
+        alias: "bastion".into(),
+        proxy_jump: "gateway".into(),
+        ..Default::default()
+    };
+    let ctx = make_ctx(&cols, false, true);
+    let item = build_host_item(&host, &ctx);
+    let rendered = render_item_to_string(item, 30);
+    assert!(rendered.contains("bastion"));
+    assert!(rendered.contains('\u{2197}'), "jump indicator missing");
+    assert!(
+        !rendered.contains('\u{21C4}'),
+        "tunnel indicator should not appear"
+    );
+}
+
+#[test]
+fn detail_mode_tunnel_indicator_visible() {
+    let cols = detail_columns(20);
+    let host = HostEntry {
+        alias: "db-primary".into(),
+        tunnel_count: 1,
+        ..Default::default()
+    };
+    let ctx = make_ctx(&cols, false, true);
+    let item = build_host_item(&host, &ctx);
+    let rendered = render_item_to_string(item, 30);
+    assert!(rendered.contains("db-primary"));
+    assert!(rendered.contains('\u{21C4}'), "tunnel indicator missing");
+    assert!(
+        !rendered.contains('\u{2197}'),
+        "jump indicator should not appear"
+    );
+}
+
+#[test]
+fn detail_mode_both_indicators_truncate_alias() {
+    let cols = detail_columns(20);
+    let host = HostEntry {
+        alias: "very-long-hostname-here".into(),
+        proxy_jump: "gateway".into(),
+        tunnel_count: 2,
+        ..Default::default()
+    };
+    let ctx = make_ctx(&cols, false, true);
+    let item = build_host_item(&host, &ctx);
+    let rendered = render_item_to_string(item, 30);
+    assert!(rendered.contains('\u{2197}'), "jump indicator missing");
+    assert!(rendered.contains('\u{21C4}'), "tunnel indicator missing");
+    // Full alias (22 chars) should be truncated to fit indicators (4 cols) in 20-col budget
+    assert!(
+        !rendered.contains("very-long-hostname-here"),
+        "alias should be truncated"
+    );
+}
+
+#[test]
+fn non_detail_mode_indicators_in_address_column() {
+    let cols = full_columns(20, 30);
+    let host = HostEntry {
+        alias: "bastion".into(),
+        hostname: "10.0.0.1".into(),
+        proxy_jump: "gateway".into(),
+        tunnel_count: 1,
+        ..Default::default()
+    };
+    let ctx = make_ctx(&cols, true, false);
+    let item = build_host_item(&host, &ctx);
+    let rendered = render_item_to_string(item, 60);
+    assert!(rendered.contains('\u{2197}'), "jump indicator missing");
+    assert!(rendered.contains('\u{21C4}'), "tunnel indicator missing");
+    assert!(
+        rendered.contains("10.0.0.1"),
+        "hostname should appear in address column"
+    );
+}

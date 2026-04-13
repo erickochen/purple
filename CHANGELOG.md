@@ -1,3 +1,9 @@
+## 2.36.1
+
+- Host indicators stay visible when the detail panel is open
+- Tunnel (⇄) and proxy jump (↗) indicators now appear next to the host name in compact view instead of disappearing with the address column. Active tunnels show in purple, configured tunnels and jumps in muted style
+- Vault SSH sign dialog spacing improved. Host list is visually separated from the question and the skip note
+
 ## 2.36.0
 
 - Vault SSH role picker and smarter defaults
