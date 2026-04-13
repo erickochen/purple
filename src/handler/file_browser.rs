@@ -288,21 +288,20 @@ pub(super) fn handle_file_browser(
                             fb.remote_error = None;
                             fb.remote_list_state = ratatui::widgets::ListState::default();
                             let alias = fb.alias.clone();
-                            let askpass = fb.askpass.clone();
-                            let config_path = app.reload.config_path.clone();
-                            let has_tunnel = app.active_tunnels.contains_key(&alias);
-                            let bw = app.bw_session.clone();
+                            let ctx = crate::ssh_context::OwnedSshContext {
+                                alias,
+                                config_path: app.reload.config_path.clone(),
+                                askpass: fb.askpass.clone(),
+                                bw_session: app.bw_session.clone(),
+                                has_tunnel: app.active_tunnels.contains_key(&fb.alias),
+                            };
                             let show_hidden = fb.show_hidden;
                             let sort = fb.sort;
                             crate::file_browser::spawn_remote_listing(
-                                alias,
-                                config_path,
+                                ctx,
                                 parent,
                                 show_hidden,
                                 sort,
-                                askpass,
-                                bw,
-                                has_tunnel,
                                 fb_send(events_tx.clone()),
                             );
                         }
@@ -332,21 +331,20 @@ pub(super) fn handle_file_browser(
                             fb.remote_error = None;
                             fb.remote_list_state = ratatui::widgets::ListState::default();
                             let alias = fb.alias.clone();
-                            let askpass = fb.askpass.clone();
-                            let config_path = app.reload.config_path.clone();
-                            let has_tunnel = app.active_tunnels.contains_key(&alias);
-                            let bw = app.bw_session.clone();
+                            let ctx = crate::ssh_context::OwnedSshContext {
+                                alias,
+                                config_path: app.reload.config_path.clone(),
+                                askpass: fb.askpass.clone(),
+                                bw_session: app.bw_session.clone(),
+                                has_tunnel: app.active_tunnels.contains_key(&fb.alias),
+                            };
                             let show_hidden = fb.show_hidden;
                             let sort = fb.sort;
                             crate::file_browser::spawn_remote_listing(
-                                alias,
-                                config_path,
+                                ctx,
                                 new_path,
                                 show_hidden,
                                 sort,
-                                askpass,
-                                bw,
-                                has_tunnel,
                                 fb_send(events_tx.clone()),
                             );
                         } else {
@@ -405,21 +403,20 @@ pub(super) fn handle_file_browser(
                         fb.remote_error = None;
                         fb.remote_list_state = ratatui::widgets::ListState::default();
                         let alias = fb.alias.clone();
-                        let askpass = fb.askpass.clone();
-                        let config_path = app.reload.config_path.clone();
-                        let has_tunnel = app.active_tunnels.contains_key(&alias);
-                        let bw = app.bw_session.clone();
+                        let ctx = crate::ssh_context::OwnedSshContext {
+                            alias,
+                            config_path: app.reload.config_path.clone(),
+                            askpass: fb.askpass.clone(),
+                            bw_session: app.bw_session.clone(),
+                            has_tunnel: app.active_tunnels.contains_key(&fb.alias),
+                        };
                         let show_hidden = fb.show_hidden;
                         let sort = fb.sort;
                         crate::file_browser::spawn_remote_listing(
-                            alias,
-                            config_path,
+                            ctx,
                             parent,
                             show_hidden,
                             sort,
-                            askpass,
-                            bw,
-                            has_tunnel,
                             fb_send(events_tx.clone()),
                         );
                     }
@@ -505,22 +502,21 @@ pub(super) fn handle_file_browser(
                 fb.remote_error = None;
                 fb.remote_list_state = ratatui::widgets::ListState::default();
                 let alias = fb.alias.clone();
-                let askpass = fb.askpass.clone();
-                let config_path = app.reload.config_path.clone();
-                let has_tunnel = app.active_tunnels.contains_key(&alias);
-                let bw = app.bw_session.clone();
+                let ctx = crate::ssh_context::OwnedSshContext {
+                    alias,
+                    config_path: app.reload.config_path.clone(),
+                    askpass: fb.askpass.clone(),
+                    bw_session: app.bw_session.clone(),
+                    has_tunnel: app.active_tunnels.contains_key(&fb.alias),
+                };
                 let path = fb.remote_path.clone();
                 let show_hidden = fb.show_hidden;
                 let sort = fb.sort;
                 crate::file_browser::spawn_remote_listing(
-                    alias,
-                    config_path,
+                    ctx,
                     path,
                     show_hidden,
                     sort,
-                    askpass,
-                    bw,
-                    has_tunnel,
                     fb_send(events_tx.clone()),
                 );
             }
@@ -546,22 +542,21 @@ pub(super) fn handle_file_browser(
                 fb.remote_error = None;
                 fb.remote_list_state = ratatui::widgets::ListState::default();
                 let alias = fb.alias.clone();
-                let askpass = fb.askpass.clone();
-                let config_path = app.reload.config_path.clone();
-                let has_tunnel = app.active_tunnels.contains_key(&alias);
-                let bw = app.bw_session.clone();
+                let ctx = crate::ssh_context::OwnedSshContext {
+                    alias,
+                    config_path: app.reload.config_path.clone(),
+                    askpass: fb.askpass.clone(),
+                    bw_session: app.bw_session.clone(),
+                    has_tunnel: app.active_tunnels.contains_key(&fb.alias),
+                };
                 let path = fb.remote_path.clone();
                 let show_hidden = fb.show_hidden;
                 let sort = fb.sort;
                 crate::file_browser::spawn_remote_listing(
-                    alias,
-                    config_path,
+                    ctx,
                     path,
                     show_hidden,
                     sort,
-                    askpass,
-                    bw,
-                    has_tunnel,
                     fb_send(events_tx.clone()),
                 );
             }

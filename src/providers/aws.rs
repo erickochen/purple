@@ -219,7 +219,7 @@ fn sign_request(
 
 // --- XML response structs ---
 
-/// Generic wrapper for AWS XML lists that use repeated <item> elements.
+/// Generic wrapper for AWS XML lists that use repeated `<item>` elements.
 #[derive(serde::Deserialize, Debug)]
 #[serde(bound(deserialize = "T: serde::Deserialize<'de>"))]
 struct ItemList<T> {

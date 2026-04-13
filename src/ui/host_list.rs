@@ -56,7 +56,7 @@ const HOST_MIN: usize = 12;
 const MARKER_WIDTH: usize = 2;
 
 /// Column layout computed from the visible host list.
-struct Columns {
+pub(crate) struct Columns {
     alias: usize,
     host: usize,
     tags: usize,
@@ -222,7 +222,7 @@ pub fn render(frame: &mut Frame, app: &mut App, spinner_tick: u64, detail_progre
     let area = frame.area();
 
     let is_searching = app.search.query.is_some();
-    let is_tagging = app.tag_input.is_some();
+    let is_tagging = app.tags.input.is_some();
     // Group bar: bordered block with tabs (top + content + bottom = 3 rows).
     // Only shown when grouping is active and there are groups to display.
     let show_group_bar = !matches!(app.group_by, GroupBy::None);
@@ -298,7 +298,7 @@ pub fn render(frame: &mut Frame, app: &mut App, spinner_tick: u64, detail_progre
         let spans = if app.is_pattern_selected() {
             pattern_footer_spans(target_detail)
         } else {
-            footer_spans(target_detail, app.filter_down_only)
+            footer_spans(target_detail, app.ping.filter_down_only)
         };
         super::render_footer_with_help(frame, chunks[2], spans, app);
     }
@@ -401,7 +401,7 @@ fn render_display_list(
         Span::styled("── ", theme::muted()),
         Span::styled(format!("{} ", visible_count), theme::bold()),
     ];
-    if app.tag_input.is_some() {
+    if app.tags.input.is_some() {
         title_spans.push(Span::styled("── ", theme::muted()));
         title_spans.push(Span::styled(" TAGGING ", theme::brand_badge()));
     } else if !app.multi_select.is_empty() {
@@ -417,9 +417,9 @@ fn render_display_list(
                 HostListItem::Host { index } => app.hosts.get(*index).map(|h| h.alias.as_str()),
                 _ => None,
             });
-            app::health_summary_spans_for(&app.ping_status, visible_aliases)
+            app::health_summary_spans_for(&app.ping.status, visible_aliases)
         } else {
-            app::health_summary_spans(&app.ping_status, &app.hosts)
+            app::health_summary_spans(&app.ping.status, &app.hosts)
         };
         if !health.is_empty() {
             title_spans.push(Span::styled("── ", theme::muted()));
@@ -434,11 +434,11 @@ fn render_display_list(
     }
     let title = Line::from(title_spans);
 
-    let update_title = app.update_available.as_ref().map(|ver| {
+    let update_title = app.update.available.as_ref().map(|ver| {
         let label = build_update_label(
             ver,
-            app.update_headline.as_deref(),
-            app.update_hint,
+            app.update.headline.as_deref(),
+            app.update.hint,
             area.width,
         );
         Line::from(Span::styled(label, theme::update_badge()))
@@ -570,7 +570,7 @@ fn render_display_list(
                     .map(|v| v.as_slice())
                     .unwrap_or(&[]);
                 let health_spans =
-                    app::health_summary_spans_for(&app.ping_status, aliases.iter().copied());
+                    app::health_summary_spans_for(&app.ping.status, aliases.iter().copied());
 
                 if health_spans.is_empty() {
                     // No pings: just name + count + fill dashes
@@ -603,18 +603,18 @@ fn render_display_list(
             HostListItem::Host { index } => {
                 if let Some(host) = app.hosts.get(*index) {
                     let tunnel_active = app.active_tunnels.contains_key(&host.alias);
-                    let list_item = build_host_item(
-                        host,
-                        &app.ping_status,
-                        &app.history,
+                    let item_ctx = HostItemContext {
+                        ping_status: &app.ping.status,
+                        history: &app.history,
                         tunnel_active,
-                        None,
-                        &cols,
-                        app.multi_select.contains(index),
-                        &app.group_by,
+                        query: None,
+                        cols: &cols,
+                        multi_selected: app.multi_select.contains(index),
+                        group_by: &app.group_by,
                         detail_mode,
                         spinner_tick,
-                    );
+                    };
+                    let list_item = build_host_item(host, &item_ctx);
                     items.push(list_item);
                 } else {
                     items.push(ListItem::new(Line::from(Span::raw(""))));
@@ -655,11 +655,11 @@ fn render_search_list(
         ),
     ]);
 
-    let update_title = app.update_available.as_ref().map(|ver| {
+    let update_title = app.update.available.as_ref().map(|ver| {
         let label = build_update_label(
             ver,
-            app.update_headline.as_deref(),
-            app.update_hint,
+            app.update.headline.as_deref(),
+            app.update.hint,
             area.width,
         );
         Line::from(Span::styled(label, theme::update_badge()))
@@ -740,18 +740,18 @@ fn render_search_list(
     for &idx in app.search.filtered_indices.iter() {
         if let Some(host) = app.hosts.get(idx) {
             let tunnel_active = app.active_tunnels.contains_key(&host.alias);
-            let list_item = build_host_item(
-                host,
-                &app.ping_status,
-                &app.history,
+            let item_ctx = HostItemContext {
+                ping_status: &app.ping.status,
+                history: &app.history,
                 tunnel_active,
                 query,
-                &cols,
-                app.multi_select.contains(&idx),
-                &app.group_by,
-                false,
+                cols: &cols,
+                multi_selected: app.multi_select.contains(&idx),
+                group_by: &app.group_by,
+                detail_mode: false,
                 spinner_tick,
-            );
+            };
+            let list_item = build_host_item(host, &item_ctx);
             items.push(list_item);
         }
     }
@@ -849,21 +849,24 @@ fn host_tags_width(
     w
 }
 
-#[allow(clippy::too_many_arguments)]
+pub(crate) struct HostItemContext<'a> {
+    pub ping_status: &'a std::collections::HashMap<String, PingStatus>,
+    pub history: &'a crate::history::ConnectionHistory,
+    pub tunnel_active: bool,
+    pub query: Option<&'a str>,
+    pub cols: &'a Columns,
+    pub multi_selected: bool,
+    pub group_by: &'a GroupBy,
+    pub detail_mode: bool,
+    pub spinner_tick: u64,
+}
+
 fn build_host_item<'a>(
     host: &'a crate::ssh_config::model::HostEntry,
-    ping_status: &'a std::collections::HashMap<String, PingStatus>,
-    history: &'a crate::history::ConnectionHistory,
-    tunnel_active: bool,
-    query: Option<&str>,
-    cols: &Columns,
-    multi_selected: bool,
-    group_by: &GroupBy,
-    detail_mode: bool,
-    spinner_tick: u64,
+    ctx: &HostItemContext<'_>,
 ) -> ListItem<'a> {
-    let q = query.unwrap_or("");
-    let gap = " ".repeat(cols.gap);
+    let q = ctx.query.unwrap_or("");
+    let gap = " ".repeat(ctx.cols.gap);
 
     // Determine which field matches for search highlighting
     let alias_matches = !q.is_empty() && app::contains_ci(&host.alias, q);
@@ -882,12 +885,16 @@ fn build_host_item<'a>(
     } else {
         theme::bold()
     };
-    let marker = if multi_selected { " \u{2713}" } else { "  " };
+    let marker = if ctx.multi_selected {
+        " \u{2713}"
+    } else {
+        "  "
+    };
     spans.push(Span::styled(marker, alias_style));
 
     // Status indicator (2 chars wide): dual-encoded glyph (color + shape)
-    let ping = ping_status.get(&host.alias);
-    let glyph = app::status_glyph(ping, spinner_tick);
+    let ping = ctx.ping_status.get(&host.alias);
+    let glyph = app::status_glyph(ping, ctx.spinner_tick);
     let style = match ping {
         Some(PingStatus::Reachable { .. }) => theme::online_dot(),
         Some(PingStatus::Slow { .. }) => theme::warning(),
@@ -902,14 +909,14 @@ fn build_host_item<'a>(
     };
     spans.push(status_span);
 
-    let alias_truncated = super::truncate(&host.alias, cols.alias);
+    let alias_truncated = super::truncate(&host.alias, ctx.cols.alias);
     spans.push(Span::styled(
-        format!("{:<width$}", alias_truncated, width = cols.alias),
+        format!("{:<width$}", alias_truncated, width = ctx.cols.alias),
         alias_style,
     ));
     // === ADDRESS column (flex width): hostname:port with indicators ===
     // Hidden in detail_mode (cols.host == 0).
-    if cols.host > 0 {
+    if ctx.cols.host > 0 {
         spans.push(Span::raw(gap.clone()));
         let has_port = host.port != 22;
         let has_jump = !host.proxy_jump.is_empty();
@@ -920,10 +927,10 @@ fn build_host_item<'a>(
         };
         let port_suffix_w = port_suffix.width();
         let jump_w = if has_jump { 2 } else { 0 }; // " ↗"
-        let has_tunnels = tunnel_active || host.tunnel_count > 0;
+        let has_tunnels = ctx.tunnel_active || host.tunnel_count > 0;
         let tunnel_w = if has_tunnels { 2 } else { 0 }; // " ⇄"
         let suffix_w = port_suffix_w + jump_w + tunnel_w;
-        let hostname_budget = cols.host.saturating_sub(suffix_w);
+        let hostname_budget = ctx.cols.host.saturating_sub(suffix_w);
 
         let mut host_used = 0usize;
         if host_matches {
@@ -952,7 +959,7 @@ fn build_host_item<'a>(
             host_used += 2;
         }
         if has_tunnels {
-            let tunnel_style = if tunnel_active {
+            let tunnel_style = if ctx.tunnel_active {
                 theme::version() // purple accent when active
             } else {
                 theme::muted() // dim when configured but not running
@@ -961,52 +968,52 @@ fn build_host_item<'a>(
             host_used += 2;
         }
         // padding
-        let host_pad = cols.host.saturating_sub(host_used);
+        let host_pad = ctx.cols.host.saturating_sub(host_used);
         if host_pad > 0 {
             spans.push(Span::raw(" ".repeat(host_pad)));
         }
     }
 
     // === Flex gap between left cluster (NAME+ADDRESS) and right cluster ===
-    if cols.flex_gap > 0 {
-        spans.push(Span::raw(" ".repeat(cols.flex_gap)));
+    if ctx.cols.flex_gap > 0 {
+        spans.push(Span::raw(" ".repeat(ctx.cols.flex_gap)));
     }
 
     // === TAGS column (fixed width, +N overflow) ===
-    if cols.tags > 0 {
+    if ctx.cols.tags > 0 {
         let tag_matches = !q.is_empty() && !alias_matches && !host_matches;
         build_tag_column(
             &mut spans,
             host,
-            group_by,
-            detail_mode,
+            ctx.group_by,
+            ctx.detail_mode,
             tag_matches,
             q,
-            cols.tags,
+            ctx.cols.tags,
         );
-        if cols.history > 0 {
+        if ctx.cols.history > 0 {
             spans.push(Span::raw(gap.clone()));
         }
     }
 
     // === LAST column (right-aligned, always muted) ===
-    if cols.history > 0 {
-        if let Some(entry) = history.entries.get(&host.alias) {
+    if ctx.cols.history > 0 {
+        if let Some(entry) = ctx.history.entries.get(&host.alias) {
             let ago = crate::history::ConnectionHistory::format_time_ago(entry.last_connected);
             if !ago.is_empty() {
                 spans.push(Span::styled(
-                    format!("{:>width$}", ago, width = cols.history),
+                    format!("{:>width$}", ago, width = ctx.cols.history),
                     theme::muted(),
                 ));
             } else {
                 spans.push(Span::styled(
-                    format!("{:>width$}", "-", width = cols.history),
+                    format!("{:>width$}", "-", width = ctx.cols.history),
                     theme::muted(),
                 ));
             }
         } else {
             spans.push(Span::styled(
-                format!("{:>width$}", "-", width = cols.history),
+                format!("{:>width$}", "-", width = ctx.cols.history),
                 theme::muted(),
             ));
         }
@@ -1257,7 +1264,7 @@ fn search_footer_spans<'a>() -> Vec<Span<'a>> {
 }
 
 fn render_tag_bar(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    let input = app.tag_input.as_deref().unwrap_or("");
+    let input = app.tags.input.as_deref().unwrap_or("");
     let mut spans = vec![Span::styled(" tags: ", theme::accent_bold())];
     // Show read-only provider tags if present
     if let Some(host) = app.selected_host() {

@@ -626,6 +626,14 @@ pub struct SnippetFormBaseline {
     pub description: String,
 }
 
+/// Tag editor state.
+#[derive(Default)]
+pub struct TagState {
+    pub input: Option<String>,
+    pub cursor: usize,
+    pub list: Vec<String>,
+}
+
 /// Baseline snapshot of provider form content for dirty-check on Esc.
 #[derive(Clone)]
 pub struct ProviderFormBaseline {

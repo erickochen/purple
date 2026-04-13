@@ -226,7 +226,6 @@ fn start_snippet_output(
         target_aliases: target_aliases.to_vec(),
     };
 
-    let stx = super::snippet_event_bridge(events_tx);
     crate::snippet::spawn_snippet_execution(
         run_id,
         askpass_map,
@@ -235,7 +234,7 @@ fn start_snippet_output(
         app.bw_session.clone(),
         tunnel_aliases,
         cancel,
-        stx,
+        events_tx.clone(),
         target_aliases.len() > 1,
     );
 }

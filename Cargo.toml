@@ -1,6 +1,6 @@
 [package]
 name = "purple-ssh"
-version = "2.35.0"
+version = "2.35.1"
 edition = "2024"
 description = "Open-source terminal SSH manager and SSH config editor. Search hundreds of hosts, sync from 16 clouds, transfer files, manage Docker and Podman over SSH, sign short-lived Vault SSH certs and expose an MCP server for AI agents. Rust TUI, MIT licensed."
 license = "MIT"

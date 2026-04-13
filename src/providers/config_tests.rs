@@ -1,5 +1,19 @@
 use super::*;
 
+/// Generate a unique temp file path per test invocation to avoid races
+/// when tests run in parallel.
+fn unique_tmp_path(label: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "purple_{}_{}_{}",
+        label,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ))
+}
+
 #[test]
 fn vault_role_invalid_is_dropped_on_parse() {
     let config = ProviderConfig::parse("[aws]\ntoken=abc\nvault_role=-format=json\n");
@@ -18,14 +32,7 @@ fn vault_role_roundtrip_preserves_value() {
     // Full parse → save → re-parse roundtrip for the provider-level
     // vault_role field. Catches regressions where save() forgets to emit
     // the field or parse() forgets to read it back.
-    let tmp = std::env::temp_dir().join(format!(
-        "purple_vault_role_roundtrip_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
+    let tmp = unique_tmp_path("vault_role_roundtrip");
     let config = ProviderConfig {
         path_override: Some(tmp.clone()),
         sections: vec![ProviderSection {
@@ -1209,8 +1216,7 @@ fn test_vault_role_default_empty() {
 
 #[test]
 fn test_vault_role_not_written_when_empty() {
-    let tmpdir = std::env::temp_dir();
-    let path = tmpdir.join("purple_test_vault_role_empty.ini");
+    let path = unique_tmp_path("vault_role_empty");
     let mut config = ProviderConfig::parse("[aws]\ntoken=abc\n");
     config.path_override = Some(path.clone());
     config.save().unwrap();
@@ -1221,8 +1227,7 @@ fn test_vault_role_not_written_when_empty() {
 
 #[test]
 fn test_vault_role_round_trip() {
-    let tmpdir = std::env::temp_dir();
-    let path = tmpdir.join("purple_test_vault_role_rt.ini");
+    let path = unique_tmp_path("vault_role_rt");
     let mut config = ProviderConfig::parse("[aws]\ntoken=abc\nvault_role=ssh/sign/engineer\n");
     config.path_override = Some(path.clone());
     config.save().unwrap();
@@ -1263,8 +1268,7 @@ fn vault_addr_invalid_dropped_on_parse() {
 
 #[test]
 fn vault_addr_round_trip() {
-    let tmpdir = std::env::temp_dir();
-    let path = tmpdir.join("purple_test_vault_addr_rt.ini");
+    let path = unique_tmp_path("vault_addr_rt");
     let mut config = ProviderConfig::parse("[aws]\ntoken=abc\nvault_addr=http://127.0.0.1:8200\n");
     config.path_override = Some(path.clone());
     config.save().unwrap();
@@ -1275,8 +1279,7 @@ fn vault_addr_round_trip() {
 
 #[test]
 fn vault_addr_not_written_when_empty() {
-    let tmpdir = std::env::temp_dir();
-    let path = tmpdir.join("purple_test_vault_addr_empty.ini");
+    let path = unique_tmp_path("vault_addr_empty");
     let mut config = ProviderConfig::parse("[aws]\ntoken=abc\n");
     config.path_override = Some(path.clone());
     config.save().unwrap();

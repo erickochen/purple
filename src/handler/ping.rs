@@ -17,7 +17,8 @@ pub(super) fn ping_selected_host(
         let (ping_alias, hostname, port) = if !host.proxy_jump.is_empty() {
             let bastion_alias = host.proxy_jump.clone();
             if let Some(bastion) = app.hosts.iter().find(|h| h.alias == bastion_alias) {
-                app.ping_status
+                app.ping
+                    .status
                     .insert(alias.clone(), crate::app::PingStatus::Checking);
                 (
                     bastion.alias.clone(),
@@ -34,14 +35,15 @@ pub(super) fn ping_selected_host(
         } else {
             (alias.clone(), host.hostname.clone(), host.port)
         };
-        app.ping_status
+        app.ping
+            .status
             .insert(ping_alias.clone(), crate::app::PingStatus::Checking);
-        if show_hint && !app.has_pinged {
+        if show_hint && !app.ping.has_pinged {
             app.set_status(
                 format!("Pinging {}... (Shift+P pings all)", ping_alias),
                 false,
             );
-            app.has_pinged = true;
+            app.ping.has_pinged = true;
         } else {
             app.set_status(format!("Pinging {}...", ping_alias), false);
         }
@@ -50,7 +52,7 @@ pub(super) fn ping_selected_host(
             hostname,
             port,
             events_tx.clone(),
-            app.ping_generation,
+            app.ping.generation,
         );
     }
 }

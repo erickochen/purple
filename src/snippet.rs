@@ -361,26 +361,6 @@ fn consume_until_st(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
 /// to prevent child from blocking on a full pipe buffer.
 const MAX_OUTPUT_LINES: usize = 10_000;
 
-/// Events emitted during background snippet execution.
-/// These are mapped to AppEvent by the caller in main.rs.
-pub enum SnippetEvent {
-    HostDone {
-        run_id: u64,
-        alias: String,
-        stdout: String,
-        stderr: String,
-        exit_code: Option<i32>,
-    },
-    Progress {
-        run_id: u64,
-        completed: usize,
-        total: usize,
-    },
-    AllDone {
-        run_id: u64,
-    },
-}
-
 /// RAII guard that kills the process group on drop.
 /// Uses SIGTERM first, then escalates to SIGKILL after a brief wait.
 pub struct ChildGuard {
@@ -557,24 +537,20 @@ fn build_snippet_command(
 }
 
 /// Execute a single host: spawn SSH, read output, wait, send result.
-#[allow(clippy::too_many_arguments)]
 fn execute_host(
     run_id: u64,
-    alias: &str,
-    config_path: &Path,
+    ctx: &crate::ssh_context::SshContext<'_>,
     command: &str,
-    askpass: Option<&str>,
-    bw_session: Option<&str>,
-    has_active_tunnel: bool,
-    tx: &std::sync::mpsc::Sender<SnippetEvent>,
+    tx: &std::sync::mpsc::Sender<crate::event::AppEvent>,
 ) -> Option<std::sync::Arc<ChildGuard>> {
+    let alias = ctx.alias;
     let mut cmd = build_snippet_command(
         alias,
-        config_path,
+        ctx.config_path,
         command,
-        askpass,
-        bw_session,
-        has_active_tunnel,
+        ctx.askpass,
+        ctx.bw_session,
+        ctx.has_tunnel,
     );
 
     match cmd.spawn() {
@@ -630,7 +606,7 @@ fn execute_host(
                 })
             };
 
-            let _ = tx.send(SnippetEvent::HostDone {
+            let _ = tx.send(crate::event::AppEvent::SnippetHostDone {
                 run_id,
                 alias: alias.to_string(),
                 stdout: sanitize_output(&stdout_text),
@@ -641,7 +617,7 @@ fn execute_host(
             Some(guard)
         }
         Err(e) => {
-            let _ = tx.send(SnippetEvent::HostDone {
+            let _ = tx.send(crate::event::AppEvent::SnippetHostDone {
                 run_id,
                 alias: alias.to_string(),
                 stdout: String::new(),
@@ -664,7 +640,7 @@ pub fn spawn_snippet_execution(
     bw_session: Option<String>,
     tunnel_aliases: std::collections::HashSet<String>,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    tx: std::sync::mpsc::Sender<SnippetEvent>,
+    tx: std::sync::mpsc::Sender<crate::event::AppEvent>,
     parallel: bool,
 ) {
     let total = askpass_map.len();
@@ -730,16 +706,14 @@ pub fn spawn_snippet_execution(
                         }
                         let _slot = SlotRelease(Some(slot_tx));
 
-                        let guard = execute_host(
-                            run_id,
-                            &alias,
-                            &config_path,
-                            &command,
-                            askpass.as_deref(),
-                            bw_session.as_deref(),
+                        let host_ctx = crate::ssh_context::SshContext {
+                            alias: &alias,
+                            config_path: &config_path,
+                            askpass: askpass.as_deref(),
+                            bw_session: bw_session.as_deref(),
                             has_tunnel,
-                            &tx,
-                        );
+                        };
+                        let guard = execute_host(run_id, &host_ctx, &command, &tx);
 
                         // Insert guard BEFORE checking cancel so it can be cleaned up
                         if let Some(g) = guard {
@@ -747,7 +721,7 @@ pub fn spawn_snippet_execution(
                         }
 
                         let c = completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                        let _ = tx.send(SnippetEvent::Progress {
+                        let _ = tx.send(crate::event::AppEvent::SnippetProgress {
                             run_id,
                             completed: c,
                             total,
@@ -769,22 +743,20 @@ pub fn spawn_snippet_execution(
                     }
 
                     let has_tunnel = tunnel_aliases.contains(&alias);
-                    let guard = execute_host(
-                        run_id,
-                        &alias,
-                        &config_path,
-                        &command,
-                        askpass.as_deref(),
-                        bw_session.as_deref(),
+                    let host_ctx = crate::ssh_context::SshContext {
+                        alias: &alias,
+                        config_path: &config_path,
+                        askpass: askpass.as_deref(),
+                        bw_session: bw_session.as_deref(),
                         has_tunnel,
-                        &tx,
-                    );
+                    };
+                    let guard = execute_host(run_id, &host_ctx, &command, &tx);
 
                     if let Some(g) = guard {
                         guards.lock().unwrap_or_else(|e| e.into_inner()).push(g);
                     }
 
-                    let _ = tx.send(SnippetEvent::Progress {
+                    let _ = tx.send(crate::event::AppEvent::SnippetProgress {
                         run_id,
                         completed: i + 1,
                         total,
@@ -792,7 +764,7 @@ pub fn spawn_snippet_execution(
                 }
             }
 
-            let _ = tx.send(SnippetEvent::AllDone { run_id });
+            let _ = tx.send(crate::event::AppEvent::SnippetAllDone { run_id });
             // Guards dropped here, cleaning up any remaining children
         })
         .expect("failed to spawn snippet coordinator");

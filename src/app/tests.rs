@@ -56,7 +56,7 @@ fn refresh_cert_cache_noop_when_alias_not_in_hosts() {
     let mut app = test_app_with_hosts(&["Host a\n  HostName 1.2.3.4\n"]);
     // Plant a stale entry and verify refresh removes it when the alias
     // is not in self.hosts (caller typed a bad alias).
-    app.cert_status_cache.insert(
+    app.vault.cert_cache.insert(
         "ghost".to_string(),
         (
             std::time::Instant::now(),
@@ -65,7 +65,7 @@ fn refresh_cert_cache_noop_when_alias_not_in_hosts() {
         ),
     );
     app.refresh_cert_cache("ghost");
-    assert!(!app.cert_status_cache.contains_key("ghost"));
+    assert!(!app.vault.cert_cache.contains_key("ghost"));
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn refresh_cert_cache_removes_entry_when_no_vault_role() {
     // Host exists but has no vault role. Any lingering cache entry
     // should be removed so the detail panel does not flash a phantom
     // "Not signed" under a section that should not even render.
-    app.cert_status_cache.insert(
+    app.vault.cert_cache.insert(
         "a".to_string(),
         (
             std::time::Instant::now(),
@@ -83,7 +83,7 @@ fn refresh_cert_cache_removes_entry_when_no_vault_role() {
         ),
     );
     app.refresh_cert_cache("a");
-    assert!(!app.cert_status_cache.contains_key("a"));
+    assert!(!app.vault.cert_cache.contains_key("a"));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn refresh_cert_cache_inserts_missing_status_for_nonexistent_cert() {
         "Host a\n  HostName 1.2.3.4\n  # purple:vault-ssh ssh-client-signer/sign/engineer\n",
     ]);
     app.refresh_cert_cache("a");
-    match app.cert_status_cache.get("a") {
+    match app.vault.cert_cache.get("a") {
         Some((_, crate::vault_ssh::CertStatus::Missing, mtime)) => {
             assert!(mtime.is_none(), "mtime must be None when cert file absent");
         }
@@ -5721,10 +5721,10 @@ fn classify_ping_zero_rtt() {
 #[test]
 fn cancel_search_clears_filter_down_only() {
     let mut app = make_app("Host web1\n  HostName 1.1.1.1\n");
-    app.filter_down_only = true;
+    app.ping.filter_down_only = true;
     app.search.query = Some(String::new());
     app.cancel_search();
-    assert!(!app.filter_down_only);
+    assert!(!app.ping.filter_down_only);
     assert!(app.search.query.is_none());
 }
 
@@ -5733,13 +5733,16 @@ fn filter_down_only_keeps_unreachable_hosts() {
     let mut app = make_app(
         "Host web1\n  HostName 1.1.1.1\nHost web2\n  HostName 2.2.2.2\nHost web3\n  HostName 3.3.3.3\n",
     );
-    app.ping_status
+    app.ping
+        .status
         .insert("web1".to_string(), PingStatus::Unreachable);
-    app.ping_status
+    app.ping
+        .status
         .insert("web2".to_string(), PingStatus::Reachable { rtt_ms: 10 });
-    app.ping_status
+    app.ping
+        .status
         .insert("web3".to_string(), PingStatus::Slow { rtt_ms: 300 });
-    app.filter_down_only = true;
+    app.ping.filter_down_only = true;
     app.search.query = Some(String::new());
     app.apply_filter();
     // Only web1 (Unreachable) should remain
@@ -5755,11 +5758,14 @@ fn sort_mode_status_orders_by_ping() {
     let mut app = make_app(
         "Host web1\n  HostName 1.1.1.1\nHost web2\n  HostName 2.2.2.2\nHost web3\n  HostName 3.3.3.3\n",
     );
-    app.ping_status
+    app.ping
+        .status
         .insert("web1".to_string(), PingStatus::Reachable { rtt_ms: 10 });
-    app.ping_status
+    app.ping
+        .status
         .insert("web2".to_string(), PingStatus::Unreachable);
-    app.ping_status
+    app.ping
+        .status
         .insert("web3".to_string(), PingStatus::Slow { rtt_ms: 300 });
     app.sort_mode = SortMode::Status;
     app.group_by = GroupBy::None;
@@ -5838,7 +5844,7 @@ fn status_glyph_none_differs_from_checking() {
 #[test]
 fn health_summary_empty_ping_status() {
     let app = make_app("Host web1\n  HostName 1.1.1.1\n");
-    let spans = health_summary_spans(&app.ping_status, &app.hosts);
+    let spans = health_summary_spans(&app.ping.status, &app.hosts);
     assert!(spans.is_empty());
 }
 
@@ -5847,14 +5853,17 @@ fn health_summary_mixed_statuses() {
     let mut app = make_app(
         "Host web1\n  HostName 1.1.1.1\nHost web2\n  HostName 2.2.2.2\nHost web3\n  HostName 3.3.3.3\nHost web4\n  HostName 4.4.4.4\n",
     );
-    app.ping_status
+    app.ping
+        .status
         .insert("web1".to_string(), PingStatus::Reachable { rtt_ms: 10 });
-    app.ping_status
+    app.ping
+        .status
         .insert("web2".to_string(), PingStatus::Slow { rtt_ms: 300 });
-    app.ping_status
+    app.ping
+        .status
         .insert("web3".to_string(), PingStatus::Unreachable);
     // web4 has no ping status -> unchecked
-    let spans = health_summary_spans(&app.ping_status, &app.hosts);
+    let spans = health_summary_spans(&app.ping.status, &app.hosts);
     // Layout: ●1 " " ▲1 " " ✖1 " " ○1 = 4 status + 3 separators = 7 spans
     assert_eq!(spans.len(), 7);
     let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
@@ -5867,9 +5876,10 @@ fn health_summary_mixed_statuses() {
 #[test]
 fn health_summary_suppresses_zero_count() {
     let mut app = make_app("Host web1\n  HostName 1.1.1.1\n");
-    app.ping_status
+    app.ping
+        .status
         .insert("web1".to_string(), PingStatus::Reachable { rtt_ms: 10 });
-    let spans = health_summary_spans(&app.ping_status, &app.hosts);
+    let spans = health_summary_spans(&app.ping.status, &app.hosts);
     // Only online, no separators
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "\u{25CF}1");
@@ -5878,9 +5888,10 @@ fn health_summary_suppresses_zero_count() {
 #[test]
 fn health_summary_skipped_excluded() {
     let mut app = make_app("Host proxy\n  HostName 1.1.1.1\n");
-    app.ping_status
+    app.ping
+        .status
         .insert("proxy".to_string(), PingStatus::Skipped);
-    let spans = health_summary_spans(&app.ping_status, &app.hosts);
+    let spans = health_summary_spans(&app.ping.status, &app.hosts);
     // Skipped hosts produce no counts, so result is empty
     assert!(spans.is_empty());
 }
@@ -6113,11 +6124,13 @@ fn select_display_tags_detail_mode_grouped() {
 #[test]
 fn health_summary_skipped_excluded_with_other_hosts() {
     let mut app = make_app("Host proxy\n  HostName 1.1.1.1\nHost web\n  HostName 2.2.2.2\n");
-    app.ping_status
+    app.ping
+        .status
         .insert("proxy".to_string(), PingStatus::Skipped);
-    app.ping_status
+    app.ping
+        .status
         .insert("web".to_string(), PingStatus::Reachable { rtt_ms: 5 });
-    let spans = health_summary_spans(&app.ping_status, &app.hosts);
+    let spans = health_summary_spans(&app.ping.status, &app.hosts);
     // Only online count for web, skipped proxy excluded
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].content.as_ref(), "●1");

@@ -110,7 +110,7 @@ fn format_now_utc() -> String {
 }
 
 /// Convert days since Unix epoch to (year, month, day).
-/// Algorithm from http://howardhinnant.github.io/date_algorithms.html
+/// Algorithm from <http://howardhinnant.github.io/date_algorithms.html>.
 fn epoch_days_to_date(days: u64) -> (u64, u64, u64) {
     let z = days + 719_468;
     let era = z / 146_097;

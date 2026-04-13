@@ -131,7 +131,7 @@ pub fn scrub_vault_stderr(raw: &str) -> String {
     }
 }
 
-/// Return the certificate path for a given alias: ~/.purple/certs/<alias>-cert.pub
+/// Return the certificate path for a given alias: `~/.purple/certs/<alias>-cert.pub`
 pub fn cert_path_for(alias: &str) -> Result<PathBuf> {
     anyhow::ensure!(
         !alias.is_empty()
@@ -170,7 +170,7 @@ pub fn resolve_cert_path(alias: &str, certificate_file: &str) -> Result<PathBuf>
 
 /// Sign an SSH public key via Vault SSH secrets engine.
 /// Runs: `vault write -field=signed_key <role> public_key=@<pubkey_path>`
-/// Writes the signed certificate to ~/.purple/certs/<alias>-cert.pub.
+/// Writes the signed certificate to `~/.purple/certs/<alias>-cert.pub`.
 ///
 /// When `vault_addr` is `Some`, it is set as the `VAULT_ADDR` env var on the
 /// `vault` subprocess, overriding whatever the parent shell has configured.

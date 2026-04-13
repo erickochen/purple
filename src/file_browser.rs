@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 
+use crate::ssh_context::{OwnedSshContext, SshContext};
+
 use ratatui::widgets::ListState;
 
 /// Sort mode for file browser panes.
@@ -396,26 +398,21 @@ pub fn get_remote_home(
 }
 
 /// Fetch remote directory listing synchronously (used by spawn_remote_listing).
-#[allow(clippy::too_many_arguments)]
 pub fn fetch_remote_listing(
-    alias: &str,
-    config_path: &Path,
+    ctx: &SshContext<'_>,
     remote_path: &str,
     show_hidden: bool,
     sort: BrowserSort,
-    askpass: Option<&str>,
-    bw_session: Option<&str>,
-    has_tunnel: bool,
 ) -> Result<Vec<FileEntry>, String> {
     let command = format!("LC_ALL=C ls -lhAL {}", shell_escape(remote_path));
     let result = crate::snippet::run_snippet(
-        alias,
-        config_path,
+        ctx.alias,
+        ctx.config_path,
         &command,
-        askpass,
-        bw_session,
+        ctx.askpass,
+        ctx.bw_session,
         true,
-        has_tunnel,
+        ctx.has_tunnel,
     );
     match result {
         Ok(r) if r.status.success() => Ok(parse_ls_output(&r.stdout, show_hidden, sort)),
@@ -436,32 +433,25 @@ pub fn fetch_remote_listing(
 
 /// Spawn background thread for remote directory listing.
 /// Sends result back via the provided sender function.
-#[allow(clippy::too_many_arguments)]
 pub fn spawn_remote_listing<F>(
-    alias: String,
-    config_path: PathBuf,
+    ctx: OwnedSshContext,
     remote_path: String,
     show_hidden: bool,
     sort: BrowserSort,
-    askpass: Option<String>,
-    bw_session: Option<String>,
-    has_tunnel: bool,
     send: F,
 ) where
     F: FnOnce(String, String, Result<Vec<FileEntry>, String>) + Send + 'static,
 {
     std::thread::spawn(move || {
-        let listing = fetch_remote_listing(
-            &alias,
-            &config_path,
-            &remote_path,
-            show_hidden,
-            sort,
-            askpass.as_deref(),
-            bw_session.as_deref(),
-            has_tunnel,
-        );
-        send(alias, remote_path, listing);
+        let borrowed = SshContext {
+            alias: &ctx.alias,
+            config_path: &ctx.config_path,
+            askpass: ctx.askpass.as_deref(),
+            bw_session: ctx.bw_session.as_deref(),
+            has_tunnel: ctx.has_tunnel,
+        };
+        let listing = fetch_remote_listing(&borrowed, &remote_path, show_hidden, sort);
+        send(ctx.alias, remote_path, listing);
     });
 }
 

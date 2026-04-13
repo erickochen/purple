@@ -276,7 +276,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect, spinner_tick: u64) {
         }
 
         // Status line using dual-encoded glyphs (consistent with host list)
-        let status_spans: Vec<Span<'static>> = match app.ping_status.get(&host.alias) {
+        let status_spans: Vec<Span<'static>> = match app.ping.status.get(&host.alias) {
             Some(status @ crate::app::PingStatus::Reachable { rtt_ms }) => {
                 vec![Span::styled(
                     format!(
@@ -368,7 +368,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect, spinner_tick: u64) {
         );
     }
 
-    if let Some(status) = app.ping_status.get(&host.alias) {
+    if let Some(status) = app.ping.status.get(&host.alias) {
         let ping_text = match status {
             crate::app::PingStatus::Reachable { rtt_ms }
             | crate::app::PingStatus::Slow { rtt_ms } => format_rtt(*rtt_ms),
@@ -671,10 +671,13 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect, spinner_tick: u64) {
             // things (missing/expired/invalid). It is consumed below to render
             // a "(press V to sign)" affordance hint next to the status text.
             let mut needs_action = false;
-            let (status_text, status_style) = if app.cert_check_in_flight.contains(&host.alias) {
+            let (status_text, status_style) = if app
+                .vault
+                .cert_checks_in_flight
+                .contains(&host.alias)
+            {
                 ("Checking...".to_string(), theme::muted())
-            } else if let Some((checked_at, status, _mtime)) =
-                app.cert_status_cache.get(&host.alias)
+            } else if let Some((checked_at, status, _mtime)) = app.vault.cert_cache.get(&host.alias)
             {
                 let elapsed = checked_at.elapsed().as_secs() as i64;
                 match status {

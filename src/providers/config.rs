@@ -172,7 +172,9 @@ impl ProviderConfig {
     /// Save provider config to ~/.purple/providers (atomic write, chmod 600).
     /// Respects path_override when set (used in tests).
     pub fn save(&self) -> io::Result<()> {
-        if crate::demo_flag::is_demo() {
+        // Skip demo guard when path_override is set (test-only paths should
+        // always write, even when a parallel demo test has enabled the flag).
+        if self.path_override.is_none() && crate::demo_flag::is_demo() {
             return Ok(());
         }
         let path = match &self.path_override {

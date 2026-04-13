@@ -20,14 +20,14 @@ pub(super) fn handle_tag_picker_screen(app: &mut App, key: KeyEvent) {
             app.select_prev_tag();
         }
         KeyCode::PageDown => {
-            crate::app::page_down(&mut app.ui.tag_picker_state, app.tag_list.len(), 10);
+            crate::app::page_down(&mut app.ui.tag_picker_state, app.tags.list.len(), 10);
         }
         KeyCode::PageUp => {
-            crate::app::page_up(&mut app.ui.tag_picker_state, app.tag_list.len(), 10);
+            crate::app::page_up(&mut app.ui.tag_picker_state, app.tags.list.len(), 10);
         }
         KeyCode::Enter => {
             if let Some(index) = app.ui.tag_picker_state.selected() {
-                if let Some(tag) = app.tag_list.get(index) {
+                if let Some(tag) = app.tags.list.get(index) {
                     let tag: String = tag.clone();
                     app.screen = Screen::HostList;
                     app.start_search();

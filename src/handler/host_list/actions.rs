@@ -86,9 +86,9 @@ pub(super) fn initiate_bulk_vault_sign(app: &mut App) {
         return;
     }
     // Cancel any in-progress vault signing thread
-    if let Some(ref cancel) = app.vault_signing_cancel {
+    if let Some(ref cancel) = app.vault.signing_cancel {
         cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-        app.vault_signing_cancel = None;
+        app.vault.signing_cancel = None;
         app.set_status("Vault SSH signing cancelled.".to_string(), false);
         return;
     }
@@ -261,23 +261,28 @@ pub(super) fn open_file_browser(app: &mut App, events_tx: &mpsc::Sender<AppEvent
         alias: alias.clone(),
     };
     // Fetch remote home dir in background
-    let config_path = app.reload.config_path.clone();
     let tx = events_tx.clone();
-    let bw = app.bw_session.clone();
     let remote = remote_path;
+    let ctx = crate::ssh_context::OwnedSshContext {
+        alias: alias.clone(),
+        config_path: app.reload.config_path.clone(),
+        askpass,
+        bw_session: app.bw_session.clone(),
+        has_tunnel,
+    };
     std::thread::spawn(move || {
         let home = if remote.is_empty() {
             match crate::file_browser::get_remote_home(
-                &alias,
-                &config_path,
-                askpass.as_deref(),
-                bw.as_deref(),
-                has_tunnel,
+                &ctx.alias,
+                &ctx.config_path,
+                ctx.askpass.as_deref(),
+                ctx.bw_session.as_deref(),
+                ctx.has_tunnel,
             ) {
                 Ok(h) => h,
                 Err(e) => {
                     let _ = tx.send(crate::event::AppEvent::FileBrowserListing {
-                        alias,
+                        alias: ctx.alias,
                         path: String::new(),
                         entries: Err(e.to_string()),
                     });
@@ -288,14 +293,10 @@ pub(super) fn open_file_browser(app: &mut App, events_tx: &mpsc::Sender<AppEvent
             remote
         };
         crate::file_browser::spawn_remote_listing(
-            alias,
-            config_path,
+            ctx,
             home,
             false,
             crate::file_browser::BrowserSort::Name,
-            askpass,
-            bw,
-            has_tunnel,
             super::super::file_browser::fb_send(tx),
         );
     });
@@ -345,19 +346,16 @@ pub(super) fn open_container_overlay(app: &mut App, events_tx: &mpsc::Sender<App
     };
     if !app.demo_mode {
         let has_tunnel = app.active_tunnels.contains_key(&alias);
-        let config_path = app.reload.config_path.clone();
-        let bw = app.bw_session.clone();
-        let tx = events_tx.clone();
-        crate::containers::spawn_container_listing(
+        let ctx = crate::ssh_context::OwnedSshContext {
             alias,
-            config_path,
+            config_path: app.reload.config_path.clone(),
             askpass,
-            bw,
+            bw_session: app.bw_session.clone(),
             has_tunnel,
-            cached_runtime,
-            move |a, result| {
-                let _ = tx.send(AppEvent::ContainerListing { alias: a, result });
-            },
-        );
+        };
+        let tx = events_tx.clone();
+        crate::containers::spawn_container_listing(ctx, cached_runtime, move |a, result| {
+            let _ = tx.send(AppEvent::ContainerListing { alias: a, result });
+        });
     }
 }

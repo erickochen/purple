@@ -1,17 +1,18 @@
 //! CLI subcommand handlers. Each function handles one clap subcommand
-//! (provider, tunnel, password, snippet, add, import, sync) and runs
-//! outside the TUI in a non-interactive terminal context.
+//! (provider, tunnel, password, snippet, add, import, sync, logs, theme,
+//! vault sign) and runs outside the TUI in a non-interactive terminal context.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::Path;
 
 use crate::providers;
 use crate::snippet;
 use crate::ssh_config::model::{HostEntry, SshConfigFile};
+use crate::vault_ssh;
 
 use super::{
-    PasswordCommands, ProviderCommands, SnippetCommands, TunnelCommands, askpass, import,
-    preferences, quick_add,
+    PasswordCommands, ProviderCommands, SnippetCommands, ThemeCommands, TunnelCommands, askpass,
+    import, logging, preferences, quick_add, should_write_certificate_file, ui,
 };
 
 pub(super) fn handle_quick_add(
@@ -1075,4 +1076,229 @@ pub(super) fn handle_snippet_command(
             Ok(())
         }
     }
+}
+
+pub(super) fn handle_logs_command(tail: bool, clear: bool) -> Result<()> {
+    let path = logging::log_path().context("Could not determine log path")?;
+    if clear {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+            println!("Log file deleted: {}", path.display());
+        } else {
+            println!("No log file found at {}", path.display());
+        }
+    } else if tail {
+        let status = std::process::Command::new("tail")
+            .args(["-f", &path.to_string_lossy()])
+            .status()
+            .context("Failed to run tail")?;
+        std::process::exit(status.code().unwrap_or(1));
+    } else {
+        println!("{}", path.display());
+    }
+    Ok(())
+}
+
+pub(super) fn handle_theme_command(command: ThemeCommands) -> Result<()> {
+    match command {
+        ThemeCommands::List => {
+            let current = preferences::load_theme().unwrap_or_else(|| "Purple".to_string());
+            println!("Built-in themes:");
+            for theme in ui::theme::ThemeDef::builtins() {
+                let marker = if theme.name.eq_ignore_ascii_case(&current) {
+                    "*"
+                } else {
+                    " "
+                };
+                println!("  {} {}", marker, theme.name);
+            }
+            let custom = ui::theme::ThemeDef::load_custom();
+            if !custom.is_empty() {
+                println!("\nCustom themes:");
+                for theme in &custom {
+                    let marker = if theme.name.eq_ignore_ascii_case(&current) {
+                        "*"
+                    } else {
+                        " "
+                    };
+                    println!("  {} {}", marker, theme.name);
+                }
+            }
+        }
+        ThemeCommands::Set { name } => {
+            let found = ui::theme::ThemeDef::find_builtin(&name).or_else(|| {
+                ui::theme::ThemeDef::load_custom()
+                    .into_iter()
+                    .find(|t| t.name.eq_ignore_ascii_case(&name))
+            });
+            match found {
+                Some(theme) => {
+                    preferences::save_theme(&theme.name)?;
+                    println!("Theme set to: {}", theme.name);
+                }
+                None => {
+                    anyhow::bail!("Unknown theme: {}", name);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn handle_vault_sign_command(
+    mut config: SshConfigFile,
+    alias: Option<String>,
+    all: bool,
+    cli_vault_addr: Option<String>,
+) -> Result<()> {
+    if let Some(ref addr) = cli_vault_addr {
+        if !vault_ssh::is_valid_vault_addr(addr) {
+            anyhow::bail!(
+                "Invalid --vault-addr value. Must be non-empty, no whitespace or control chars."
+            );
+        }
+    }
+    let provider_config = providers::config::ProviderConfig::load();
+    let entries = config.host_entries();
+
+    if all {
+        let mut signed = 0u32;
+        let mut failed = 0u32;
+        let mut skipped = 0u32;
+
+        for entry in &entries {
+            let role = match vault_ssh::resolve_vault_role(
+                entry.vault_ssh.as_deref(),
+                entry.provider.as_deref(),
+                &provider_config,
+            ) {
+                Some(r) => r,
+                None => {
+                    skipped += 1;
+                    continue;
+                }
+            };
+
+            let pubkey = match vault_ssh::resolve_pubkey_path(&entry.identity_file) {
+                Ok(p) => p,
+                Err(e) => {
+                    println!("Skipping {}: {}", entry.alias, e);
+                    failed += 1;
+                    continue;
+                }
+            };
+            let cert_path = vault_ssh::resolve_cert_path(&entry.alias, &entry.certificate_file)?;
+            let status = vault_ssh::check_cert_validity(&cert_path);
+
+            if !vault_ssh::needs_renewal(&status) {
+                skipped += 1;
+                continue;
+            }
+
+            // Flag beats per-host beats provider default.
+            let resolved_addr = cli_vault_addr.clone().or_else(|| {
+                vault_ssh::resolve_vault_addr(
+                    entry.vault_addr.as_deref(),
+                    entry.provider.as_deref(),
+                    &provider_config,
+                )
+            });
+            print!("Signing {}... ", entry.alias);
+            match vault_ssh::sign_certificate(
+                &role,
+                &pubkey,
+                &entry.alias,
+                resolved_addr.as_deref(),
+            ) {
+                Ok(result) => {
+                    println!("\u{2713}");
+                    // Honor the same invariant as the TUI paths: never
+                    // overwrite a user-set CertificateFile.
+                    if should_write_certificate_file(&entry.certificate_file) {
+                        let updated = config.set_host_certificate_file(
+                            &entry.alias,
+                            &result.cert_path.to_string_lossy(),
+                        );
+                        if !updated {
+                            eprintln!(
+                                "  warning: {} no longer in ssh config; CertificateFile not written (cert saved on disk)",
+                                entry.alias
+                            );
+                        }
+                    }
+                    signed += 1;
+                }
+                Err(e) => {
+                    println!("failed: {}", e);
+                    failed += 1;
+                }
+            }
+        }
+        if signed > 0 {
+            if let Err(e) = config.write() {
+                eprintln!("Warning: Failed to update SSH config: {}", e);
+            }
+        }
+        println!(
+            "\nSigned: {}, failed: {}, skipped (valid): {}",
+            signed, failed, skipped
+        );
+        if failed > 0 {
+            std::process::exit(1);
+        }
+    } else if let Some(alias) = alias {
+        let entry = entries
+            .iter()
+            .find(|h| h.alias == alias)
+            .with_context(|| format!("Host '{}' not found", alias))?;
+
+        let role = vault_ssh::resolve_vault_role(
+            entry.vault_ssh.as_deref(),
+            entry.provider.as_deref(),
+            &provider_config,
+        )
+        .with_context(|| {
+            format!(
+                "No Vault SSH role configured for '{}'. Set it in the host form (Vault SSH Role field) or in the provider config (vault_role).",
+                alias
+            )
+        })?;
+
+        let pubkey = vault_ssh::resolve_pubkey_path(&entry.identity_file)?;
+        let resolved_addr = cli_vault_addr.clone().or_else(|| {
+            vault_ssh::resolve_vault_addr(
+                entry.vault_addr.as_deref(),
+                entry.provider.as_deref(),
+                &provider_config,
+            )
+        });
+        let result = vault_ssh::sign_certificate(&role, &pubkey, &alias, resolved_addr.as_deref())?;
+        // Honor the same invariant as the TUI paths: never overwrite a
+        // user-set CertificateFile. Only write the directive (and the
+        // SSH config) when the host has none yet.
+        if should_write_certificate_file(&entry.certificate_file) {
+            let updated =
+                config.set_host_certificate_file(&alias, &result.cert_path.to_string_lossy());
+            if !updated {
+                // Host disappeared between the `entries` snapshot and
+                // the config mutation. In the single-host CLI path
+                // both reads happen back-to-back in the same process,
+                // so this is effectively unreachable — but surface it
+                // loudly if the invariant ever breaks instead of
+                // silently writing a cert nobody references.
+                anyhow::bail!(
+                    "Host '{}' disappeared from ssh config before CertificateFile could be written. Cert saved to {}.",
+                    alias,
+                    result.cert_path.display()
+                );
+            }
+            config
+                .write()
+                .with_context(|| "Failed to update SSH config with CertificateFile")?;
+        }
+        println!("Certificate signed: {}", result.cert_path.display());
+    } else {
+        anyhow::bail!("Provide a host alias or use --all");
+    }
+    Ok(())
 }

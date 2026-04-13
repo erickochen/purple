@@ -11,6 +11,7 @@ use crate::ssh_config::model::HostEntry;
 mod command_palette;
 mod confirm;
 mod containers;
+pub(crate) mod event_loop;
 mod file_browser;
 mod help;
 mod host_detail;
@@ -28,7 +29,6 @@ mod tunnel;
 pub(crate) use provider::zone_data_for;
 pub use sync::spawn_provider_sync;
 
-/// Create a sender that maps SnippetEvent to AppEvent.
 /// Returns true when every host in `host_addrs` has no per-host Vault address
 /// and the process env also has no valid `VAULT_ADDR`. Extracted as a pure
 /// function so the V-key pre-check can be unit tested without env mutation.
@@ -43,51 +43,6 @@ pub(super) fn vault_addr_missing(
         return false;
     }
     host_addrs.iter().all(|a| a.is_none())
-}
-
-pub(super) fn snippet_event_bridge(
-    tx: &mpsc::Sender<AppEvent>,
-) -> mpsc::Sender<crate::snippet::SnippetEvent> {
-    let (stx, srx) = mpsc::channel::<crate::snippet::SnippetEvent>();
-    let tx = tx.clone();
-    std::thread::Builder::new()
-        .name("snippet-bridge".into())
-        .spawn(move || {
-            while let Ok(evt) = srx.recv() {
-                let app_evt = match evt {
-                    crate::snippet::SnippetEvent::HostDone {
-                        run_id,
-                        alias,
-                        stdout,
-                        stderr,
-                        exit_code,
-                    } => AppEvent::SnippetHostDone {
-                        run_id,
-                        alias,
-                        stdout,
-                        stderr,
-                        exit_code,
-                    },
-                    crate::snippet::SnippetEvent::Progress {
-                        run_id,
-                        completed,
-                        total,
-                    } => AppEvent::SnippetProgress {
-                        run_id,
-                        completed,
-                        total,
-                    },
-                    crate::snippet::SnippetEvent::AllDone { run_id } => {
-                        AppEvent::SnippetAllDone { run_id }
-                    }
-                };
-                if tx.send(app_evt).is_err() {
-                    break;
-                }
-            }
-        })
-        .expect("failed to spawn snippet bridge");
-    stx
 }
 
 /// Handle a key event based on the current screen.
@@ -114,7 +69,7 @@ pub fn handle_key_event(
             app.screen = Screen::HostList;
             return Ok(());
         }
-        if let Some(ref cancel) = app.vault_signing_cancel {
+        if let Some(ref cancel) = app.vault.signing_cancel {
             cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         app.running = false;

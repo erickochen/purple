@@ -135,18 +135,17 @@ pub(super) fn handle_containers(
                 state.loading = true;
                 state.error = None;
                 let alias = state.alias.clone();
-                let askpass = state.askpass.clone();
-                let has_tunnel = app.active_tunnels.contains_key(&alias);
                 let cached_runtime = state.runtime;
-                let config_path = app.reload.config_path.clone();
-                let bw = app.bw_session.clone();
+                let ctx = crate::ssh_context::OwnedSshContext {
+                    alias: alias.clone(),
+                    config_path: app.reload.config_path.clone(),
+                    askpass: state.askpass.clone(),
+                    bw_session: app.bw_session.clone(),
+                    has_tunnel: app.active_tunnels.contains_key(&alias),
+                };
                 let tx = events_tx.clone();
                 crate::containers::spawn_container_listing(
-                    alias,
-                    config_path,
-                    askpass,
-                    bw,
-                    has_tunnel,
+                    ctx,
                     cached_runtime,
                     move |a, result| {
                         let _ = tx.send(AppEvent::ContainerListing { alias: a, result });
@@ -196,20 +195,19 @@ fn container_action(
     let container_name = container.names.clone();
     state.action_in_progress = Some(format!("{} {}...", action.as_str(), container_name));
     let alias = state.alias.clone();
-    let askpass = state.askpass.clone();
-    let has_tunnel = app.active_tunnels.contains_key(&alias);
-    let config_path = app.reload.config_path.clone();
-    let bw = app.bw_session.clone();
+    let ctx = crate::ssh_context::OwnedSshContext {
+        alias: alias.clone(),
+        config_path: app.reload.config_path.clone(),
+        askpass: state.askpass.clone(),
+        bw_session: app.bw_session.clone(),
+        has_tunnel: app.active_tunnels.contains_key(&alias),
+    };
     let tx = events_tx.clone();
     crate::containers::spawn_container_action(
-        alias,
-        config_path,
+        ctx,
         runtime,
         action,
         container_id,
-        askpass,
-        bw,
-        has_tunnel,
         move |a, act, result| {
             let _ = tx.send(AppEvent::ContainerActionComplete {
                 alias: a,

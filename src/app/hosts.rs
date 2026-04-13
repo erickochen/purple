@@ -230,7 +230,7 @@ impl App {
                         Ok(()) => {}
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                         Err(e) => {
-                            self.cert_cleanup_warning = Some(format!(
+                            self.vault.cleanup_warning = Some(format!(
                                 "Warning: failed to clean up old Vault SSH cert {}: {}",
                                 old_cert.display(),
                                 e
@@ -247,7 +247,7 @@ impl App {
         // CertificateFile path change, or role removal). When the alias
         // itself changed, also clear the stale entry under the old alias.
         if alias != old_alias {
-            self.cert_status_cache.remove(old_alias);
+            self.vault.cert_cache.remove(old_alias);
         }
         self.refresh_cert_cache(&alias);
         Ok(format!("{} got a makeover.", alias))

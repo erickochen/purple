@@ -273,8 +273,8 @@ impl App {
                         let sa = self.hosts[*a].stale.is_some();
                         let sb = self.hosts[*b].stale.is_some();
                         sa.cmp(&sb).then_with(|| {
-                            let pa = self.ping_status.get(&self.hosts[*a].alias);
-                            let pb = self.ping_status.get(&self.hosts[*b].alias);
+                            let pa = self.ping.status.get(&self.hosts[*a].alias);
+                            let pb = self.ping.status.get(&self.hosts[*b].alias);
                             super::ping_sort_key(pa).cmp(&super::ping_sort_key(pb))
                         })
                     });

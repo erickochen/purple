@@ -22,6 +22,7 @@ mod providers;
 mod quick_add;
 mod snippet;
 mod ssh_config;
+mod ssh_context;
 mod ssh_keys;
 mod tui;
 mod tunnel;
@@ -451,69 +452,10 @@ fn main() -> Result<()> {
         return mcp::run(&config_path);
     }
     if let Some(Commands::Logs { tail, clear }) = cli.command {
-        let path = logging::log_path().context("Could not determine log path")?;
-        if clear {
-            if path.exists() {
-                std::fs::remove_file(&path)?;
-                println!("Log file deleted: {}", path.display());
-            } else {
-                println!("No log file found at {}", path.display());
-            }
-        } else if tail {
-            let status = std::process::Command::new("tail")
-                .args(["-f", &path.to_string_lossy()])
-                .status()
-                .context("Failed to run tail")?;
-            std::process::exit(status.code().unwrap_or(1));
-        } else {
-            println!("{}", path.display());
-        }
-        return Ok(());
+        return cli::handle_logs_command(tail, clear);
     }
     if let Some(Commands::Theme { command }) = cli.command {
-        match command {
-            ThemeCommands::List => {
-                let current = preferences::load_theme().unwrap_or_else(|| "Purple".to_string());
-                println!("Built-in themes:");
-                for theme in ui::theme::ThemeDef::builtins() {
-                    let marker = if theme.name.eq_ignore_ascii_case(&current) {
-                        "*"
-                    } else {
-                        " "
-                    };
-                    println!("  {} {}", marker, theme.name);
-                }
-                let custom = ui::theme::ThemeDef::load_custom();
-                if !custom.is_empty() {
-                    println!("\nCustom themes:");
-                    for theme in &custom {
-                        let marker = if theme.name.eq_ignore_ascii_case(&current) {
-                            "*"
-                        } else {
-                            " "
-                        };
-                        println!("  {} {}", marker, theme.name);
-                    }
-                }
-            }
-            ThemeCommands::Set { name } => {
-                let found = ui::theme::ThemeDef::find_builtin(&name).or_else(|| {
-                    ui::theme::ThemeDef::load_custom()
-                        .into_iter()
-                        .find(|t| t.name.eq_ignore_ascii_case(&name))
-                });
-                match found {
-                    Some(theme) => {
-                        preferences::save_theme(&theme.name)?;
-                        println!("Theme set to: {}", theme.name);
-                    }
-                    None => {
-                        anyhow::bail!("Unknown theme: {}", name);
-                    }
-                }
-            }
-        }
-        return Ok(());
+        return cli::handle_theme_command(command);
     }
 
     let config_path = resolve_config_path(&cli.config)?;
@@ -619,158 +561,7 @@ fn main() -> Result<()> {
                     vault_addr: cli_vault_addr,
                 },
         }) => {
-            if let Some(ref addr) = cli_vault_addr {
-                if !vault_ssh::is_valid_vault_addr(addr) {
-                    anyhow::bail!(
-                        "Invalid --vault-addr value. Must be non-empty, no whitespace or control chars."
-                    );
-                }
-            }
-            let provider_config = providers::config::ProviderConfig::load();
-            let entries = config.host_entries();
-
-            if all {
-                let mut signed = 0u32;
-                let mut failed = 0u32;
-                let mut skipped = 0u32;
-
-                for entry in &entries {
-                    let role = match vault_ssh::resolve_vault_role(
-                        entry.vault_ssh.as_deref(),
-                        entry.provider.as_deref(),
-                        &provider_config,
-                    ) {
-                        Some(r) => r,
-                        None => {
-                            skipped += 1;
-                            continue;
-                        }
-                    };
-
-                    let pubkey = match vault_ssh::resolve_pubkey_path(&entry.identity_file) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            println!("Skipping {}: {}", entry.alias, e);
-                            failed += 1;
-                            continue;
-                        }
-                    };
-                    let cert_path =
-                        vault_ssh::resolve_cert_path(&entry.alias, &entry.certificate_file)?;
-                    let status = vault_ssh::check_cert_validity(&cert_path);
-
-                    if !vault_ssh::needs_renewal(&status) {
-                        skipped += 1;
-                        continue;
-                    }
-
-                    // Flag beats per-host beats provider default.
-                    let resolved_addr = cli_vault_addr.clone().or_else(|| {
-                        vault_ssh::resolve_vault_addr(
-                            entry.vault_addr.as_deref(),
-                            entry.provider.as_deref(),
-                            &provider_config,
-                        )
-                    });
-                    print!("Signing {}... ", entry.alias);
-                    match vault_ssh::sign_certificate(
-                        &role,
-                        &pubkey,
-                        &entry.alias,
-                        resolved_addr.as_deref(),
-                    ) {
-                        Ok(result) => {
-                            println!("\u{2713}");
-                            // Honor the same invariant as the TUI paths: never
-                            // overwrite a user-set CertificateFile.
-                            if should_write_certificate_file(&entry.certificate_file) {
-                                let updated = config.set_host_certificate_file(
-                                    &entry.alias,
-                                    &result.cert_path.to_string_lossy(),
-                                );
-                                if !updated {
-                                    eprintln!(
-                                        "  warning: {} no longer in ssh config; CertificateFile not written (cert saved on disk)",
-                                        entry.alias
-                                    );
-                                }
-                            }
-                            signed += 1;
-                        }
-                        Err(e) => {
-                            println!("failed: {}", e);
-                            failed += 1;
-                        }
-                    }
-                }
-                if signed > 0 {
-                    if let Err(e) = config.write() {
-                        eprintln!("Warning: Failed to update SSH config: {}", e);
-                    }
-                }
-                println!(
-                    "\nSigned: {}, failed: {}, skipped (valid): {}",
-                    signed, failed, skipped
-                );
-                if failed > 0 {
-                    std::process::exit(1);
-                }
-            } else if let Some(alias) = alias {
-                let entry = entries
-                    .iter()
-                    .find(|h| h.alias == alias)
-                    .with_context(|| format!("Host '{}' not found", alias))?;
-
-                let role = vault_ssh::resolve_vault_role(
-                    entry.vault_ssh.as_deref(),
-                    entry.provider.as_deref(),
-                    &provider_config,
-                )
-                .with_context(|| {
-                    format!(
-                        "No Vault SSH role configured for '{}'. Set it in the host form (Vault SSH Role field) or in the provider config (vault_role).",
-                        alias
-                    )
-                })?;
-
-                let pubkey = vault_ssh::resolve_pubkey_path(&entry.identity_file)?;
-                let resolved_addr = cli_vault_addr.clone().or_else(|| {
-                    vault_ssh::resolve_vault_addr(
-                        entry.vault_addr.as_deref(),
-                        entry.provider.as_deref(),
-                        &provider_config,
-                    )
-                });
-                let result =
-                    vault_ssh::sign_certificate(&role, &pubkey, &alias, resolved_addr.as_deref())?;
-                // Honor the same invariant as the TUI paths: never overwrite a
-                // user-set CertificateFile. Only write the directive (and the
-                // SSH config) when the host has none yet.
-                if should_write_certificate_file(&entry.certificate_file) {
-                    let updated = config
-                        .set_host_certificate_file(&alias, &result.cert_path.to_string_lossy());
-                    if !updated {
-                        // Host disappeared between the `entries` snapshot and
-                        // the config mutation. In the single-host CLI path
-                        // both reads happen back-to-back in the same process,
-                        // so this is effectively unreachable — but surface it
-                        // loudly if the invariant ever breaks instead of
-                        // silently writing a cert nobody references.
-                        anyhow::bail!(
-                            "Host '{}' disappeared from ssh config before CertificateFile could be written. Cert saved to {}.",
-                            alias,
-                            result.cert_path.display()
-                        );
-                    }
-                    config
-                        .write()
-                        .with_context(|| "Failed to update SSH config with CertificateFile")?;
-                }
-                println!("Certificate signed: {}", result.cert_path.display());
-            } else {
-                anyhow::bail!("Provide a host alias or use --all");
-            }
-            return Ok(());
+            return cli::handle_vault_sign_command(config, alias, all, cli_vault_addr);
         }
         Some(Commands::Provider { .. })
         | Some(Commands::Update)
@@ -943,7 +734,7 @@ fn apply_saved_sort(app: &mut App) {
 /// "1 failed" count.
 /// Replace the spinner frame prefix in a status text. Returns None if the
 /// text does not start with a known spinner frame.
-fn replace_spinner_frame(text: &str, new_frame: &str) -> Option<String> {
+pub(crate) fn replace_spinner_frame(text: &str, new_frame: &str) -> Option<String> {
     let starts_with_spinner = crate::animation::SPINNER_FRAMES
         .iter()
         .any(|f| text.starts_with(f));
@@ -954,7 +745,7 @@ fn replace_spinner_frame(text: &str, new_frame: &str) -> Option<String> {
         .map(|(_, rest)| format!("{} {}", new_frame, rest))
 }
 
-fn format_vault_sign_summary(
+pub(crate) fn format_vault_sign_summary(
     signed: u32,
     failed: u32,
     skipped: u32,
@@ -997,7 +788,7 @@ fn format_vault_sign_summary(
     }
 }
 
-fn format_sync_diff(added: usize, updated: usize, stale: usize) -> String {
+pub(crate) fn format_sync_diff(added: usize, updated: usize, stale: usize) -> String {
     let diff_parts: Vec<String> = [(added, "+"), (updated, "~"), (stale, "-")]
         .iter()
         .filter(|(n, _)| *n > 0)
@@ -1012,7 +803,7 @@ fn format_sync_diff(added: usize, updated: usize, stale: usize) -> String {
 
 /// Shows "Synced: AWS, DO, Vultr" that grows as each provider finishes.
 /// Clears the batch state once all providers are done so the status can expire normally.
-fn set_sync_summary(app: &mut App) {
+pub(crate) fn set_sync_summary(app: &mut App) {
     let still_syncing = !app.syncing_providers.is_empty();
     let names = app.sync_done.join(", ");
     if still_syncing {
@@ -1109,7 +900,7 @@ fn run_tui(mut app: App) -> Result<()> {
         }
 
         // Auto-ping all hosts on startup if enabled in preferences
-        if app.auto_ping {
+        if app.ping.auto_ping {
             let hosts_to_ping: Vec<(String, String, u16)> = app
                 .hosts
                 .iter()
@@ -1118,16 +909,18 @@ fn run_tui(mut app: App) -> Result<()> {
                 .collect();
             for h in &app.hosts {
                 if !h.proxy_jump.is_empty() {
-                    app.ping_status
+                    app.ping
+                        .status
                         .insert(h.alias.clone(), app::PingStatus::Skipped);
                 }
             }
             if !hosts_to_ping.is_empty() {
                 for (alias, _, _) in &hosts_to_ping {
-                    app.ping_status
+                    app.ping
+                        .status
                         .insert(alias.clone(), app::PingStatus::Checking);
                 }
-                ping::ping_all(&hosts_to_ping, events.sender(), app.ping_generation);
+                ping::ping_all(&hosts_to_ping, events.sender(), app.ping.generation);
             }
         }
 
@@ -1144,7 +937,7 @@ fn run_tui(mut app: App) -> Result<()> {
         // During animation, use a short timeout for smooth frames (~60fps).
         // During ping checking, use 80ms timeout for spinner.
         // Otherwise, block until the next event arrives.
-        let vault_signing = app.vault_signing_cancel.is_some();
+        let vault_signing = app.vault.signing_cancel.is_some();
         let event = if anim.is_animating(&app) {
             events.next_timeout(std::time::Duration::from_millis(16))?
         } else if anim.has_checking_hosts(&app) || vault_signing {
@@ -1158,132 +951,30 @@ fn run_tui(mut app: App) -> Result<()> {
                 handler::handle_key_event(&mut app, key, &events_tx)?;
             }
             Some(AppEvent::Tick) | None => {
-                app.tick_status();
-                app.tick_toast();
-                if anim.has_checking_hosts(&app) || vault_signing {
-                    anim.tick_spinner();
-                }
-                // Update the spinner character in the signing status text
-                // so the spinner animates between VaultSignProgress events.
-                if vault_signing {
-                    if let Some(ref mut status) = app.status {
-                        if status.sticky && !status.is_error() {
-                            let frame = crate::animation::SPINNER_FRAMES[anim.spinner_tick
-                                as usize
-                                % crate::animation::SPINNER_FRAMES.len()];
-                            if let Some(updated) = replace_spinner_frame(&status.text, frame) {
-                                status.text = updated;
-                            }
-                        }
-                    }
-                }
-                // Expire ping results after 60s TTL
-                if let Some(checked_at) = app.ping_checked_at {
-                    if checked_at.elapsed() > std::time::Duration::from_secs(60) {
-                        app.ping_status.clear();
-                        app.ping_checked_at = None;
-                        app.ping_generation += 1;
-                        if app.filter_down_only {
-                            app.cancel_search();
-                        }
-                        app.set_background_status("Ping expired. Press P to refresh.", false);
-                    }
-                }
-                // Throttle config file stat() to every 4 seconds
-                if last_config_check.elapsed() >= std::time::Duration::from_secs(4) {
-                    app.check_config_changed();
-                    last_config_check = std::time::Instant::now();
-                }
-                // Poll active tunnels for exit
-                let exited = app.poll_tunnels();
-                for (_alias, msg, is_error) in exited {
-                    app.set_background_status(msg, is_error);
-                }
+                handler::event_loop::handle_tick(
+                    &mut app,
+                    &mut anim,
+                    vault_signing,
+                    &mut last_config_check,
+                );
             }
             Some(AppEvent::PingResult {
                 alias,
                 rtt_ms,
                 generation,
             }) => {
-                if generation == app.ping_generation {
-                    let status = app::classify_ping(rtt_ms, app.slow_threshold_ms);
-                    app.ping_status.insert(alias.clone(), status.clone());
-                    // Propagate bastion status to all ProxyJump dependents.
-                    // If this host is a bastion for other hosts, they inherit
-                    // its reachability (one check per bastion, not per host).
-                    app::propagate_ping_to_dependents(
-                        &app.hosts,
-                        &mut app.ping_status,
-                        &alias,
-                        &status,
-                    );
-                    // Update live filter/sort as results arrive
-                    if app.filter_down_only {
-                        app.apply_filter();
-                    }
-                    if app.sort_mode == app::SortMode::Status {
-                        app.apply_sort();
-                    }
-                    // Update "last checked" timestamp when all pings are done
-                    if !app.ping_status.is_empty()
-                        && app
-                            .ping_status
-                            .values()
-                            .all(|s| !matches!(s, app::PingStatus::Checking))
-                    {
-                        app.ping_checked_at = Some(std::time::Instant::now());
-                    }
-                }
+                handler::event_loop::handle_ping_result(&mut app, alias, rtt_ms, generation);
             }
             Some(AppEvent::SyncProgress { provider, message }) => {
-                // Only show per-provider progress while that provider is still syncing.
-                // Late progress events (arriving after SyncComplete) are discarded.
-                if app.syncing_providers.contains_key(&provider) && app.sync_done.is_empty() {
-                    let name = providers::provider_display_name(&provider);
-                    app.set_background_status(format!("{}: {}", name, message), false);
-                }
+                handler::event_loop::handle_sync_progress(&mut app, provider, message);
             }
             Some(AppEvent::SyncComplete { provider, hosts }) => {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let display_name = providers::provider_display_name(&provider);
-                let (_msg, is_err, total, added, updated, stale) =
-                    app.apply_sync_result(&provider, hosts, false);
-                if is_err {
-                    app.sync_history.insert(
-                        provider.clone(),
-                        app::SyncRecord {
-                            timestamp: now,
-                            message: format!("{}: sync failed", display_name),
-                            is_error: true,
-                        },
-                    );
-                    app.sync_had_errors = true;
-                } else {
-                    let label = if total == 1 { "server" } else { "servers" };
-                    let message = format!(
-                        "{} {}{}",
-                        total,
-                        label,
-                        format_sync_diff(added, updated, stale)
-                    );
-                    app.sync_history.insert(
-                        provider.clone(),
-                        app::SyncRecord {
-                            timestamp: now,
-                            message,
-                            is_error: false,
-                        },
-                    );
-                }
-                app.syncing_providers.remove(&provider);
-                app.sync_done.push(display_name.to_string());
-                set_sync_summary(&mut app);
-                // Reset config check timer so auto-reload doesn't immediately
-                // detect our own write as an "external" change
-                last_config_check = std::time::Instant::now();
+                handler::event_loop::handle_sync_complete(
+                    &mut app,
+                    provider,
+                    hosts,
+                    &mut last_config_check,
+                );
             }
             Some(AppEvent::SyncPartial {
                 provider,
@@ -1291,197 +982,52 @@ fn run_tui(mut app: App) -> Result<()> {
                 failures,
                 total,
             }) => {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let display_name = providers::provider_display_name(provider.as_str());
-                let (msg, is_err, synced, added, updated, stale) =
-                    app.apply_sync_result(&provider, hosts, true);
-                if is_err {
-                    app.sync_history.insert(
-                        provider.clone(),
-                        app::SyncRecord {
-                            timestamp: now,
-                            message: msg,
-                            is_error: true,
-                        },
-                    );
-                } else {
-                    let label = if synced == 1 { "server" } else { "servers" };
-                    app.sync_history.insert(
-                        provider.clone(),
-                        app::SyncRecord {
-                            timestamp: now,
-                            message: format!(
-                                "{} {}{} ({} of {} failed)",
-                                synced,
-                                label,
-                                format_sync_diff(added, updated, stale),
-                                failures,
-                                total
-                            ),
-                            is_error: true,
-                        },
-                    );
-                }
-                app.sync_had_errors = true;
-                app.syncing_providers.remove(&provider);
-                app.sync_done.push(display_name.to_string());
-                set_sync_summary(&mut app);
-                last_config_check = std::time::Instant::now();
+                handler::event_loop::handle_sync_partial(
+                    &mut app,
+                    provider,
+                    hosts,
+                    failures,
+                    total,
+                    &mut last_config_check,
+                );
             }
             Some(AppEvent::SyncError { provider, message }) => {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let display_name = providers::provider_display_name(provider.as_str());
-                app.sync_history.insert(
-                    provider.clone(),
-                    app::SyncRecord {
-                        timestamp: now,
-                        message: message.clone(),
-                        is_error: true,
-                    },
+                handler::event_loop::handle_sync_error(
+                    &mut app,
+                    provider,
+                    message,
+                    &mut last_config_check,
                 );
-                app.sync_had_errors = true;
-                app.syncing_providers.remove(&provider);
-                app.sync_done.push(display_name.to_string());
-                set_sync_summary(&mut app);
-                last_config_check = std::time::Instant::now();
             }
             Some(AppEvent::UpdateAvailable { version, headline }) => {
-                app.update_available = Some(version);
-                app.update_headline = headline;
+                handler::event_loop::handle_update_available(&mut app, version, headline);
             }
             Some(AppEvent::FileBrowserListing {
                 alias,
                 path,
                 entries,
             }) => {
-                let mut record_connection = false;
-                if let Some(ref mut fb) = app.file_browser {
-                    if fb.alias == alias {
-                        fb.remote_loading = false;
-                        match entries {
-                            Ok(listing) => {
-                                if !fb.connection_recorded {
-                                    fb.connection_recorded = true;
-                                    record_connection = true;
-                                }
-                                if fb.remote_path.is_empty() || fb.remote_path != path {
-                                    fb.remote_path = path;
-                                }
-                                fb.remote_entries = listing;
-                                fb.remote_error = None;
-                                fb.remote_list_state = ratatui::widgets::ListState::default();
-                                fb.remote_list_state.select(Some(0));
-                            }
-                            Err(msg) => {
-                                if fb.remote_path.is_empty() {
-                                    fb.remote_path = path;
-                                }
-                                fb.remote_error = Some(msg);
-                                fb.remote_entries.clear();
-                            }
-                        }
-                    }
-                }
-                if record_connection {
-                    app.history.record(&alias);
-                    app.apply_sort();
-                }
-                // Force full redraw: ssh may have written to /dev/tty
-                terminal.force_redraw();
+                handler::event_loop::handle_file_browser_listing(
+                    &mut app,
+                    alias,
+                    path,
+                    entries,
+                    &mut terminal,
+                );
             }
             Some(AppEvent::ScpComplete {
                 alias,
                 success,
                 message,
             }) => {
-                // Track whether we need to spawn a remote refresh (can't do it inside the fb borrow
-                // because spawn_remote_listing needs values from app too)
-                let mut refresh_remote: Option<(
-                    String,
-                    Option<String>,
-                    String,
-                    bool,
-                    file_browser::BrowserSort,
-                )> = None;
-                let matched = if let Some(ref mut fb) = app.file_browser {
-                    if fb.alias == alias {
-                        fb.transferring = None;
-                        if success {
-                            app.history.record(&alias);
-                            fb.local_selected.clear();
-                            fb.remote_selected.clear();
-                            match file_browser::list_local(&fb.local_path, fb.show_hidden, fb.sort)
-                            {
-                                Ok(entries) => {
-                                    fb.local_entries = entries;
-                                    fb.local_error = None;
-                                }
-                                Err(e) => {
-                                    fb.local_entries = Vec::new();
-                                    fb.local_error = Some(e.to_string());
-                                }
-                            }
-                            fb.local_list_state.select(Some(0));
-                            if !fb.remote_path.is_empty() {
-                                fb.remote_loading = true;
-                                fb.remote_entries.clear();
-                                fb.remote_error = None;
-                                fb.remote_list_state = ratatui::widgets::ListState::default();
-                                refresh_remote = Some((
-                                    fb.alias.clone(),
-                                    fb.askpass.clone(),
-                                    fb.remote_path.clone(),
-                                    fb.show_hidden,
-                                    fb.sort,
-                                ));
-                            }
-                        } else {
-                            fb.transfer_error = Some(message.clone());
-                        }
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-                if matched && success {
-                    app.set_background_status("Transfer complete.", false);
-                    // Rebuild display list so frecency sort and LAST column reflect the transfer
-                    app.apply_sort();
-                }
-                if let Some((fb_alias, askpass_fb, path, show_hidden, sort)) = refresh_remote {
-                    let config_path = app.reload.config_path.clone();
-                    let has_tunnel = app.active_tunnels.contains_key(&fb_alias);
-                    let bw = app.bw_session.clone();
-                    let tx = events_tx.clone();
-                    file_browser::spawn_remote_listing(
-                        fb_alias,
-                        config_path,
-                        path,
-                        show_hidden,
-                        sort,
-                        askpass_fb,
-                        bw,
-                        has_tunnel,
-                        move |a, p, e| {
-                            let _ = tx.send(AppEvent::FileBrowserListing {
-                                alias: a,
-                                path: p,
-                                entries: e,
-                            });
-                        },
-                    );
-                }
-                askpass::cleanup_marker(&alias);
-                // Force full redraw: ssh may have written to /dev/tty
-                terminal.force_redraw();
+                handler::event_loop::handle_scp_complete(
+                    &mut app,
+                    alias,
+                    success,
+                    message,
+                    &events_tx,
+                    &mut terminal,
+                );
             }
             Some(AppEvent::SnippetHostDone {
                 run_id,
@@ -1490,147 +1036,31 @@ fn run_tui(mut app: App) -> Result<()> {
                 stderr,
                 exit_code,
             }) => {
-                if exit_code == Some(0) {
-                    app.history.record(&alias);
-                    app.apply_sort();
-                }
-                if let Some(ref mut state) = app.snippet_output {
-                    if state.run_id == run_id {
-                        state.results.push(app::SnippetHostOutput {
-                            alias,
-                            stdout,
-                            stderr,
-                            exit_code,
-                        });
-                    }
-                }
+                handler::event_loop::handle_snippet_host_done(
+                    &mut app, run_id, alias, stdout, stderr, exit_code,
+                );
             }
             Some(AppEvent::SnippetProgress {
                 run_id,
                 completed,
                 total,
             }) => {
-                if let Some(ref mut state) = app.snippet_output {
-                    if state.run_id == run_id {
-                        state.completed = completed;
-                        state.total = total;
-                    }
-                }
+                handler::event_loop::handle_snippet_progress(&mut app, run_id, completed, total);
             }
             Some(AppEvent::SnippetAllDone { run_id }) => {
-                if let Some(ref mut state) = app.snippet_output {
-                    if state.run_id == run_id {
-                        state.all_done = true;
-                    }
-                }
+                handler::event_loop::handle_snippet_all_done(&mut app, run_id);
             }
             Some(AppEvent::ContainerListing { alias, result }) => {
-                // Always update cache, even if overlay is closed
-                match &result {
-                    Ok((runtime, containers)) => {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        app.container_cache.insert(
-                            alias.clone(),
-                            crate::containers::ContainerCacheEntry {
-                                timestamp: now,
-                                runtime: *runtime,
-                                containers: containers.clone(),
-                            },
-                        );
-                        crate::containers::save_container_cache(&app.container_cache);
-                    }
-                    Err(e) => {
-                        // Preserve runtime even on error
-                        if let Some(rt) = e.runtime {
-                            if let Some(entry) = app.container_cache.get_mut(&alias) {
-                                entry.runtime = rt;
-                            }
-                        }
-                    }
-                }
-                // Update overlay state if open
-                if let Some(ref mut state) = app.container_state {
-                    if state.alias == alias {
-                        match result {
-                            Ok((runtime, containers)) => {
-                                state.runtime = Some(runtime);
-                                state.containers = containers;
-                                state.loading = false;
-                                state.error = None;
-                                if let Some(sel) = state.list_state.selected() {
-                                    if sel >= state.containers.len() && !state.containers.is_empty()
-                                    {
-                                        state.list_state.select(Some(0));
-                                    }
-                                } else if !state.containers.is_empty() {
-                                    state.list_state.select(Some(0));
-                                }
-                            }
-                            Err(e) => {
-                                if let Some(rt) = e.runtime {
-                                    state.runtime = Some(rt);
-                                }
-                                state.loading = false;
-                                state.error = Some(e.message);
-                            }
-                        }
-                    }
-                }
-                askpass::cleanup_marker(&alias);
+                handler::event_loop::handle_container_listing(&mut app, alias, result);
             }
             Some(AppEvent::ContainerActionComplete {
                 alias,
                 action,
                 result,
             }) => {
-                // Check if overlay matches and extract refresh info before set_status
-                let should_refresh = if let Some(ref mut state) = app.container_state {
-                    if state.alias == alias {
-                        state.action_in_progress = None;
-                        match result {
-                            Ok(()) => {
-                                state.loading = true;
-                                Some((state.alias.clone(), state.askpass.clone(), state.runtime))
-                            }
-                            Err(e) => {
-                                state.error = Some(e);
-                                None
-                            }
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                if let Some((refresh_alias, askpass, cached_runtime)) = should_refresh {
-                    app.set_background_status(
-                        format!("Container {} complete.", action.as_str()),
-                        false,
-                    );
-                    let has_tunnel = app.active_tunnels.contains_key(&refresh_alias);
-                    let config_path = app.reload.config_path.clone();
-                    let bw = app.bw_session.clone();
-                    let tx = events_tx.clone();
-                    crate::containers::spawn_container_listing(
-                        refresh_alias,
-                        config_path,
-                        askpass,
-                        bw,
-                        has_tunnel,
-                        cached_runtime,
-                        move |a, r| {
-                            let _ = tx.send(AppEvent::ContainerListing {
-                                alias: a,
-                                result: r,
-                            });
-                        },
-                    );
-                }
-                askpass::cleanup_marker(&alias);
+                handler::event_loop::handle_container_action_complete(
+                    &mut app, alias, action, result, &events_tx,
+                );
             }
             Some(AppEvent::VaultSignResult {
                 alias,
@@ -1638,73 +1068,21 @@ fn run_tui(mut app: App) -> Result<()> {
                 success,
                 message,
             }) => {
-                if success {
-                    // The CertificateFile snapshot is carried in the event so
-                    // we never re-look up the host (which would be O(n) and
-                    // racy under concurrent renames). `sign_certificate`
-                    // always writes to purple's default path; if the host
-                    // already has its own CertificateFile we leave the SSH
-                    // config alone and cache validity against the configured
-                    // path instead.
-                    let mut host_missing = false;
-                    if should_write_certificate_file(&existing_cert_file) {
-                        if let Ok(cert_path) = vault_ssh::cert_path_for(&alias) {
-                            let updated = app
-                                .config
-                                .set_host_certificate_file(&alias, &cert_path.to_string_lossy());
-                            if !updated {
-                                // Alias disappeared between scheduling the
-                                // sign and processing the result (renamed or
-                                // deleted from another code path). The cert
-                                // is safely on disk; warn the user so they
-                                // know the ssh config was NOT wired up.
-                                host_missing = true;
-                            }
-                        }
-                    }
-                    // Single consolidated cache refresh path. `refresh_cert_cache`
-                    // resolves the cert file (honoring any custom CertificateFile
-                    // we just wrote) and records mtime for external-change
-                    // detection. Replaces the two manual `check_cert_validity`
-                    // inserts that used to live in both branches above.
-                    app.refresh_cert_cache(&alias);
-                    if host_missing {
-                        app.set_status(
-                            format!(
-                                "Vault SSH cert saved for {} but host no longer in config (renamed or deleted). CertificateFile NOT written.",
-                                alias
-                            ),
-                            true,
-                        );
-                    } else {
-                        app.set_status(format!("Signed Vault SSH cert for {}", alias), false);
-                    }
-                } else {
-                    app.set_status(
-                        format!("Vault SSH: failed to sign {}: {}", alias, message),
-                        true,
-                    );
-                }
+                handler::event_loop::handle_vault_sign_result(
+                    &mut app,
+                    alias,
+                    existing_cert_file,
+                    success,
+                    message,
+                );
             }
             Some(AppEvent::VaultSignProgress { alias, done, total }) => {
-                // Truncate long aliases so the status line fits even on
-                // narrow terminals; the full alias is recoverable from the
-                // host list.
-                const ALIAS_BUDGET: usize = 40;
-                let display_alias: String = if alias.chars().count() > ALIAS_BUDGET {
-                    let cut: String = alias.chars().take(ALIAS_BUDGET - 1).collect();
-                    format!("{}\u{2026}", cut)
-                } else {
-                    alias.clone()
-                };
-                let spinner = crate::animation::SPINNER_FRAMES
-                    [anim.spinner_tick as usize % crate::animation::SPINNER_FRAMES.len()];
-                app.set_sticky_status(
-                    format!(
-                        "{} Signing {}/{}: {} (V to cancel)",
-                        spinner, done, total, display_alias
-                    ),
-                    false,
+                handler::event_loop::handle_vault_sign_progress(
+                    &mut app,
+                    alias,
+                    done,
+                    total,
+                    anim.spinner_tick,
                 );
             }
             Some(AppEvent::VaultSignAllDone {
@@ -1715,179 +1093,25 @@ fn run_tui(mut app: App) -> Result<()> {
                 aborted_message,
                 first_error,
             }) => {
-                app.vault_signing_cancel = None;
-                // Join the background thread now that it has finished.
-                if let Some(handle) = app.vault_sign_thread.take() {
-                    let _ = handle.join();
-                }
-                if let Some(msg) = aborted_message {
-                    app.set_sticky_status(msg, true);
+                if handler::event_loop::handle_vault_sign_all_done(
+                    &mut app,
+                    signed,
+                    failed,
+                    skipped,
+                    cancelled,
+                    aborted_message,
+                    first_error,
+                )
+                .is_break()
+                {
                     continue;
-                }
-                if cancelled {
-                    let mut msg = format!(
-                        "Vault SSH signing cancelled ({} signed, {} failed)",
-                        signed, failed
-                    );
-                    if let Some(err) = first_error.as_ref() {
-                        msg.push_str(": ");
-                        msg.push_str(err);
-                    }
-                    if failed > 0 {
-                        app.set_sticky_status(msg, true);
-                    } else {
-                        app.set_status(msg, false);
-                    }
-                    continue;
-                }
-                let summary_msg =
-                    format_vault_sign_summary(signed, failed, skipped, first_error.as_deref());
-                if signed > 0 {
-                    if app.is_form_open() {
-                        // Defer config write to avoid mtime conflict with open forms
-                        app.pending_vault_config_write = true;
-                        if failed > 0 {
-                            app.set_sticky_status(summary_msg, true);
-                        } else {
-                            app.set_status(summary_msg, false);
-                        }
-                    } else if app.external_config_changed() {
-                        // The on-disk ssh config (or an include) was modified
-                        // by an external editor while the bulk-sign worker was
-                        // running. Writing now would overwrite those edits.
-                        // The certs are already safely on disk under
-                        // ~/.purple/certs/, so we reload the fresh config from
-                        // disk and re-apply `CertificateFile` directives only
-                        // for hosts that still exist and still have no custom
-                        // path. This way external edits are preserved AND new
-                        // certs get wired up where safe.
-                        let reapply: Vec<(String, String)> = app
-                            .config
-                            .host_entries()
-                            .into_iter()
-                            .filter_map(|h| {
-                                if h.vault_ssh.is_some()
-                                    && should_write_certificate_file(&h.certificate_file)
-                                {
-                                    vault_ssh::cert_path_for(&h.alias).ok().map(|p| {
-                                        (h.alias.clone(), p.to_string_lossy().into_owned())
-                                    })
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        match ssh_config::model::SshConfigFile::parse(&app.reload.config_path) {
-                            Ok(fresh) => {
-                                app.config = fresh;
-                                let mut reapplied = 0usize;
-                                for (alias, cert_path) in &reapply {
-                                    let entry = app
-                                        .config
-                                        .host_entries()
-                                        .into_iter()
-                                        .find(|h| &h.alias == alias);
-                                    if let Some(entry) = entry {
-                                        if should_write_certificate_file(&entry.certificate_file)
-                                            && app
-                                                .config
-                                                .set_host_certificate_file(alias, cert_path)
-                                        {
-                                            reapplied += 1;
-                                        }
-                                    }
-                                }
-                                if reapplied > 0 {
-                                    if let Err(e) = app.config.write() {
-                                        app.set_sticky_status(
-                                            format!(
-                                                "External edits detected; signed {} certs but failed to re-apply CertificateFile: {}",
-                                                signed, e
-                                            ),
-                                            true,
-                                        );
-                                    } else {
-                                        app.update_last_modified();
-                                        app.reload_hosts();
-                                        app.set_status(
-                                            format!(
-                                                "{} External ssh config edits detected, merged {} CertificateFile directives.",
-                                                summary_msg, reapplied
-                                            ),
-                                            failed > 0,
-                                        );
-                                    }
-                                } else {
-                                    app.reload_hosts();
-                                    app.set_sticky_status(
-                                        format!(
-                                            "{} External ssh config edits detected; certs on disk, no CertificateFile written.",
-                                            summary_msg
-                                        ),
-                                        true,
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                app.set_sticky_status(
-                                    format!(
-                                        "Signed {} certs but cannot re-parse ssh config after external edit: {}. Certs are on disk under ~/.purple/certs/.",
-                                        signed, e
-                                    ),
-                                    true,
-                                );
-                            }
-                        }
-                    } else if let Err(e) = app.config.write() {
-                        app.set_sticky_status(
-                            format!(
-                                "Signed {} certs but failed to update SSH config: {}",
-                                signed, e
-                            ),
-                            true,
-                        );
-                    } else {
-                        app.update_last_modified();
-                        app.reload_hosts();
-                        if failed > 0 {
-                            app.set_sticky_status(summary_msg, true);
-                        } else {
-                            app.set_status(summary_msg, false);
-                        }
-                    }
-                } else if failed > 0 {
-                    app.set_sticky_status(summary_msg, true);
-                } else {
-                    app.set_status(summary_msg, false);
                 }
             }
             Some(AppEvent::CertCheckResult { alias, status }) => {
-                app.cert_check_in_flight.remove(&alias);
-                let mtime = current_cert_mtime(&alias, &app);
-                app.cert_status_cache
-                    .insert(alias, (std::time::Instant::now(), status, mtime));
+                handler::event_loop::handle_cert_check_result(&mut app, alias, status);
             }
             Some(AppEvent::CertCheckError { alias, message }) => {
-                // Cache the error as Invalid so the lazy-check loop doesn't
-                // re-spawn a background thread on every poll tick (which at
-                // ~100ms would spawn ~10 threads/sec against a broken path).
-                // The lazy-check block uses CERT_ERROR_BACKOFF_SECS instead of
-                // the normal TTL for Invalid entries, so transient errors
-                // still recover within 30 seconds instead of the 5-minute
-                // valid-cert TTL.
-                app.cert_check_in_flight.remove(&alias);
-                app.cert_status_cache.insert(
-                    alias.clone(),
-                    (
-                        std::time::Instant::now(),
-                        vault_ssh::CertStatus::Invalid(message.clone()),
-                        None,
-                    ),
-                );
-                app.set_background_status(
-                    format!("Cert check failed for {}: {}", alias, message),
-                    true,
-                );
+                handler::event_loop::handle_cert_check_error(&mut app, alias, message);
             }
             Some(AppEvent::PollError) => {
                 app.running = false;
@@ -1914,23 +1138,24 @@ fn run_tui(mut app: App) -> Result<()> {
                         .and_then(|p| std::fs::metadata(&p).ok())
                         .and_then(|m| m.modified().ok());
                 let cache_stale = cache_entry_is_stale(
-                    app.cert_status_cache.get(&selected.alias),
+                    app.vault.cert_cache.get(&selected.alias),
                     current_mtime,
                     |t| t.elapsed().as_secs(),
                 );
 
                 let sign_in_flight = app
-                    .vault_sign_in_flight
+                    .vault
+                    .sign_in_flight
                     .lock()
                     .map(|g| g.contains(&selected.alias))
                     .unwrap_or(false);
                 if cache_stale
-                    && !app.cert_check_in_flight.contains(&selected.alias)
+                    && !app.vault.cert_checks_in_flight.contains(&selected.alias)
                     && !sign_in_flight
                 {
                     let alias = selected.alias.clone();
                     let cert_file = selected.certificate_file.clone();
-                    app.cert_check_in_flight.insert(alias.clone());
+                    app.vault.cert_checks_in_flight.insert(alias.clone());
                     let tx = events_tx.clone();
                     std::thread::spawn(move || {
                         let check_path = match vault_ssh::resolve_cert_path(&alias, &cert_file) {
@@ -2146,10 +1371,10 @@ fn run_tui(mut app: App) -> Result<()> {
     app.flush_pending_vault_write();
 
     // Cancel and join the background vault signing thread, if running.
-    if let Some(ref cancel) = app.vault_signing_cancel {
+    if let Some(ref cancel) = app.vault.signing_cancel {
         cancel.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    if let Some(handle) = app.vault_sign_thread.take() {
+    if let Some(handle) = app.vault.sign_thread.take() {
         let _ = handle.join();
     }
 
@@ -2171,7 +1396,7 @@ pub(crate) fn current_cert_mtime(alias: &str, app: &app::App) -> Option<std::tim
         .and_then(|m| m.modified().ok())
 }
 
-/// Decide whether a `cert_status_cache` entry should be re-checked.
+/// Decide whether a `vault.cert_cache` entry should be re-checked.
 ///
 /// Returns true when:
 /// - there is no cached entry at all, or

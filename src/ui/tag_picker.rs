@@ -7,7 +7,7 @@ use super::theme;
 use crate::app::App;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
-    if app.tag_list.is_empty() {
+    if app.tags.list.is_empty() {
         let area = super::centered_rect_fixed(50, 5, frame.area());
         frame.render_widget(Clear, area);
         let block = Block::bordered()
@@ -78,12 +78,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         counts
     };
 
-    let height = (app.tag_list.len() as u16 + 6).min(frame.area().height.saturating_sub(4));
+    let height = (app.tags.list.len() as u16 + 6).min(frame.area().height.saturating_sub(4));
     let area = super::centered_rect_fixed(50, height, frame.area());
     frame.render_widget(Clear, area);
 
     let items: Vec<ListItem> = app
-        .tag_list
+        .tags
+        .list
         .iter()
         .map(|tag| {
             let count = tag_counts.get(tag.as_str()).copied().unwrap_or(0);

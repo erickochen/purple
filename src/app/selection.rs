@@ -349,9 +349,9 @@ impl App {
 
     /// Open the tag picker overlay.
     pub fn open_tag_picker(&mut self) {
-        self.tag_list = self.collect_unique_tags();
+        self.tags.list = self.collect_unique_tags();
         self.ui.tag_picker_state = ListState::default();
-        if !self.tag_list.is_empty() {
+        if !self.tags.list.is_empty() {
             self.ui.tag_picker_state.select(Some(0));
         }
         self.screen = Screen::TagPicker;
@@ -359,12 +359,12 @@ impl App {
 
     /// Move tag picker selection up.
     pub fn select_prev_tag(&mut self) {
-        super::cycle_selection(&mut self.ui.tag_picker_state, self.tag_list.len(), false);
+        super::cycle_selection(&mut self.ui.tag_picker_state, self.tags.list.len(), false);
     }
 
     /// Move tag picker selection down.
     pub fn select_next_tag(&mut self) {
-        super::cycle_selection(&mut self.ui.tag_picker_state, self.tag_list.len(), true);
+        super::cycle_selection(&mut self.ui.tag_picker_state, self.tags.list.len(), true);
     }
 
     /// Load tunnel directives for a host alias.

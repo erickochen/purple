@@ -119,9 +119,9 @@ fn start_vault_bulk_sign(
     );
 
     let cancel = Arc::new(AtomicBool::new(false));
-    app.vault_signing_cancel = Some(cancel.clone());
+    app.vault.signing_cancel = Some(cancel.clone());
 
-    let in_flight = app.vault_sign_in_flight.clone();
+    let in_flight = app.vault.sign_in_flight.clone();
     let tx = events_tx.clone();
     let spawn_result = std::thread::Builder::new()
         .name("vault-bulk-sign".into())
@@ -252,14 +252,14 @@ fn start_vault_bulk_sign(
         });
     match spawn_result {
         Ok(handle) => {
-            app.vault_sign_thread = Some(handle);
+            app.vault.sign_thread = Some(handle);
         }
         Err(e) => {
             // Spawn failed (e.g. OS thread limit). Clear the cancel flag and
             // surface the error — otherwise the status bar is stuck at
             // "Signing 0/N" with no way for the user to recover.
-            app.vault_signing_cancel = None;
-            app.vault_sign_thread = None;
+            app.vault.signing_cancel = None;
+            app.vault.sign_thread = None;
             app.set_status(
                 format!("Vault SSH: failed to spawn signing thread: {}", e),
                 true,

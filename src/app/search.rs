@@ -43,7 +43,7 @@ impl App {
 
     /// Cancel search mode and restore normal view.
     pub fn cancel_search(&mut self) {
-        self.filter_down_only = false;
+        self.ping.filter_down_only = false;
         self.search.query = None;
         self.search.filtered_indices.clear();
         self.search.filtered_pattern_indices.clear();
@@ -74,7 +74,7 @@ impl App {
                 if let Some(ref scope) = self.search.scope_indices {
                     self.search.filtered_indices.retain(|i| scope.contains(i));
                 }
-                if !self.filter_down_only {
+                if !self.ping.filter_down_only {
                     let total = self.search.filtered_indices.len()
                         + self.search.filtered_pattern_indices.len();
                     if total == 0 {
@@ -88,7 +88,7 @@ impl App {
                 String::new()
             }
             None => {
-                if !self.filter_down_only {
+                if !self.ping.filter_down_only {
                     return;
                 }
                 // No search query but down-only is active: start with all hosts
@@ -224,10 +224,10 @@ impl App {
         }
 
         // Post-filter: keep only unreachable hosts when down-only mode is active
-        if self.filter_down_only {
+        if self.ping.filter_down_only {
             self.search.filtered_indices.retain(|&idx| {
                 let alias = &self.hosts[idx].alias;
-                matches!(self.ping_status.get(alias), Some(PingStatus::Unreachable))
+                matches!(self.ping.status.get(alias), Some(PingStatus::Unreachable))
             });
             // Patterns can't be pinged, so hide them in down-only mode
             self.search.filtered_pattern_indices.clear();

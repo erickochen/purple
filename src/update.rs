@@ -247,7 +247,7 @@ enum InstallMethod {
 
 /// Check if exe_path is under a Homebrew Cellar directory.
 /// Validates that the Cellar path ends with a "Cellar" component and
-/// that the binary sits in the expected .../Cellar/<formula>/.../ structure.
+/// that the binary sits in the expected `.../Cellar/<formula>/.../` structure.
 fn is_homebrew_path(exe_path: &Path, cellar: &Path) -> bool {
     // Cellar dir must end with "Cellar" component
     if cellar.file_name().and_then(|n| n.to_str()) != Some("Cellar") {

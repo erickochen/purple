@@ -5449,45 +5449,46 @@ fn esc_quits_when_no_filter() {
 fn test_p_key_clears_ping_increments_generation() {
     let mut app = make_app("Host web1\n  HostName 1.1.1.1\n");
     // Pre-populate ping status to simulate completed pings
-    app.ping_status.insert(
+    app.ping.status.insert(
         "web1".to_string(),
         crate::app::PingStatus::Reachable { rtt_ms: 10 },
     );
-    app.filter_down_only = true;
-    app.ping_checked_at = Some(std::time::Instant::now());
-    assert_eq!(app.ping_generation, 0);
+    app.ping.filter_down_only = true;
+    app.ping.checked_at = Some(std::time::Instant::now());
+    assert_eq!(app.ping.generation, 0);
 
     let (tx, _rx) = std::sync::mpsc::channel();
     handle_key_event(&mut app, key(KeyCode::Char('P')), &tx).unwrap();
 
-    assert!(app.ping_status.is_empty());
-    assert_eq!(app.ping_generation, 1);
-    assert!(!app.filter_down_only);
-    assert!(app.ping_checked_at.is_none());
+    assert!(app.ping.status.is_empty());
+    assert_eq!(app.ping.generation, 1);
+    assert!(!app.ping.filter_down_only);
+    assert!(app.ping.checked_at.is_none());
 }
 
 #[test]
 fn test_bang_key_without_pings_shows_error() {
     let mut app = make_app("Host web1\n  HostName 1.1.1.1\n");
-    assert!(app.ping_status.is_empty());
+    assert!(app.ping.status.is_empty());
     let (tx, _rx) = std::sync::mpsc::channel();
     handle_key_event(&mut app, key(KeyCode::Char('!')), &tx).unwrap();
-    assert!(!app.filter_down_only);
+    assert!(!app.ping.filter_down_only);
     assert!(app.toast.as_ref().unwrap().is_error());
 }
 
 #[test]
 fn test_bang_key_toggles_down_only_on() {
     let mut app = make_app("Host web1\n  HostName 1.1.1.1\nHost web2\n  HostName 2.2.2.2\n");
-    app.ping_status
+    app.ping
+        .status
         .insert("web1".to_string(), crate::app::PingStatus::Unreachable);
-    app.ping_status.insert(
+    app.ping.status.insert(
         "web2".to_string(),
         crate::app::PingStatus::Reachable { rtt_ms: 10 },
     );
     let (tx, _rx) = std::sync::mpsc::channel();
     handle_key_event(&mut app, key(KeyCode::Char('!')), &tx).unwrap();
-    assert!(app.filter_down_only);
+    assert!(app.ping.filter_down_only);
     assert!(app.search.query.is_some());
     // Only web1 (Unreachable) should be in filtered results
     assert_eq!(app.search.filtered_indices.len(), 1);
@@ -5496,19 +5497,20 @@ fn test_bang_key_toggles_down_only_on() {
 #[test]
 fn test_bang_key_toggles_down_only_off() {
     let mut app = make_app("Host web1\n  HostName 1.1.1.1\nHost web2\n  HostName 2.2.2.2\n");
-    app.ping_status
+    app.ping
+        .status
         .insert("web1".to_string(), crate::app::PingStatus::Unreachable);
-    app.ping_status.insert(
+    app.ping.status.insert(
         "web2".to_string(),
         crate::app::PingStatus::Reachable { rtt_ms: 10 },
     );
     let (tx, _rx) = std::sync::mpsc::channel();
     // Toggle on
     handle_key_event(&mut app, key(KeyCode::Char('!')), &tx).unwrap();
-    assert!(app.filter_down_only);
+    assert!(app.ping.filter_down_only);
     // Toggle off
     handle_key_event(&mut app, key(KeyCode::Char('!')), &tx).unwrap();
-    assert!(!app.filter_down_only);
+    assert!(!app.ping.filter_down_only);
     assert!(app.search.query.is_none());
 }
 

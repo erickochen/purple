@@ -37,14 +37,14 @@ fn serialize_host_block(elements: &[ConfigElement], alias: &str, crlf: bool) -> 
 
 pub(super) fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEvent>) {
     // Handle tag input mode
-    if app.tag_input.is_some() {
+    if app.tags.input.is_some() {
         super::host_detail::handle_tag_input(app, key);
         return;
     }
 
     match key.code {
         KeyCode::Char('q') => {
-            if let Some(ref cancel) = app.vault_signing_cancel {
+            if let Some(ref cancel) = app.vault.signing_cancel {
                 cancel.store(true, std::sync::atomic::Ordering::Relaxed);
             }
             app.running = false;
@@ -53,7 +53,7 @@ pub(super) fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::S
             if app.group_filter.is_some() {
                 app.clear_group_filter();
             } else {
-                if let Some(ref cancel) = app.vault_signing_cancel {
+                if let Some(ref cancel) = app.vault.signing_cancel {
                     cancel.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
                 app.running = false;
@@ -226,22 +226,22 @@ pub(super) fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::S
             if app.is_pattern_selected() {
                 return;
             }
-            if !app.ping_status.is_empty() {
-                app.ping_status.clear();
-                app.filter_down_only = false;
-                app.ping_checked_at = None;
-                app.ping_generation += 1;
+            if !app.ping.status.is_empty() {
+                app.ping.status.clear();
+                app.ping.filter_down_only = false;
+                app.ping.checked_at = None;
+                app.ping.generation += 1;
                 app.status = None;
             } else {
                 super::ping::ping_selected_host(app, events_tx, true);
             }
         }
         KeyCode::Char('P') => {
-            if !app.ping_status.is_empty() {
-                app.ping_status.clear();
-                app.filter_down_only = false;
-                app.ping_checked_at = None;
-                app.ping_generation += 1;
+            if !app.ping.status.is_empty() {
+                app.ping.status.clear();
+                app.ping.filter_down_only = false;
+                app.ping.checked_at = None;
+                app.ping.generation += 1;
                 app.status = None;
             } else {
                 let hosts_to_ping: Vec<(String, String, u16)> = app
@@ -254,26 +254,28 @@ pub(super) fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::S
                 // inherited from the bastion once it responds).
                 for h in &app.hosts {
                     if !h.proxy_jump.is_empty() {
-                        app.ping_status
+                        app.ping
+                            .status
                             .insert(h.alias.clone(), crate::app::PingStatus::Checking);
                     }
                 }
                 if !hosts_to_ping.is_empty() {
                     for (alias, _, _) in &hosts_to_ping {
-                        app.ping_status
+                        app.ping
+                            .status
                             .insert(alias.clone(), crate::app::PingStatus::Checking);
                     }
                     app.set_info_status("Pinging all the things...");
-                    crate::ping::ping_all(&hosts_to_ping, events_tx.clone(), app.ping_generation);
+                    crate::ping::ping_all(&hosts_to_ping, events_tx.clone(), app.ping.generation);
                 }
             }
         }
         KeyCode::Char('!') => {
-            if app.ping_status.is_empty() {
+            if app.ping.status.is_empty() {
                 app.set_status("Ping first (p/P), then filter with !.", true);
             } else {
-                app.filter_down_only = !app.filter_down_only;
-                if app.filter_down_only {
+                app.ping.filter_down_only = !app.ping.filter_down_only;
+                if app.ping.filter_down_only {
                     // Activate search mode to trigger filtering
                     if app.search.query.is_none() {
                         app.search.query = Some(String::new());
@@ -323,8 +325,8 @@ pub(super) fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::S
                     return;
                 }
                 let current_tags = host.tags.join(", ");
-                app.tag_input_cursor = current_tags.chars().count();
-                app.tag_input = Some(current_tags);
+                app.tags.cursor = current_tags.chars().count();
+                app.tags.input = Some(current_tags);
             }
         }
         KeyCode::Char('s') => {
@@ -662,14 +664,14 @@ pub(super) fn handle_host_list_search(
             app.page_up_host();
         }
         KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if !app.ping_status.is_empty() {
-                app.ping_status.clear();
-                app.ping_checked_at = None;
-                app.ping_generation += 1;
-                if app.filter_down_only {
+            if !app.ping.status.is_empty() {
+                app.ping.status.clear();
+                app.ping.checked_at = None;
+                app.ping.generation += 1;
+                if app.ping.filter_down_only {
                     app.cancel_search();
                 } else {
-                    app.filter_down_only = false;
+                    app.ping.filter_down_only = false;
                 }
                 app.status = None;
             } else {
@@ -704,8 +706,8 @@ pub(super) fn handle_host_list_search(
                 super::open_edit_form(app, host);
             }
         }
-        KeyCode::Char('!') if app.filter_down_only => {
-            app.filter_down_only = false;
+        KeyCode::Char('!') if app.ping.filter_down_only => {
+            app.ping.filter_down_only = false;
             if app.search.query.as_ref().is_some_and(|q| q.is_empty()) {
                 app.cancel_search();
             } else {

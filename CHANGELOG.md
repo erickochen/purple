@@ -1,3 +1,15 @@
+## 2.35.1
+
+- Internal cleanup. Leaner App struct and event loop
+- App state grouped into sub-structs: PingState, VaultState, UpdateState, TagState ([#25](https://github.com/erickochen/purple/issues/25))
+- Event loop arms extracted from run_tui (1300 lines) into handler/event_loop.rs
+- CLI subcommand handlers extracted from main() into cli.rs
+- SshContext struct eliminates repeated function arguments across remote operations
+- SnippetEvent bridge thread removed. Snippets send events directly to the main loop
+- TUI smoke test: automated tmux-based test navigates all 22 screens in demo mode
+- Fixed 6 flaky test races (hardcoded temp paths and global state interference)
+- Fixed 9 rustdoc warnings (unclosed HTML tags and bare URLs in doc comments)
+
 ## 2.35.0
 
 - Command palette. Press `:` to search and run any action

@@ -126,7 +126,7 @@ impl TunnelRule {
         Some((addr.to_string(), port))
     }
 
-    /// Parse host:port or [host]:port.
+    /// Parse `host:port` or `[host]:port`.
     fn parse_host_port(s: &str) -> Option<(String, u16)> {
         // Bracketed IPv6: [host]:port
         if let Some(rest) = s.strip_prefix('[') {
@@ -193,8 +193,8 @@ impl TunnelRule {
         }
     }
 
-    /// Parse a CLI spec: L:port:host:port, R:port:host:port, D:port
-    /// Supports bracketed IPv6: L:8080:[::1]:80
+    /// Parse a CLI spec: `L:port:host:port`, `R:port:host:port`, `D:port`
+    /// Supports bracketed IPv6: `L:8080:[::1]:80`
     pub fn from_cli_spec(spec: &str) -> Result<Self, String> {
         let (type_char, rest) = spec
             .split_once(':')

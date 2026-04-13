@@ -243,7 +243,7 @@ pub(super) fn submit_form(app: &mut App) {
             // Drain any side-channel cleanup warning produced during the
             // mutation. When set, it overrides the success message because
             // the user needs to see that something on disk failed.
-            if let Some(warning) = app.cert_cleanup_warning.take() {
+            if let Some(warning) = app.vault.cleanup_warning.take() {
                 app.set_status(warning, true);
             } else {
                 app.set_status(final_msg, false);

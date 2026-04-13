@@ -48,22 +48,28 @@ mod display_list;
 mod forms;
 mod groups;
 mod hosts;
+mod ping;
 mod search;
 mod selection;
 mod types;
+mod update;
+mod vault;
 
 pub(crate) use forms::char_to_byte_pos;
 pub use forms::{
     FormField, HostForm, ProviderFormField, ProviderFormFields, SnippetForm, SnippetFormField,
     SnippetHostOutput, SnippetOutputState, SnippetParamFormState, TunnelForm, TunnelFormField,
 };
+pub use ping::PingState;
 pub use types::{
     ConflictState, ContainerState, DeletedHost, FormBaseline, GroupBy, HostListItem, MessageClass,
     PingStatus, ProviderFormBaseline, ReloadState, Screen, SearchState, SnippetFormBaseline,
-    SortMode, StatusMessage, SyncRecord, TunnelFormBaseline, UiSelection, ViewMode, classify_ping,
-    health_summary_spans, health_summary_spans_for, ping_sort_key, propagate_ping_to_dependents,
-    select_display_tags, status_glyph,
+    SortMode, StatusMessage, SyncRecord, TagState, TunnelFormBaseline, UiSelection, ViewMode,
+    classify_ping, health_summary_spans, health_summary_spans_for, ping_sort_key,
+    propagate_ping_to_dependents, select_display_tags, status_glyph,
 };
+pub use update::UpdateState;
+pub use vault::VaultState;
 
 /// Kill active tunnel processes when App is dropped (e.g. on panic).
 impl Drop for App {
@@ -77,10 +83,10 @@ impl Drop for App {
         // Cancel and join any in-flight Vault SSH bulk-sign worker so it
         // cannot keep writing to ~/.purple/certs/ after teardown (panic
         // unwind, normal exit, etc.).
-        if let Some(ref cancel) = self.vault_signing_cancel {
+        if let Some(ref cancel) = self.vault.signing_cancel {
             cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        if let Some(handle) = self.vault_sign_thread.take() {
+        if let Some(handle) = self.vault.sign_thread.take() {
             let _ = handle.join();
         }
     }
@@ -111,9 +117,7 @@ pub struct App {
     pub keys: Vec<SshKeyInfo>,
 
     // Tags
-    pub tag_input: Option<String>,
-    pub tag_input_cursor: usize,
-    pub tag_list: Vec<String>,
+    pub tags: TagState,
 
     // History + preferences
     pub history: ConnectionHistory,
@@ -140,32 +144,11 @@ pub struct App {
     pub pending_snippet_delete: Option<usize>,
     pub pending_tunnel_delete: Option<usize>,
 
-    // Hints
-    pub ping_status: HashMap<String, PingStatus>,
-    pub has_pinged: bool,
-    pub ping_generation: u64,
-    pub slow_threshold_ms: u16,
-    pub auto_ping: bool,
-    /// When true, only show hosts with PingStatus::Unreachable.
-    pub filter_down_only: bool,
-    /// Timestamp of last ping completion (for TTL display). None if no pings done.
-    pub ping_checked_at: Option<std::time::Instant>,
+    // Ping / health-check
+    pub ping: PingState,
 
-    /// Cached vault certificate status per host alias.
-    /// Tuple: (check timestamp, status, cert file mtime at check time).
-    /// The mtime is used to detect external changes (e.g. another purple
-    /// instance or the CLI signing a cert) so the detail panel refreshes
-    /// within one frame instead of waiting for the TTL.
-    pub cert_status_cache: HashMap<
-        String,
-        (
-            std::time::Instant,
-            crate::vault_ssh::CertStatus,
-            Option<std::time::SystemTime>,
-        ),
-    >,
-    /// Aliases currently being checked for cert status (prevent duplicate checks).
-    pub cert_check_in_flight: HashSet<String>,
+    // Vault SSH certificate and signing state
+    pub vault: VaultState,
 
     // Tunnels
     pub tunnel_list: Vec<TunnelRule>,
@@ -192,9 +175,7 @@ pub struct App {
     pub pending_snippet_terminal: bool,
 
     // Update
-    pub update_available: Option<String>,
-    pub update_headline: Option<String>,
-    pub update_hint: &'static str,
+    pub update: UpdateState,
 
     // Cached tunnel summaries (invalidated on config reload)
     pub tunnel_summaries_cache: HashMap<String, String>,
@@ -230,23 +211,6 @@ pub struct App {
 
     /// Deferred config write from VaultSignAllDone (guarded while forms are open).
     pub pending_vault_config_write: bool,
-
-    /// Side-channel warning from cert-cache cleanup. Set by mutators that
-    /// cannot themselves call `set_status` because they return a Result the
-    /// caller turns into a status. The handler caller drains this and
-    /// overrides the success message when present.
-    pub cert_cleanup_warning: Option<String>,
-
-    /// Cancel flag for the V-key vault signing background thread.
-    pub vault_signing_cancel: Option<Arc<AtomicBool>>,
-
-    /// JoinHandle for the V-key vault signing background thread (for clean exit).
-    pub vault_sign_thread: Option<std::thread::JoinHandle<()>>,
-
-    /// Aliases currently being signed by the bulk V-key loop. Shared with the
-    /// background thread so the main-thread cert-check spawner can skip any
-    /// host that is mid-signing (TOCTOU guard).
-    pub vault_sign_in_flight: Arc<std::sync::Mutex<HashSet<String>>>,
 
     /// Command palette state. Some when palette is open.
     pub palette: Option<CommandPaletteState>,
@@ -329,9 +293,7 @@ impl App {
                 provider_form_mtime: None,
             },
             keys: Vec::new(),
-            tag_input: None,
-            tag_input_cursor: 0,
-            tag_list: Vec::new(),
+            tags: TagState::default(),
             history: ConnectionHistory::load(),
             sort_mode: SortMode::Original,
             group_by: GroupBy::None,
@@ -346,15 +308,12 @@ impl App {
             pending_provider_delete: None,
             pending_snippet_delete: None,
             pending_tunnel_delete: None,
-            ping_status: HashMap::new(),
-            has_pinged: false,
-            ping_generation: 0,
-            slow_threshold_ms: crate::preferences::load_slow_threshold(),
-            auto_ping: crate::preferences::load_auto_ping(),
-            filter_down_only: false,
-            ping_checked_at: None,
-            cert_status_cache: HashMap::new(),
-            cert_check_in_flight: HashSet::new(),
+            ping: PingState {
+                slow_threshold_ms: crate::preferences::load_slow_threshold(),
+                auto_ping: crate::preferences::load_auto_ping(),
+                ..PingState::default()
+            },
+            vault: VaultState::default(),
             tunnel_list: Vec::new(),
             tunnel_form: TunnelForm::new(),
             active_tunnels: HashMap::new(),
@@ -370,9 +329,10 @@ impl App {
             snippet_param_form: None,
             pending_snippet_terminal: false,
             tunnel_summaries_cache: HashMap::new(),
-            update_available: None,
-            update_headline: None,
-            update_hint: crate::update::update_hint(),
+            update: UpdateState {
+                hint: crate::update::update_hint(),
+                ..UpdateState::default()
+            },
             sync_history: SyncRecord::load_all(),
             bw_session: None,
             file_browser: None,
@@ -388,10 +348,6 @@ impl App {
             provider_form_baseline: None,
             pending_discard_confirm: false,
             pending_vault_config_write: false,
-            cert_cleanup_warning: None,
-            vault_signing_cancel: None,
-            vault_sign_thread: None,
-            vault_sign_in_flight: Arc::new(std::sync::Mutex::new(HashSet::new())),
             palette: None,
         }
     }
@@ -426,9 +382,11 @@ impl App {
         // host alias still exists after the reload.
         let valid_for_certs: std::collections::HashSet<&str> =
             self.hosts.iter().map(|h| h.alias.as_str()).collect();
-        self.cert_status_cache
+        self.vault
+            .cert_cache
             .retain(|alias, _| valid_for_certs.contains(alias.as_str()));
-        self.cert_check_in_flight
+        self.vault
+            .cert_checks_in_flight
             .retain(|alias| valid_for_certs.contains(alias.as_str()));
         if self.sort_mode == SortMode::Original && matches!(self.group_by, GroupBy::None) {
             self.display_list =
@@ -437,7 +395,7 @@ impl App {
             self.apply_sort();
         }
 
-        // Close tag pickers if open — tag_list is stale after reload
+        // Close tag pickers if open — tags.list is stale after reload
         if matches!(self.screen, Screen::TagPicker) {
             self.screen = Screen::HostList;
         }
@@ -448,7 +406,8 @@ impl App {
         // Prune ping status for hosts that no longer exist
         let valid_aliases: std::collections::HashSet<&str> =
             self.hosts.iter().map(|h| h.alias.as_str()).collect();
-        self.ping_status
+        self.ping
+            .status
             .retain(|alias, _| valid_aliases.contains(alias.as_str()));
 
         // Restore search if it was active, otherwise reset
@@ -489,7 +448,7 @@ impl App {
     }
 
     /// Synchronously re-check a host's Vault SSH certificate and update
-    /// `cert_status_cache` with fresh status + on-disk mtime.
+    /// `vault.cert_cache` with fresh status + on-disk mtime.
     ///
     /// Every sign path (V-key bulk sign, host form submit, connect-time
     /// `ensure_vault_ssh_if_needed`, CLI) funnels through this helper so the
@@ -503,7 +462,7 @@ impl App {
             return;
         }
         let Some(host) = self.hosts.iter().find(|h| h.alias == alias) else {
-            self.cert_status_cache.remove(alias);
+            self.vault.cert_cache.remove(alias);
             return;
         };
         let role_some = crate::vault_ssh::resolve_vault_role(
@@ -513,13 +472,13 @@ impl App {
         )
         .is_some();
         if !role_some {
-            self.cert_status_cache.remove(alias);
+            self.vault.cert_cache.remove(alias);
             return;
         }
         let cert_path = match crate::vault_ssh::resolve_cert_path(alias, &host.certificate_file) {
             Ok(p) => p,
             Err(_) => {
-                self.cert_status_cache.remove(alias);
+                self.vault.cert_cache.remove(alias);
                 return;
             }
         };
@@ -527,7 +486,7 @@ impl App {
         let mtime = std::fs::metadata(&cert_path)
             .ok()
             .and_then(|m| m.modified().ok());
-        self.cert_status_cache.insert(
+        self.vault.cert_cache.insert(
             alias.to_string(),
             (std::time::Instant::now(), status, mtime),
         );
@@ -738,7 +697,7 @@ impl App {
                 | Screen::ConfirmVaultSign { .. }
                 | Screen::TagPicker
                 | Screen::ThemePicker
-        ) || self.tag_input.is_some()
+        ) || self.tags.input.is_some()
         {
             return;
         }
@@ -760,9 +719,9 @@ impl App {
                 // Invalidate undo state — config structure may have changed externally
                 self.undo_stack.clear();
                 // Clear stale ping status — hosts may have changed
-                self.ping_status.clear();
-                self.filter_down_only = false;
-                self.ping_checked_at = None;
+                self.ping.status.clear();
+                self.ping.filter_down_only = false;
+                self.ping.checked_at = None;
                 self.reload_hosts();
                 self.reload.last_modified = current_mtime;
                 self.reload.include_mtimes = Self::snapshot_include_mtimes(&self.config);
@@ -1087,16 +1046,19 @@ impl CommandPaletteState {
     }
 
     /// Return commands filtered by the current query (substring match on label).
-    pub fn filtered_commands(&self) -> Vec<PaletteCommand> {
+    /// Returns a borrowed static slice when the query is empty (no allocation).
+    pub fn filtered_commands(&self) -> std::borrow::Cow<'static, [PaletteCommand]> {
         let all = PaletteCommand::all();
         if self.query.is_empty() {
-            return all.to_vec();
+            return std::borrow::Cow::Borrowed(all);
         }
         let q = self.query.to_lowercase();
-        all.iter()
-            .filter(|cmd| cmd.label.to_lowercase().contains(&q))
-            .copied()
-            .collect()
+        std::borrow::Cow::Owned(
+            all.iter()
+                .filter(|cmd| cmd.label.to_lowercase().contains(&q))
+                .copied()
+                .collect(),
+        )
     }
 }
 

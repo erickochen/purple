@@ -363,7 +363,7 @@ impl SshConfigFile {
         result
     }
 
-    /// Check if a line is a "Host <pattern>" line.
+    /// Check if a line is a `Host <pattern>` line.
     /// Returns the pattern if it is.
     /// Handles space, tab and `=` between keyword and value (SSH allows all three).
     /// Matches OpenSSH behavior: skip whitespace, optional `=`, more whitespace.

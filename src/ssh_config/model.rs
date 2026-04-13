@@ -50,7 +50,7 @@ pub struct IncludedFile {
 /// A single element in the config file.
 #[derive(Debug, Clone)]
 pub enum ConfigElement {
-    /// A Host block: the "Host <pattern>" line plus all indented directives.
+    /// A Host block: the `Host <pattern>` line plus all indented directives.
     HostBlock(HostBlock),
     /// A comment, blank line, or global directive not inside a Host block.
     GlobalLine(String),

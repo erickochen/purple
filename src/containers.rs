@@ -1,10 +1,11 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use log::{error, info};
 
 use serde::{Deserialize, Serialize};
+
+use crate::ssh_context::{OwnedSshContext, SshContext};
 
 // ---------------------------------------------------------------------------
 // ContainerInfo model
@@ -236,25 +237,21 @@ fn friendly_container_error(stderr: &str, code: Option<i32>) -> String {
 
 /// Fetch container list synchronously via SSH.
 /// Follows the `fetch_remote_listing` pattern.
-#[allow(clippy::too_many_arguments)]
 pub fn fetch_containers(
-    alias: &str,
-    config_path: &Path,
-    askpass: Option<&str>,
-    bw_session: Option<&str>,
-    has_tunnel: bool,
+    ctx: &SshContext<'_>,
     cached_runtime: Option<ContainerRuntime>,
 ) -> Result<(ContainerRuntime, Vec<ContainerInfo>), ContainerError> {
     let command = container_list_command(cached_runtime);
     let result = crate::snippet::run_snippet(
-        alias,
-        config_path,
+        ctx.alias,
+        ctx.config_path,
         &command,
-        askpass,
-        bw_session,
+        ctx.askpass,
+        ctx.bw_session,
         true,
-        has_tunnel,
+        ctx.has_tunnel,
     );
+    let alias = ctx.alias;
     match result {
         Ok(r) if r.status.success() => {
             parse_container_output(&r.stdout, cached_runtime).map_err(|e| {
@@ -286,13 +283,8 @@ pub fn fetch_containers(
 
 /// Spawn a background thread to fetch container listings.
 /// Follows the `spawn_remote_listing` pattern.
-#[allow(clippy::too_many_arguments)]
 pub fn spawn_container_listing<F>(
-    alias: String,
-    config_path: PathBuf,
-    askpass: Option<String>,
-    bw_session: Option<String>,
-    has_tunnel: bool,
+    ctx: OwnedSshContext,
     cached_runtime: Option<ContainerRuntime>,
     send: F,
 ) where
@@ -301,69 +293,65 @@ pub fn spawn_container_listing<F>(
         + 'static,
 {
     std::thread::spawn(move || {
-        let result = fetch_containers(
-            &alias,
-            &config_path,
-            askpass.as_deref(),
-            bw_session.as_deref(),
-            has_tunnel,
-            cached_runtime,
-        );
-        send(alias, result);
+        let borrowed = SshContext {
+            alias: &ctx.alias,
+            config_path: &ctx.config_path,
+            askpass: ctx.askpass.as_deref(),
+            bw_session: ctx.bw_session.as_deref(),
+            has_tunnel: ctx.has_tunnel,
+        };
+        let result = fetch_containers(&borrowed, cached_runtime);
+        send(ctx.alias, result);
     });
 }
 
 /// Spawn a background thread to perform a container action (start/stop/restart).
 /// Validates the container ID before executing.
-#[allow(clippy::too_many_arguments)]
 pub fn spawn_container_action<F>(
-    alias: String,
-    config_path: PathBuf,
+    ctx: OwnedSshContext,
     runtime: ContainerRuntime,
     action: ContainerAction,
     container_id: String,
-    askpass: Option<String>,
-    bw_session: Option<String>,
-    has_tunnel: bool,
     send: F,
 ) where
     F: FnOnce(String, ContainerAction, Result<(), String>) + Send + 'static,
 {
     std::thread::spawn(move || {
         if let Err(e) = validate_container_id(&container_id) {
-            send(alias, action, Err(e));
+            send(ctx.alias, action, Err(e));
             return;
         }
+        let alias = &ctx.alias;
         info!(
             "Container action: {} container={container_id} alias={alias}",
             action.as_str()
         );
         let command = container_action_command(runtime, action, &container_id);
         let result = crate::snippet::run_snippet(
-            &alias,
-            &config_path,
+            alias,
+            &ctx.config_path,
             &command,
-            askpass.as_deref(),
-            bw_session.as_deref(),
+            ctx.askpass.as_deref(),
+            ctx.bw_session.as_deref(),
             true,
-            has_tunnel,
+            ctx.has_tunnel,
         );
         match result {
-            Ok(r) if r.status.success() => send(alias, action, Ok(())),
+            Ok(r) if r.status.success() => send(ctx.alias, action, Ok(())),
             Ok(r) => {
                 let err = friendly_container_error(r.stderr.trim(), r.status.code());
                 error!(
                     "[external] Container {} failed: alias={alias} container={container_id}: {err}",
                     action.as_str()
                 );
-                send(alias, action, Err(err));
+                send(ctx.alias, action, Err(err));
             }
             Err(e) => {
                 error!(
                     "[external] Container {} failed: alias={alias} container={container_id}: {e}",
                     action.as_str()
                 );
-                send(alias, action, Err(e.to_string()));
+                send(ctx.alias, action, Err(e.to_string()));
             }
         }
     });

@@ -386,48 +386,54 @@ pub fn build_demo_app() -> App {
     // Ping status (deterministic)
     let reachable = |ms| PingStatus::Reachable { rtt_ms: ms };
     // Ungrouped hosts
-    app.ping_status.insert("bastion-ams".into(), reachable(7));
-    app.ping_status.insert("gateway-vpn".into(), reachable(11));
+    app.ping.status.insert("bastion-ams".into(), reachable(7));
+    app.ping.status.insert("gateway-vpn".into(), reachable(11));
     // ProxyJump hosts (normally skipped by pinger, forced reachable for demo)
-    app.ping_status.insert("db-primary".into(), reachable(5));
-    app.ping_status.insert("monitoring".into(), reachable(8));
+    app.ping.status.insert("db-primary".into(), reachable(5));
+    app.ping.status.insert("monitoring".into(), reachable(8));
     // AWS
-    app.ping_status.insert("aws-api-prod".into(), reachable(89));
-    app.ping_status
+    app.ping.status.insert("aws-api-prod".into(), reachable(89));
+    app.ping
+        .status
         .insert("aws-api-staging".into(), reachable(92));
-    app.ping_status
+    app.ping
+        .status
         .insert("aws-worker-eu".into(), reachable(23));
-    app.ping_status.insert("aws-batch-us".into(), reachable(18));
-    app.ping_status.insert("aws-ml-eu".into(), reachable(25));
-    app.ping_status
+    app.ping.status.insert("aws-batch-us".into(), reachable(18));
+    app.ping.status.insert("aws-ml-eu".into(), reachable(25));
+    app.ping
+        .status
         .insert("aws-cache-eu".into(), PingStatus::Unreachable);
     // DigitalOcean
-    app.ping_status.insert("do-web-ams".into(), reachable(12));
-    app.ping_status
+    app.ping.status.insert("do-web-ams".into(), reachable(12));
+    app.ping
+        .status
         .insert("do-staging-ams".into(), reachable(14));
-    app.ping_status
+    app.ping
+        .status
         .insert("do-worker-ams".into(), reachable(15));
-    app.ping_status.insert("do-ci-runner".into(), reachable(42));
+    app.ping.status.insert("do-ci-runner".into(), reachable(42));
     // Proxmox
-    app.ping_status.insert("pve-web-01".into(), reachable(3));
-    app.ping_status.insert("pve-web-02".into(), reachable(3));
-    app.ping_status.insert("pve-db-01".into(), reachable(2));
-    app.ping_status.insert("pve-db-02".into(), reachable(2));
-    app.ping_status.insert("pve-redis".into(), reachable(2));
-    app.ping_status.insert("pve-mail".into(), reachable(3));
-    app.ping_status.insert("pve-monitor".into(), reachable(3));
-    app.ping_status
+    app.ping.status.insert("pve-web-01".into(), reachable(3));
+    app.ping.status.insert("pve-web-02".into(), reachable(3));
+    app.ping.status.insert("pve-db-01".into(), reachable(2));
+    app.ping.status.insert("pve-db-02".into(), reachable(2));
+    app.ping.status.insert("pve-redis".into(), reachable(2));
+    app.ping.status.insert("pve-mail".into(), reachable(3));
+    app.ping.status.insert("pve-monitor".into(), reachable(3));
+    app.ping
+        .status
         .insert("pve-backup".into(), PingStatus::Unreachable);
 
-    app.has_pinged = true;
-    app.ping_checked_at = Some(std::time::Instant::now());
+    app.ping.has_pinged = true;
+    app.ping.checked_at = Some(std::time::Instant::now());
 
     // Vault SSH cert status (deterministic demo data)
     {
         use crate::vault_ssh::CertStatus;
         let now = std::time::Instant::now();
         // aws-api-prod: valid cert, 6h remaining out of 8h total
-        app.cert_status_cache.insert(
+        app.vault.cert_cache.insert(
             "aws-api-prod".into(),
             (
                 now,
@@ -440,7 +446,7 @@ pub fn build_demo_app() -> App {
             ),
         );
         // aws-worker-eu: valid cert, 45m remaining out of 8h (warning tier)
-        app.cert_status_cache.insert(
+        app.vault.cert_cache.insert(
             "aws-worker-eu".into(),
             (
                 now,
@@ -453,7 +459,7 @@ pub fn build_demo_app() -> App {
             ),
         );
         // aws-batch-us: valid cert, 4h remaining out of 8h
-        app.cert_status_cache.insert(
+        app.vault.cert_cache.insert(
             "aws-batch-us".into(),
             (
                 now,
@@ -466,7 +472,7 @@ pub fn build_demo_app() -> App {
             ),
         );
         // gateway-vpn: valid cert, 7h remaining out of 8h
-        app.cert_status_cache.insert(
+        app.vault.cert_cache.insert(
             "gateway-vpn".into(),
             (
                 now,
@@ -479,7 +485,7 @@ pub fn build_demo_app() -> App {
             ),
         );
         // pve-web-01: valid cert, 3h remaining out of 8h
-        app.cert_status_cache.insert(
+        app.vault.cert_cache.insert(
             "pve-web-01".into(),
             (
                 now,
@@ -524,7 +530,7 @@ pub fn build_demo_app() -> App {
     app.view_mode = ViewMode::Compact;
     app.sort_mode = SortMode::MostRecent;
     app.group_by = GroupBy::None;
-    app.auto_ping = true;
+    app.ping.auto_ping = true;
 
     // Rebuild display list with sort/group applied
     app.apply_sort();
@@ -600,22 +606,22 @@ mod tests {
     #[test]
     fn demo_app_has_ping_status() {
         let (app, _guard) = demo_app();
-        assert!(app.has_pinged);
-        assert!(app.ping_checked_at.is_some());
+        assert!(app.ping.has_pinged);
+        assert!(app.ping.checked_at.is_some());
         assert_eq!(
-            app.ping_status.get("bastion-ams"),
+            app.ping.status.get("bastion-ams"),
             Some(&PingStatus::Reachable { rtt_ms: 7 })
         );
         assert_eq!(
-            app.ping_status.get("aws-cache-eu"),
+            app.ping.status.get("aws-cache-eu"),
             Some(&PingStatus::Unreachable)
         );
         assert_eq!(
-            app.ping_status.get("pve-backup"),
+            app.ping.status.get("pve-backup"),
             Some(&PingStatus::Unreachable)
         );
         assert_eq!(
-            app.ping_status.get("monitoring"),
+            app.ping.status.get("monitoring"),
             Some(&PingStatus::Reachable { rtt_ms: 8 })
         );
     }
@@ -718,7 +724,7 @@ mod tests {
         assert_eq!(app.view_mode, ViewMode::Compact);
         assert_eq!(app.sort_mode, SortMode::MostRecent);
         assert_eq!(app.group_by, GroupBy::None);
-        assert!(app.auto_ping);
+        assert!(app.ping.auto_ping);
         assert!(!app.display_list.is_empty());
     }
 }
