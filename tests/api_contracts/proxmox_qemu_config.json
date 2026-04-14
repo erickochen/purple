@@ -1,0 +1,1 @@
+{"data": {"agent": "1", "ipconfig0": "ip=dhcp", "ipconfig1": "ip=10.0.1.1/24", "net0": "name=eth0,bridge=vmbr0,ip=dhcp", "cores": 4}}

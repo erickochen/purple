@@ -1,0 +1,30 @@
+{
+    "value": [
+        {
+            "name": "web-01",
+            "location": "eastus",
+            "tags": {"env": "prod"},
+            "properties": {
+                "vmId": "abc-123",
+                "hardwareProfile": {"vmSize": "Standard_B1s"},
+                "storageProfile": {
+                    "imageReference": {
+                        "offer": "UbuntuServer",
+                        "sku": "22_04-lts"
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {"id": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic1"}
+                    ]
+                },
+                "instanceView": {
+                    "statuses": [
+                        {"code": "ProvisioningState/succeeded"},
+                        {"code": "PowerState/running"}
+                    ]
+                }
+            }
+        }
+    ]
+}

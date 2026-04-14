@@ -1,0 +1,10 @@
+[
+    {
+        "id": "ocid1.instance.oc1..aaa",
+        "displayName": "my-server",
+        "lifecycleState": "RUNNING",
+        "shape": "VM.Standard2.1",
+        "imageId": "ocid1.image.oc1..img",
+        "freeformTags": {"env": "prod", "team": "ops"}
+    }
+]

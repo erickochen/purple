@@ -1,0 +1,13 @@
+[{
+    "id": 12345,
+    "serverId": 67890,
+    "serverName": "game-server-01",
+    "category": "Dedicated Game Servers",
+    "dcLocationId": 1,
+    "ipAddress": [
+        {"ipAddress": "203.0.113.3", "version": 4, "type": 1, "private": 0},
+        {"ipAddress": "10.0.0.5", "version": 4, "type": 1, "private": 1}
+    ],
+    "numCpu": 8,
+    "cpuType": "Intel Xeon E-2288G"
+}]

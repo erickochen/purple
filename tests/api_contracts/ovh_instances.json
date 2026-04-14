@@ -1,0 +1,14 @@
+[
+    {
+        "id": "uuid-123",
+        "name": "web-1",
+        "status": "ACTIVE",
+        "region": "GRA11",
+        "ipAddresses": [
+            {"ip": "1.2.3.4", "type": "public", "version": 4},
+            {"ip": "10.0.0.1", "type": "private", "version": 4}
+        ],
+        "flavor": {"name": "b2-7"},
+        "image": {"name": "Ubuntu 22.04"}
+    }
+]

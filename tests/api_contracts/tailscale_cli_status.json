@@ -1,0 +1,12 @@
+{
+    "Peer": {
+        "abc123": {
+            "ID": "n12345",
+            "HostName": "web-server",
+            "TailscaleIPs": ["100.64.0.1", "fd7a:115c:a1e0::1"],
+            "OS": "linux",
+            "Online": true,
+            "Tags": ["tag:server"]
+        }
+    }
+}

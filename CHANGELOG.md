@@ -1,3 +1,8 @@
+## 2.39.0
+
+- Contract snapshot tests for API drift detection
+- 32 golden fixture files verified against current provider API docs cover all 16 providers and every documented endpoint. 35 integration tests run on every push to catch response structure changes before they break real syncs
+
 ## 2.38.1
 
 - Fix i3D.net FlexMetal OS metadata not showing

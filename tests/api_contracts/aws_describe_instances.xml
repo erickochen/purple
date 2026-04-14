@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DescribeInstancesResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/">
+<requestId>abc123</requestId>
+<reservationSet>
+    <item>
+        <reservationId>r-12345</reservationId>
+        <instancesSet>
+            <item>
+                <instanceId>i-abc123</instanceId>
+                <imageId>ami-12345</imageId>
+                <instanceState><name>running</name></instanceState>
+                <instanceType>t3.micro</instanceType>
+                <ipAddress>1.2.3.4</ipAddress>
+                <privateIpAddress>10.0.0.5</privateIpAddress>
+                <placement><availabilityZone>us-east-1a</availabilityZone></placement>
+                <tagSet>
+                    <item><key>Name</key><value>web-01</value></item>
+                    <item><key>Environment</key><value>prod</value></item>
+                </tagSet>
+            </item>
+        </instancesSet>
+    </item>
+</reservationSet>
+</DescribeInstancesResponse>

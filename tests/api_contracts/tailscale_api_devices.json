@@ -1,0 +1,14 @@
+{
+    "devices": [
+        {
+            "nodeId": "nDEV1",
+            "hostname": "api-server",
+            "name": "api-server.tailnet.ts.net",
+            "addresses": ["100.64.0.10", "fd7a:115c:a1e0::a"],
+            "os": "linux",
+            "authorized": true,
+            "connectedToControl": true,
+            "tags": ["tag:web"]
+        }
+    ]
+}

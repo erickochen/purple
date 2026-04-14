@@ -1,0 +1,13 @@
+{
+    "servers": {
+        "server": [
+            {
+                "uuid": "uuid-1",
+                "title": "My Server",
+                "hostname": "my-server.example.com",
+                "tags": {"tag": ["PRODUCTION", "WEB"]},
+                "labels": {"label": [{"key": "env", "value": "prod"}]}
+            }
+        ]
+    }
+}

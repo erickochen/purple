@@ -1,0 +1,17 @@
+{
+    "servers": [{
+        "id": "12345",
+        "reference": "web-server-01",
+        "networkInterfaces": {
+            "public": {"ip": "203.0.113.1", "mac": "AA:BB:CC:DD:EE:FF"},
+            "internal": {"ip": "10.0.0.5"}
+        },
+        "location": {"site": "AMS-01", "suite": "A1", "rack": "01", "unit": "1"},
+        "contract": {"deliveryStatus": "ACTIVE", "reference": "my-server"},
+        "specs": {
+            "cpu": {"quantity": 2, "type": "Intel Xeon E-2288G"},
+            "ram": {"size": 32, "unit": "GB"}
+        }
+    }],
+    "_metadata": {"totalCount": 1, "limit": 20, "offset": 0}
+}

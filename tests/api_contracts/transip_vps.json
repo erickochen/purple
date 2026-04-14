@@ -1,0 +1,15 @@
+{
+    "vpss": [{
+        "name": "example-vps",
+        "uuid": "bfa08ad9-6c12-4e03-95dd-a888b97ffe49",
+        "description": "My web server",
+        "productName": "vps-bladevps-x1",
+        "operatingSystem": "ubuntu-22.04",
+        "status": "running",
+        "ipAddress": "203.0.113.2",
+        "availabilityZone": "ams0",
+        "tags": ["production", "web"],
+        "cpus": 2,
+        "memorySize": 4194304
+    }]
+}

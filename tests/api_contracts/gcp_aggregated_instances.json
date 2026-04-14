@@ -1,0 +1,22 @@
+{
+    "items": {
+        "zones/us-central1-a": {
+            "instances": [
+                {
+                    "id": "1234567890123456789",
+                    "name": "web-1",
+                    "status": "RUNNING",
+                    "machineType": "projects/p/zones/us-central1-a/machineTypes/e2-micro",
+                    "zone": "projects/p/zones/us-central1-a",
+                    "networkInterfaces": [{
+                        "networkIP": "10.0.0.2",
+                        "accessConfigs": [{"natIP": "35.192.0.1"}],
+                        "ipv6AccessConfigs": [{"externalIpv6": "2600:1900::1"}]
+                    }],
+                    "disks": [{"licenses": ["projects/debian-cloud/global/licenses/debian-11"]}],
+                    "labels": {"env": "prod"}
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,4 @@
+[
+    {"id": "ocid1.compartment.oc1..child1", "lifecycleState": "ACTIVE"},
+    {"id": "ocid1.compartment.oc1..child2", "lifecycleState": "DELETED"}
+]

@@ -1,0 +1,17 @@
+{
+    "data": [
+        {
+            "id": 111,
+            "label": "app-server",
+            "ipv4": ["9.8.7.6", "192.168.1.1"],
+            "ipv6": "2600:3c01::1/128",
+            "tags": ["production"],
+            "region": "us-east",
+            "type": "g6-standard-1",
+            "status": "running",
+            "image": "linode/ubuntu-22.04"
+        }
+    ],
+    "page": 1,
+    "pages": 1
+}

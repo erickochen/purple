@@ -1,0 +1,18 @@
+{
+    "servers": [
+        {
+            "id": 42,
+            "name": "my-server",
+            "public_net": {
+                "ipv4": {"ip": "1.2.3.4"},
+                "ipv6": {"ip": "2001:db8::/64"}
+            },
+            "server_type": {"name": "cx22", "description": "CX22"},
+            "image": {"name": "ubuntu-22.04", "os_flavor": "ubuntu"},
+            "location": {"name": "fsn1", "city": "Falkenstein"},
+            "labels": {"env": "prod"},
+            "status": "running"
+        }
+    ],
+    "meta": {"pagination": {"page": 1, "last_page": 1}}
+}

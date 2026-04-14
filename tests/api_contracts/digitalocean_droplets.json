@@ -1,0 +1,19 @@
+{
+    "droplets": [
+        {
+            "id": 12345,
+            "name": "web-1",
+            "networks": {
+                "v4": [
+                    {"ip_address": "10.0.0.1", "type": "private"},
+                    {"ip_address": "1.2.3.4", "type": "public"}
+                ]
+            },
+            "tags": ["production"],
+            "image": {"slug": "ubuntu-22-04-x64", "name": "Ubuntu 22.04"},
+            "size_slug": "s-1vcpu-1gb",
+            "region": {"slug": "nyc1"}
+        }
+    ],
+    "meta": {"total": 1}
+}

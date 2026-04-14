@@ -1,0 +1,15 @@
+{
+    "instances": [{
+        "id": "uuid-abc-123",
+        "reference": "api-server",
+        "state": "RUNNING",
+        "region": "eu-west-3",
+        "type": "lsw.c3.xlarge",
+        "ips": [
+            {"ip": "1.2.3.4", "prefixLength": "32", "version": 4, "nullRouted": false, "networkType": "PUBLIC"},
+            {"ip": "10.0.0.1", "prefixLength": "8", "version": 4, "nullRouted": false, "networkType": "INTERNAL"}
+        ],
+        "image": {"id": "img-1", "name": "Ubuntu 22.04"}
+    }],
+    "_metadata": {"totalCount": 1, "limit": 20, "offset": 0}
+}

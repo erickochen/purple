@@ -1,0 +1,20 @@
+{
+    "value": [
+        {
+            "id": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic1",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "properties": {
+                            "privateIPAddress": "10.0.0.4",
+                            "publicIPAddress": {
+                                "id": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/pip1"
+                            },
+                            "primary": true
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

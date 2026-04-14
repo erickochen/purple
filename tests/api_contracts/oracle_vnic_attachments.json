@@ -1,0 +1,8 @@
+[
+    {
+        "instanceId": "ocid1.instance.oc1..aaa",
+        "vnicId": "ocid1.vnic.oc1..vvv",
+        "lifecycleState": "ATTACHED",
+        "isPrimary": true
+    }
+]

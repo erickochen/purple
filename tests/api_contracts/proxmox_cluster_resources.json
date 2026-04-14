@@ -1,0 +1,6 @@
+{"data": [
+    {"type": "qemu", "vmid": 100, "name": "web-1", "node": "pve1", "status": "running", "template": 0, "tags": "prod;web"},
+    {"type": "lxc", "vmid": 200, "name": "dns-1", "node": "pve1", "status": "running", "template": 0},
+    {"type": "qemu", "vmid": 999, "name": "template", "node": "pve1", "status": "stopped", "template": 1},
+    {"type": "storage", "id": "local", "node": "pve1", "status": "available"}
+]}

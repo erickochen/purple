@@ -1,0 +1,13 @@
+[{
+    "uuid": "abc-123-def",
+    "name": "flex-web-01",
+    "status": "delivered",
+    "location": "Amsterdam",
+    "instanceType": "bm.general1.small",
+    "os": {"slug": "ubuntu-2204-lts", "name": "Ubuntu 22.04 LTS"},
+    "ipAddresses": [
+        {"ip": "1.2.3.4", "version": 4, "public": true},
+        {"ip": "10.0.0.1", "version": 4, "public": false}
+    ],
+    "tags": ["production", "web"]
+}]

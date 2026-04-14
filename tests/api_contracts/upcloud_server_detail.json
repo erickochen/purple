@@ -1,0 +1,32 @@
+{
+    "server": {
+        "networking": {
+            "interfaces": {
+                "interface": [
+                    {
+                        "type": "utility",
+                        "ip_addresses": {
+                            "ip_address": [
+                                {"address": "10.3.0.1", "family": "IPv4"}
+                            ]
+                        }
+                    },
+                    {
+                        "type": "public",
+                        "ip_addresses": {
+                            "ip_address": [
+                                {"address": "94.237.1.1", "family": "IPv4"},
+                                {"address": "2a04:3540::1", "family": "IPv6"}
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "storage_devices": {
+            "storage_device": [
+                {"storage_title": "Ubuntu 22.04"}
+            ]
+        }
+    }
+}
