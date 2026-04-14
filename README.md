@@ -68,7 +68,7 @@ I wanted one place for all of that. So I built it.
 
 purple reads `~/.ssh/config` directly. No database, no daemon, no account. Comments, indentation, Include files, unknown directives. All preserved.
 
-Written in Rust. Single binary. 6000+ tests. MIT license.
+Written in Rust. Single binary. 6200+ tests. MIT license.
 
 ## Links
 

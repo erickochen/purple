@@ -131,14 +131,17 @@ pub(super) fn handle_proxyjump_picker(app: &mut App, key: KeyEvent) {
         KeyCode::Enter => {
             let candidates = app.proxyjump_candidates();
             if let Some(index) = app.ui.proxyjump_picker_state.selected() {
-                if let Some((alias, _)) = candidates.get(index) {
+                if let Some(crate::app::ProxyJumpCandidate::Host { alias, .. }) =
+                    candidates.get(index)
+                {
                     app.form.proxy_jump = alias.clone();
                     app.form.sync_cursor_to_end();
                     app.set_status(format!("Jumping through {}.", alias), false);
+                    app.ui.show_proxyjump_picker = false;
+                    super::try_auto_submit_after_picker(app);
                 }
+                // Separator selected: no-op, stay in picker.
             }
-            app.ui.show_proxyjump_picker = false;
-            super::try_auto_submit_after_picker(app);
         }
         _ => {}
     }

@@ -127,11 +127,10 @@ pub(super) fn handle_form(app: &mut App, key: KeyEvent) {
                 }
             }
             FormField::ProxyJump => {
-                let candidates = app.proxyjump_candidates();
                 app.ui.show_proxyjump_picker = true;
                 app.ui.proxyjump_picker_state = ratatui::widgets::ListState::default();
-                if !candidates.is_empty() {
-                    app.ui.proxyjump_picker_state.select(Some(0));
+                if let Some(idx) = app.proxyjump_first_host_index() {
+                    app.ui.proxyjump_picker_state.select(Some(idx));
                 }
             }
             FormField::VaultSsh => {
@@ -170,31 +169,62 @@ pub(super) fn handle_form(app: &mut App, key: KeyEvent) {
 }
 
 /// If the alias field contains something like user@host:port, auto-parse and fill fields.
+/// Also detects bare domains and IP addresses (e.g. "db.example.com", "192.168.1.1")
+/// and moves them to the hostname field with a short alias derived from the first segment.
 fn maybe_smart_paste(app: &mut App) {
     let alias_value = app.form.alias.clone();
-    if !quick_add::looks_like_target(&alias_value) {
+    if quick_add::looks_like_target(&alias_value) {
+        if let Ok(parsed) = quick_add::parse_target(&alias_value) {
+            // Only auto-fill if other fields are still at defaults
+            if app.form.hostname.is_empty() {
+                app.form.hostname = parsed.hostname.clone();
+            }
+            if app.form.user.is_empty() && !parsed.user.is_empty() {
+                app.form.user = parsed.user;
+            }
+            if app.form.port == "22" && parsed.port != 22 {
+                app.form.port = parsed.port.to_string();
+            }
+            // Generate a clean alias from the hostname
+            let clean_alias = parsed
+                .hostname
+                .split('.')
+                .next()
+                .unwrap_or(&parsed.hostname)
+                .to_string();
+            app.form.alias = clean_alias;
+            app.set_status("Smart-parsed that for you. Check the fields.", false);
+            log::debug!(
+                "host_form: smart-paste parsed alias={} host={} user={} port={}",
+                app.form.alias,
+                app.form.hostname,
+                app.form.user,
+                app.form.port
+            );
+        }
         return;
     }
-    if let Ok(parsed) = quick_add::parse_target(&alias_value) {
-        // Only auto-fill if other fields are still at defaults
-        if app.form.hostname.is_empty() {
-            app.form.hostname = parsed.hostname.clone();
-        }
-        if app.form.user.is_empty() && !parsed.user.is_empty() {
-            app.form.user = parsed.user;
-        }
-        if app.form.port == "22" && parsed.port != 22 {
-            app.form.port = parsed.port.to_string();
-        }
-        // Generate a clean alias from the hostname
-        let clean_alias = parsed
-            .hostname
-            .split('.')
-            .next()
-            .unwrap_or(&parsed.hostname)
-            .to_string();
-        app.form.alias = clean_alias;
-        app.set_status("Smart-parsed that for you. Check the fields.", false);
+
+    // Detect bare domain or IP address in the alias field.
+    // Must contain a dot, no interior whitespace, and only valid hostname
+    // characters (alphanumeric, dot, hyphen, underscore). Colons are excluded
+    // to avoid false positives on IPv6 notations like ::ffff:192.0.2.1.
+    let trimmed = alias_value.trim();
+    if trimmed.len() >= 4
+        && trimmed.contains('.')
+        && !trimmed.starts_with('.')
+        && !trimmed.ends_with('.')
+        && !trimmed.contains(char::is_whitespace)
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+        && app.form.hostname.is_empty()
+    {
+        // Copy the value to the Host field as a suggestion. The Name field
+        // stays unchanged so the user keeps full control over the alias.
+        app.form.hostname = trimmed.to_string();
+        app.set_status("Looks like an address. Suggested as Host.", false);
+        log::debug!("host_form: auto-suggest hostname={trimmed}");
     }
 }
 

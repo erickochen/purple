@@ -6126,3 +6126,281 @@ fn palette_query_capped_at_64() {
     }
     assert_eq!(state.query.len(), 64, "query should be capped at 64 chars");
 }
+
+// --- ProxyJump picker handler tests ---
+
+use crate::app::ProxyJumpCandidate;
+
+fn proxyjump_picker_app() -> App {
+    // Three hosts: `bastion` is promoted into the suggested section via
+    // the keyword heuristic, `alpha`/`zeta` stay in the rest section
+    // below the separator, and `victim` is the host being edited.
+    let mut app = make_app(concat!(
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host alpha\n  HostName 2.2.2.2\n",
+        "Host zeta\n  HostName 3.3.3.3\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ));
+    app.screen = Screen::EditHost {
+        alias: "victim".to_string(),
+    };
+    app.ui.show_proxyjump_picker = true;
+    app
+}
+
+#[test]
+fn proxyjump_picker_enter_on_section_label_is_noop() {
+    let mut app = proxyjump_picker_app();
+    let candidates = app.proxyjump_candidates();
+    let label_idx = candidates
+        .iter()
+        .position(|c| matches!(c, ProxyJumpCandidate::SectionLabel(_)))
+        .expect("test setup must produce a SectionLabel");
+    app.ui.proxyjump_picker_state.select(Some(label_idx));
+
+    let (tx, _rx) = mpsc::channel();
+    let _ = handle_key_event(&mut app, key(KeyCode::Enter), &tx);
+
+    assert!(
+        app.ui.show_proxyjump_picker,
+        "Enter on a SectionLabel must not close the picker"
+    );
+    assert!(
+        app.form.proxy_jump.is_empty(),
+        "Enter on a SectionLabel must not populate the ProxyJump field"
+    );
+}
+
+#[test]
+fn proxyjump_picker_enter_on_separator_is_noop() {
+    let mut app = proxyjump_picker_app();
+    let candidates = app.proxyjump_candidates();
+    let sep = candidates
+        .iter()
+        .position(|c| matches!(c, ProxyJumpCandidate::Separator))
+        .expect("test setup must produce a separator");
+    app.ui.proxyjump_picker_state.select(Some(sep));
+
+    let (tx, _rx) = mpsc::channel();
+    let _ = handle_key_event(&mut app, key(KeyCode::Enter), &tx);
+
+    assert!(
+        app.ui.show_proxyjump_picker,
+        "Enter on a Separator must not close the picker"
+    );
+    assert!(
+        app.form.proxy_jump.is_empty(),
+        "Enter on a Separator must not populate the ProxyJump field"
+    );
+}
+
+#[test]
+fn proxyjump_picker_enter_on_host_applies_alias_and_closes() {
+    let mut app = proxyjump_picker_app();
+    // Select the first host (the suggested one). `proxyjump_first_host_index`
+    // resolves to the right index regardless of any leading SectionLabel.
+    let first_host = app.proxyjump_first_host_index().expect("host expected");
+    app.ui.proxyjump_picker_state.select(Some(first_host));
+
+    let (tx, _rx) = mpsc::channel();
+    let _ = handle_key_event(&mut app, key(KeyCode::Enter), &tx);
+
+    assert!(
+        !app.ui.show_proxyjump_picker,
+        "Enter on a Host must close the picker"
+    );
+    assert_eq!(
+        app.form.proxy_jump, "bastion",
+        "the selected host's alias must populate the ProxyJump field"
+    );
+}
+
+// ─── Smart paste: bare domain/IP detection ──────────────────────
+
+#[test]
+fn host_form_smart_paste_detects_bare_domain() {
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "db.example.com".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    // Tab away from Alias triggers smart paste
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    assert_eq!(app.form.hostname, "db.example.com");
+    // Alias stays unchanged — only hostname is suggested
+    assert_eq!(app.form.alias, "db.example.com");
+}
+
+#[test]
+fn host_form_smart_paste_detects_ip_address() {
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "192.168.1.100".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    assert_eq!(app.form.hostname, "192.168.1.100");
+    assert_eq!(app.form.alias, "192.168.1.100");
+}
+
+#[test]
+fn host_form_smart_paste_skips_plain_name() {
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "myserver".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    // No dot means no detection — alias stays, hostname stays empty
+    assert_eq!(app.form.alias, "myserver");
+    assert!(app.form.hostname.is_empty());
+}
+
+#[test]
+fn host_form_smart_paste_domain_no_overwrite_hostname() {
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "db.example.com".to_string();
+    app.form.hostname = "already.set.com".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    // Hostname already populated — don't overwrite
+    assert_eq!(app.form.hostname, "already.set.com");
+    assert_eq!(app.form.alias, "db.example.com");
+}
+
+#[test]
+fn host_form_smart_paste_rejects_leading_dot() {
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = ".example.com".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    // Leading dot produces empty first label — must not fire
+    assert_eq!(app.form.alias, ".example.com");
+    assert!(app.form.hostname.is_empty());
+}
+
+#[test]
+fn host_form_smart_paste_rejects_bare_dot() {
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = ".".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    assert_eq!(app.form.alias, ".");
+    assert!(app.form.hostname.is_empty());
+}
+
+#[test]
+fn host_form_smart_paste_ignores_ipv6_mixed() {
+    // IPv4-mapped IPv6 notation must not trigger bare-domain detection
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "::ffff:192.0.2.1".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    assert_eq!(app.form.alias, "::ffff:192.0.2.1");
+    assert!(app.form.hostname.is_empty());
+}
+
+#[test]
+fn host_form_smart_paste_allows_underscore_hostname() {
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "my_host.internal".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    assert_eq!(app.form.hostname, "my_host.internal");
+    assert_eq!(app.form.alias, "my_host.internal");
+}
+
+#[test]
+fn host_form_smart_paste_fires_on_enter() {
+    // Enter on Alias also calls maybe_smart_paste before submit.
+    // Use a minimal valid config so submit_form can succeed.
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "web.example.com".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Enter), &tx).unwrap();
+    // Smart paste copies alias to hostname, alias stays unchanged.
+    // submit_form runs next — on success the screen returns to HostList.
+    assert_eq!(app.screen, Screen::HostList);
+    assert!(app.hosts.iter().any(|h| h.alias == "web.example.com"));
+    assert!(app.hosts.iter().any(|h| h.hostname == "web.example.com"));
+}
+
+#[test]
+fn host_form_smart_paste_rejects_trailing_dot() {
+    // Trailing dot is invalid for SSH HostName — must not fire
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "example.com.".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    assert_eq!(app.form.alias, "example.com.");
+    assert!(app.form.hostname.is_empty());
+}
+
+#[test]
+fn host_form_smart_paste_rejects_short_dotted_string() {
+    // "1.1" (len 3) should not trigger — too short to be a real hostname
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "1.1".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    assert_eq!(app.form.alias, "1.1");
+    assert!(app.form.hostname.is_empty());
+}
+
+#[test]
+fn host_form_smart_paste_minimum_valid_length() {
+    // "x.io" (len 4) is the shortest that should trigger
+    let mut app = make_app("");
+    app.form = HostForm::new();
+    app.form.alias = "x.io".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::AddHost;
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    assert_eq!(app.form.hostname, "x.io");
+    assert_eq!(app.form.alias, "x.io");
+}
+
+#[test]
+fn host_form_smart_paste_no_fire_on_edit_with_hostname() {
+    // EditHost: hostname already populated from existing entry — must not overwrite
+    let mut app = make_app("Host myserver\n  HostName myserver.local\n");
+    app.form = HostForm::new();
+    app.form.alias = "db.example.com".to_string();
+    app.form.hostname = "myserver.local".to_string();
+    app.form.focused_field = FormField::Alias;
+    app.screen = Screen::EditHost {
+        alias: "myserver".to_string(),
+    };
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Tab), &tx).unwrap();
+    assert_eq!(app.form.hostname, "myserver.local");
+    assert_eq!(app.form.alias, "db.example.com");
+}

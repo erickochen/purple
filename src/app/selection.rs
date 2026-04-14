@@ -5,7 +5,7 @@ use std::path::Path;
 
 use ratatui::widgets::ListState;
 
-use super::{HostListItem, Screen};
+use super::{HostListItem, ProxyJumpCandidate, Screen};
 use crate::app::App;
 use crate::ssh_config::model::{HostEntry, PatternEntry};
 use crate::ssh_keys;
@@ -249,35 +249,76 @@ impl App {
         );
     }
 
-    /// Get hosts available as ProxyJump targets (excludes the host being edited).
-    pub fn proxyjump_candidates(&self) -> Vec<(String, String)> {
+    /// Get hosts available as ProxyJump targets (excludes the host being
+    /// edited), ranked so likely jump hosts appear on top. Ranking combines
+    /// three signals: usage count as ProxyJump on other hosts, alias or
+    /// hostname matching a jump-host keyword (`jump`, `bastion`, `gateway`,
+    /// `proxy`, `gw`), and sharing the last two domain labels with the
+    /// hostname of the host being edited. Items with a non-zero score are
+    /// grouped in a "suggested" section above a visual `Separator`. The
+    /// remaining items are listed alphabetically below. If no item scores,
+    /// the full list is alphabetical with no separator.
+    pub fn proxyjump_candidates(&self) -> Vec<ProxyJumpCandidate> {
         let editing_alias = match &self.screen {
             Screen::EditHost { alias, .. } => Some(alias.as_str()),
             _ => None,
         };
-        self.hosts
+        let editing_hostname = match &self.screen {
+            Screen::EditHost { alias, .. } => self
+                .hosts
+                .iter()
+                .find(|h| h.alias == *alias)
+                .map(|h| h.hostname.as_str()),
+            _ => None,
+        };
+        let editing_suffix = editing_hostname.and_then(domain_suffix);
+
+        let usage_counts = proxyjump_usage_counts(&self.hosts, editing_alias);
+        let mut scored = score_proxyjump_candidates(
+            &self.hosts,
+            editing_alias,
+            editing_suffix.as_deref(),
+            &usage_counts,
+        );
+
+        // Top-3 suggestions: score > 0, sorted by score desc then alias asc.
+        scored.sort_by(|(sa, a), (sb, b)| sb.cmp(sa).then_with(|| a.alias.cmp(&b.alias)));
+        let suggested: Vec<&HostEntry> = scored
             .iter()
-            .filter(|h| {
-                if let Some(alias) = editing_alias {
-                    h.alias != alias
-                } else {
-                    true
-                }
-            })
-            .map(|h| (h.alias.clone(), h.hostname.clone()))
-            .collect()
+            .filter(|(s, _)| *s > 0)
+            .take(3)
+            .map(|(_, h)| *h)
+            .collect();
+        let suggested_aliases: std::collections::HashSet<&str> =
+            suggested.iter().map(|h| h.alias.as_str()).collect();
+
+        // Rest: everything not suggested, alphabetical by alias.
+        scored.sort_by(|(_, a), (_, b)| a.alias.cmp(&b.alias));
+        let rest: Vec<&HostEntry> = scored
+            .into_iter()
+            .map(|(_, h)| h)
+            .filter(|h| !suggested_aliases.contains(h.alias.as_str()))
+            .collect();
+
+        build_proxyjump_items(&suggested, &rest)
     }
 
-    /// Move proxyjump picker selection up.
+    /// Find the first selectable (non-separator) index in the ProxyJump
+    /// picker, or None if the list has no hosts.
+    pub fn proxyjump_first_host_index(&self) -> Option<usize> {
+        self.proxyjump_candidates()
+            .iter()
+            .position(|c| matches!(c, ProxyJumpCandidate::Host { .. }))
+    }
+
+    /// Move proxyjump picker selection up, skipping separators.
     pub fn select_prev_proxyjump(&mut self) {
-        let len = self.proxyjump_candidates().len();
-        super::cycle_selection(&mut self.ui.proxyjump_picker_state, len, false);
+        step_proxyjump_selection(self, false);
     }
 
-    /// Move proxyjump picker selection down.
+    /// Move proxyjump picker selection down, skipping separators.
     pub fn select_next_proxyjump(&mut self) {
-        let len = self.proxyjump_candidates().len();
-        super::cycle_selection(&mut self.ui.proxyjump_picker_state, len, true);
+        step_proxyjump_selection(self, true);
     }
 
     /// Collect unique Vault SSH roles from all hosts and providers, sorted.
@@ -461,6 +502,182 @@ impl App {
                 self.update_group_tab_follow();
                 return;
             }
+        }
+    }
+}
+
+const JUMP_KEYWORDS: &[&str] = &["jump", "bastion", "gateway", "proxy", "gw"];
+
+/// Count how often each alias appears as a ProxyJump hop across all hosts,
+/// excluding the host currently being edited.
+fn proxyjump_usage_counts(
+    hosts: &[HostEntry],
+    editing_alias: Option<&str>,
+) -> std::collections::HashMap<String, u32> {
+    let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for h in hosts {
+        if h.proxy_jump.is_empty() || editing_alias == Some(h.alias.as_str()) {
+            continue;
+        }
+        for hop in parse_proxy_jump_hops(&h.proxy_jump) {
+            *counts.entry(hop).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
+/// Score each host as a ProxyJump candidate. Excludes the host being edited.
+/// Score = usage * 10 + keyword_hit * 5 + shared_domain_suffix * 3.
+fn score_proxyjump_candidates<'a>(
+    hosts: &'a [HostEntry],
+    editing_alias: Option<&str>,
+    editing_suffix: Option<&str>,
+    usage_counts: &std::collections::HashMap<String, u32>,
+) -> Vec<(u32, &'a HostEntry)> {
+    hosts
+        .iter()
+        .filter(|h| editing_alias.is_none_or(|a| h.alias != a))
+        .map(|h| {
+            let usage = usage_counts.get(&h.alias).copied().unwrap_or(0);
+            let kw = has_jump_keyword(&h.alias, &h.hostname);
+            let same = editing_suffix
+                .and_then(|suf| domain_suffix(&h.hostname).map(|s| s == suf))
+                .unwrap_or(false);
+            let score = usage * 10 + u32::from(kw) * 5 + u32::from(same) * 3;
+            (score, h)
+        })
+        .collect()
+}
+
+/// Assemble the final picker list from pre-sorted `suggested` and `rest`
+/// slices. Inserts a `Suggestions` section label and a `Separator` only when
+/// both sides are non-empty.
+fn build_proxyjump_items(suggested: &[&HostEntry], rest: &[&HostEntry]) -> Vec<ProxyJumpCandidate> {
+    let mut items = Vec::with_capacity(suggested.len() + rest.len() + 2);
+    if !suggested.is_empty() {
+        items.push(ProxyJumpCandidate::SectionLabel("Suggestions"));
+    }
+    for h in suggested {
+        items.push(ProxyJumpCandidate::Host {
+            alias: h.alias.clone(),
+            hostname: h.hostname.clone(),
+            suggested: true,
+        });
+    }
+    if !suggested.is_empty() && !rest.is_empty() {
+        items.push(ProxyJumpCandidate::Separator);
+    }
+    for h in rest {
+        items.push(ProxyJumpCandidate::Host {
+            alias: h.alias.clone(),
+            hostname: h.hostname.clone(),
+            suggested: false,
+        });
+    }
+    items
+}
+
+/// Parse a ProxyJump directive value into its list of alias hops, stripping
+/// optional `user@` prefix and `:port` suffix (including IPv6 brackets).
+/// Malformed hops (empty, missing closing bracket on an IPv6 literal) are
+/// dropped rather than passed through as garbage that could never match a
+/// real alias.
+pub(crate) fn parse_proxy_jump_hops(proxy_jump: &str) -> Vec<String> {
+    proxy_jump
+        .split(',')
+        .filter_map(|hop| {
+            let h = hop.trim();
+            if h.is_empty() {
+                return None;
+            }
+            let h = h.split_once('@').map_or(h, |(_, host)| host);
+            let h = if let Some(bracketed) = h.strip_prefix('[') {
+                let (inner, _) = bracketed.split_once(']')?;
+                inner
+            } else {
+                h.rsplit_once(':').map_or(h, |(host, _)| host)
+            };
+            if h.is_empty() {
+                None
+            } else {
+                Some(h.to_string())
+            }
+        })
+        .collect()
+}
+
+/// True when the alias or hostname mentions a common jump-host keyword
+/// (`jump`, `bastion`, `gateway`, `proxy`, `gw`) as a substring.
+pub(crate) fn has_jump_keyword(alias: &str, hostname: &str) -> bool {
+    let a = alias.to_ascii_lowercase();
+    let h = hostname.to_ascii_lowercase();
+    JUMP_KEYWORDS
+        .iter()
+        .any(|kw| a.contains(kw) || h.contains(kw))
+}
+
+/// Extract the last two dot-separated labels of a hostname for domain
+/// matching. Returns None for single-label hostnames, IPv4 literals, and
+/// bracketed IPv6 literals where domain matching would be meaningless.
+/// Also rejects any string that parses as a valid `IpAddr` (which catches
+/// 4-octet IPv4 shapes without relying on a naive all-digits-per-label
+/// check that would miss mixed strings like `192.168.1.foo`).
+pub(crate) fn domain_suffix(hostname: &str) -> Option<String> {
+    let h = hostname.trim();
+    if h.is_empty() || h.starts_with('[') {
+        return None;
+    }
+    if h.parse::<std::net::IpAddr>().is_ok() {
+        return None;
+    }
+    let labels: Vec<&str> = h.split('.').collect();
+    if labels.len() < 2 {
+        return None;
+    }
+    // Trailing empty labels (e.g. `example.com.` FQDN) would silently
+    // produce a bogus `.com` suffix; normalise by trimming them off.
+    let mut end = labels.len();
+    while end > 0 && labels[end - 1].is_empty() {
+        end -= 1;
+    }
+    if end < 2 {
+        return None;
+    }
+    let tail = &labels[end - 2..end];
+    Some(tail.join(".").to_ascii_lowercase())
+}
+
+/// Step the ProxyJump picker selection one position in the requested
+/// direction, wrapping around and skipping any `Separator` entries. When
+/// nothing is currently selected, the first step lands on the first
+/// selectable host (forward) or the last selectable host (backward)
+/// instead of advancing past index 0.
+fn step_proxyjump_selection(app: &mut App, forward: bool) {
+    let candidates = app.proxyjump_candidates();
+    let len = candidates.len();
+    if len == 0 {
+        app.ui.proxyjump_picker_state.select(None);
+        return;
+    }
+    // When no prior selection exists, seed `next` so the first modular
+    // step lands on index 0 (forward) or len-1 (backward). Without this
+    // seed a fresh picker with selected() == None would skip index 0 on
+    // a Down press.
+    let seed: usize = match app.ui.proxyjump_picker_state.selected() {
+        Some(idx) => idx,
+        None if forward => len - 1,
+        None => 0,
+    };
+    let mut next = seed;
+    for _ in 0..len {
+        next = if forward {
+            (next + 1) % len
+        } else {
+            (next + len - 1) % len
+        };
+        if matches!(candidates.get(next), Some(ProxyJumpCandidate::Host { .. })) {
+            app.ui.proxyjump_picker_state.select(Some(next));
+            return;
         }
     }
 }

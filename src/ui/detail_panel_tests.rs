@@ -301,7 +301,7 @@ fn wrap_tags_single_row() {
 #[test]
 fn wrap_tags_wraps_to_second_row() {
     let t = tags(&["production", "web", "europe", "api"]);
-    // "production web" = 14 cols, "europe" would make 21 > 20
+    // "production, web" = 15 cols, "europe" would need 15 + 2 + 6 = 23 > 20
     let rows = wrap_tags(&t, 20);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0], vec!["production", "web"]);
@@ -327,17 +327,87 @@ fn wrap_tags_empty() {
 #[test]
 fn wrap_tags_exact_fit() {
     let t = tags(&["ab", "cd"]);
-    // "ab cd" = 5 cols
-    let rows = wrap_tags(&t, 5);
+    // "ab, cd" = 6 cols
+    let rows = wrap_tags(&t, 6);
     assert_eq!(rows, vec![vec!["ab", "cd"]]);
 }
 
 #[test]
 fn wrap_tags_exact_overflow() {
     let t = tags(&["ab", "cd"]);
-    // "ab cd" = 5 cols, max 4 → wraps
-    let rows = wrap_tags(&t, 4);
+    // "ab, cd" = 6 cols, max 5 → wraps
+    let rows = wrap_tags(&t, 5);
     assert_eq!(rows.len(), 2);
+}
+
+#[test]
+fn wrap_tags_single_tag_no_separator() {
+    let t = tags(&["production"]);
+    let rows = wrap_tags(&t, 32);
+    assert_eq!(rows, vec![vec!["production"]]);
+}
+
+#[test]
+fn wrap_tags_with_spaces_in_tag() {
+    // Tags with spaces must not be confused with the ", " separator
+    let t = tags(&["my tag", "prod"]);
+    let rows = wrap_tags(&t, 80);
+    assert_eq!(rows, vec![vec!["my tag", "prod"]]);
+    // Rendered: "my tag, prod" — comma distinguishes boundary from intra-tag space
+}
+
+#[test]
+fn wrap_tags_with_spaces_narrow_wraps_correctly() {
+    // "my tag" = 6, ", " = 2, "other tag" = 9 → 17 total
+    let t = tags(&["my tag", "other tag"]);
+    let rows = wrap_tags(&t, 15);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0], vec!["my tag"]);
+    assert_eq!(rows[1], vec!["other tag"]);
+}
+
+#[test]
+fn wrap_tags_tag_containing_comma() {
+    // Tags with commas are accepted (parsing strips them, but test the edge case)
+    let t = tags(&["web,api", "prod"]);
+    let rows = wrap_tags(&t, 80);
+    assert_eq!(rows, vec![vec!["web,api", "prod"]]);
+}
+
+#[test]
+fn render_detail_panel_tags_contain_comma_separator() {
+    use ratatui::backend::TestBackend;
+
+    let config =
+        parse_config("Host myserver\n  Hostname 10.0.0.1\n  # purple:tags prod,web,europe\n");
+    let app = crate::app::App::new(config);
+    // First display item should be the host
+    assert!(app.selected_host().is_some());
+
+    let backend = TestBackend::new(60, 30);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            render(frame, &app, area, 0);
+            let buf = frame.buffer_mut();
+            let mut dump = String::new();
+            for y in 0..buf.area.height {
+                for x in 0..buf.area.width {
+                    dump.push_str(buf[(x, y)].symbol());
+                }
+                dump.push('\n');
+            }
+            assert!(
+                dump.contains("prod, web"),
+                "tags must be separated by ', ' not just space, got:\n{dump}"
+            );
+            assert!(
+                dump.contains("web, europe"),
+                "tags must be separated by ', ' not just space, got:\n{dump}"
+            );
+        })
+        .unwrap();
 }
 
 // --- resolve_proxy_chain tests ---

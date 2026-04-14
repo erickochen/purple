@@ -186,9 +186,9 @@ pub enum Screen {
 /// Classification of status messages for routing to toast overlay vs footer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageClass {
-    /// User action succeeded (copy, sort, delete). Toast, 6 ticks.
+    /// User action succeeded (copy, sort, delete). Toast, 16 ticks (4s at 250ms tick rate).
     Confirmation,
-    /// Background event (sync complete, config reload). Footer, 12 ticks.
+    /// Background event (sync complete, config reload). Footer, 16 ticks.
     Info,
     /// Error or warning requiring attention. Toast, 20 ticks.
     Alert,
@@ -216,8 +216,8 @@ impl StatusMessage {
     /// Timeout in ticks for this message class.
     pub fn timeout(&self) -> u32 {
         match self.class {
-            MessageClass::Confirmation => 6,
-            MessageClass::Info => 12,
+            MessageClass::Confirmation => 16,
+            MessageClass::Info => 16,
             MessageClass::Alert => 20,
             MessageClass::Progress => u32::MAX,
         }
@@ -525,6 +525,24 @@ impl GroupBy {
 pub struct DeletedHost {
     pub element: ConfigElement,
     pub position: usize,
+}
+
+/// Item in the ProxyJump picker list. Scored hosts (used elsewhere as
+/// ProxyJump, matching a jump-host name pattern, or sharing the editing
+/// host's domain suffix) are promoted above a visual separator so the
+/// likely pick is at the top and the rest stays alphabetical below.
+/// `SectionLabel` renders a non-selectable heading (e.g. "Suggestions")
+/// above the scored section. Navigation skips both `SectionLabel` and
+/// `Separator`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProxyJumpCandidate {
+    Host {
+        alias: String,
+        hostname: String,
+        suggested: bool,
+    },
+    SectionLabel(&'static str),
+    Separator,
 }
 
 /// Ratatui ListState fields for all list views.

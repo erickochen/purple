@@ -584,6 +584,116 @@ pub fn centered_rect_fixed(width: u16, height: u16, area: Rect) -> Rect {
     Rect::new(x, y, width.min(area.width), height.min(area.height))
 }
 
+/// Uniform width clamp for picker overlays (ProxyJump, Vault role,
+/// Password source). Keeps all simple list pickers visually aligned at
+/// the same minimum and maximum width regardless of terminal size.
+pub const PICKER_MIN_WIDTH: u16 = 50;
+pub const PICKER_MAX_WIDTH: u16 = 64;
+
+/// Width a picker overlay should use on this frame.
+pub fn picker_overlay_width(frame: &Frame) -> u16 {
+    frame.area().width.clamp(PICKER_MIN_WIDTH, PICKER_MAX_WIDTH)
+}
+
+/// Minimum overlay height required to render rounded borders plus at
+/// least one row of content. Below this the overlay is skipped so
+/// ratatui does not collapse the borders into an unreadable glyph
+/// soup on extremely short terminals.
+pub const PICKER_MIN_HEIGHT: u16 = 3;
+
+/// Compose a picker block title, gracefully dropping a hint that would
+/// not fit inside the usable title width (overlay width minus the two
+/// border columns). Protects against silent clipping of picker-specific
+/// keybindings when the overlay is constrained by a narrow terminal.
+fn picker_title_text(title: &str, title_hint: Option<&str>, width: u16) -> String {
+    let inner = (width as usize).saturating_sub(2);
+    match title_hint {
+        Some(hint) => {
+            let full = format!(" {} · {} ", title, hint);
+            if full.chars().count() <= inner {
+                full
+            } else {
+                format!(" {} ", title)
+            }
+        }
+        None => format!(" {} ", title),
+    }
+}
+
+/// Render a simple list-style picker overlay with the canonical purple
+/// look: clamped width, rounded border, muted accent, highlight on the
+/// selected row and a two-space highlight gutter. The `title_hint`, if
+/// present and space permits, is appended to the block title separated
+/// by a middle dot so picker-specific keybindings (e.g. Ctrl+D for
+/// Password Source) can be surfaced without adding a divergent footer.
+/// If the full hinted title would overflow, the hint is dropped rather
+/// than silently clipped.
+#[allow(clippy::too_many_arguments)] // keeps call sites readable; each param is distinct.
+pub fn render_picker_overlay<'a>(
+    frame: &mut Frame,
+    title: &str,
+    title_hint: Option<&str>,
+    items: Vec<ratatui::widgets::ListItem<'a>>,
+    list_state: &mut ratatui::widgets::ListState,
+    height_cap: u16,
+) {
+    use ratatui::widgets::{Block, BorderType, Clear, List};
+
+    let width = picker_overlay_width(frame);
+    let content_rows = items.len() as u16;
+    let height = (content_rows + 2).min(height_cap);
+    if height < PICKER_MIN_HEIGHT {
+        return;
+    }
+    let area = centered_rect_fixed(width, height, frame.area());
+    if area.height < PICKER_MIN_HEIGHT {
+        return;
+    }
+    frame.render_widget(Clear, area);
+
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(Span::styled(
+            picker_title_text(title, title_hint, width),
+            theme::brand(),
+        ))
+        .border_style(theme::accent());
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(theme::selected_row())
+        .highlight_symbol("  ");
+
+    frame.render_stateful_widget(list, area, list_state);
+}
+
+/// Render an empty-state picker overlay with a muted message in place of
+/// a list. Used when a picker is opened with no candidates (e.g. no
+/// other hosts to use as ProxyJump).
+pub fn render_picker_empty_overlay(frame: &mut Frame, title: &str, message: &str) {
+    use ratatui::widgets::{Block, BorderType, Clear};
+
+    let width = picker_overlay_width(frame);
+    let area = centered_rect_fixed(width, 5, frame.area());
+    if area.height < PICKER_MIN_HEIGHT {
+        return;
+    }
+    frame.render_widget(Clear, area);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(Span::styled(
+            picker_title_text(title, None, width),
+            theme::brand(),
+        ))
+        .border_style(theme::accent());
+    let msg = Paragraph::new(Line::from(Span::styled(
+        format!("  {}", message),
+        theme::muted(),
+    )))
+    .block(block);
+    frame.render_widget(msg, area);
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui::Terminal;
@@ -1076,6 +1186,244 @@ mod tests {
                 apply_scale_clip(frame, &saved, 1.0);
                 let buf = frame.buffer_mut();
                 assert_eq!(buf[(0, 0)].symbol(), "O"); // First char of "OVERLAY OK"
+            })
+            .unwrap();
+    }
+
+    /// Picker overlay width should clamp narrow terminals to
+    /// `PICKER_MIN_WIDTH` so the layout never collapses below the
+    /// minimum that the item renderers assume.
+    #[test]
+    fn picker_overlay_width_clamps_narrow_terminal() {
+        let backend = TestBackend::new(30, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                assert_eq!(picker_overlay_width(frame), PICKER_MIN_WIDTH);
+            })
+            .unwrap();
+    }
+
+    /// Picker overlay width should cap wide terminals at
+    /// `PICKER_MAX_WIDTH` so the overlay stays centered and compact
+    /// instead of stretching across the full width of a large terminal.
+    #[test]
+    fn picker_overlay_width_caps_wide_terminal() {
+        let backend = TestBackend::new(200, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                assert_eq!(picker_overlay_width(frame), PICKER_MAX_WIDTH);
+            })
+            .unwrap();
+    }
+
+    /// Terminals between `PICKER_MIN_WIDTH` and `PICKER_MAX_WIDTH`
+    /// should use the terminal's actual width so the overlay fills
+    /// available space without exceeding the cap.
+    #[test]
+    fn picker_overlay_width_passes_through_midrange() {
+        let backend = TestBackend::new(58, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                assert_eq!(picker_overlay_width(frame), 58);
+            })
+            .unwrap();
+    }
+
+    /// Concatenate every row of a terminal buffer into a single string
+    /// so tests can grep for rendered content without pinning the exact
+    /// centering offset of an overlay.
+    fn buffer_dump(buf: &ratatui::buffer::Buffer) -> String {
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    /// `render_picker_overlay` must surface picker-specific keybindings
+    /// via the block title rather than a divergent footer. A title hint
+    /// should appear as `" Title · hint "` in the rendered buffer so
+    /// all pickers share the same outer shape.
+    #[test]
+    fn render_picker_overlay_writes_title_hint_to_border() {
+        use ratatui::widgets::{ListItem, ListState};
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let mut state = ListState::default();
+                let items = vec![ListItem::new("one"), ListItem::new("two")];
+                render_picker_overlay(
+                    frame,
+                    "Password Source",
+                    Some("Ctrl+D: global default"),
+                    items,
+                    &mut state,
+                    16,
+                );
+                let dump = buffer_dump(frame.buffer_mut());
+                assert!(
+                    dump.contains("Password Source · Ctrl+D: global default"),
+                    "rendered buffer must contain the hinted title, got:\n{dump}"
+                );
+            })
+            .unwrap();
+    }
+
+    /// A picker without a hint should render the title as-is, with no
+    /// middle-dot separator. Prevents a regression where a bare `None`
+    /// accidentally introduces stray punctuation into the title.
+    #[test]
+    fn render_picker_overlay_plain_title_has_no_dot_separator() {
+        use ratatui::widgets::{ListItem, ListState};
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let mut state = ListState::default();
+                let items = vec![ListItem::new("one")];
+                render_picker_overlay(frame, "ProxyJump", None, items, &mut state, 16);
+                let dump = buffer_dump(frame.buffer_mut());
+                assert!(dump.contains("ProxyJump"));
+                assert!(
+                    !dump.contains('·'),
+                    "plain title must not emit a middle-dot separator, got:\n{dump}"
+                );
+            })
+            .unwrap();
+    }
+
+    /// `render_picker_overlay` must cap the rendered height at
+    /// `height_cap` even when the item count would demand more. The
+    /// overlay is pinned at exactly `height_cap` rows so a long list
+    /// scrolls inside the overlay instead of growing off-screen.
+    #[test]
+    fn render_picker_overlay_caps_height_at_height_cap() {
+        use ratatui::widgets::{ListItem, ListState};
+        let backend = TestBackend::new(80, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let mut state = ListState::default();
+                let items: Vec<ListItem> = (0..20)
+                    .map(|i| ListItem::new(format!("item {}", i)))
+                    .collect();
+                render_picker_overlay(frame, "Many", None, items, &mut state, 16);
+                let dump = buffer_dump(frame.buffer_mut());
+                // Count rows that contain any overlay glyph (border or
+                // title or list content) to assert the overlay itself
+                // is exactly `height_cap` rows tall.
+                let rows_with_overlay = dump
+                    .lines()
+                    .filter(|line| line.contains('╭') || line.contains('╰') || line.contains('│'))
+                    .count();
+                assert_eq!(
+                    rows_with_overlay, 16,
+                    "overlay must be capped at height_cap=16, got:\n{dump}"
+                );
+            })
+            .unwrap();
+    }
+
+    /// When the hinted title would overflow the overlay's inner width,
+    /// `render_picker_overlay` must drop the hint instead of silently
+    /// clipping it — the affordance is either fully visible or
+    /// gracefully suppressed.
+    #[test]
+    fn render_picker_overlay_drops_hint_when_it_would_overflow() {
+        use ratatui::widgets::{ListItem, ListState};
+        // Narrow terminal → clamped to PICKER_MIN_WIDTH (50).
+        let backend = TestBackend::new(40, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let mut state = ListState::default();
+                let items = vec![ListItem::new("only")];
+                // A hint that together with the title clearly exceeds
+                // the 48-col inner title bar at width 50.
+                render_picker_overlay(
+                    frame,
+                    "Password Source",
+                    Some("this is an excessively long keybinding description that will not fit"),
+                    items,
+                    &mut state,
+                    12,
+                );
+                let dump = buffer_dump(frame.buffer_mut());
+                assert!(
+                    dump.contains("Password Source"),
+                    "title must still render, got:\n{dump}"
+                );
+                assert!(
+                    !dump.contains('·'),
+                    "overflow hint must be dropped, not clipped, got:\n{dump}"
+                );
+            })
+            .unwrap();
+    }
+
+    /// Unit test for the pure title composer: ensures graceful hint
+    /// drop without rendering side effects. Pins the behaviour that
+    /// `render_picker_overlay` depends on.
+    #[test]
+    fn picker_title_text_drops_overflow_hint() {
+        let plain = picker_title_text("Title", None, 50);
+        assert_eq!(plain, " Title ");
+        let fits = picker_title_text("Title", Some("short"), 50);
+        assert_eq!(fits, " Title · short ");
+        let overflows = picker_title_text("Title", Some(&"x".repeat(200)), 50);
+        assert_eq!(
+            overflows, " Title ",
+            "overlong hint must be dropped entirely"
+        );
+    }
+
+    /// On a terminal too short to host the rounded borders and a row
+    /// of content, `render_picker_overlay` must bail out rather than
+    /// emit a degenerate box that ratatui would render as unreadable
+    /// glyphs.
+    #[test]
+    fn render_picker_overlay_skips_terminal_shorter_than_minimum() {
+        use ratatui::widgets::{ListItem, ListState};
+        let backend = TestBackend::new(80, 2);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let mut state = ListState::default();
+                let items = vec![ListItem::new("entry")];
+                render_picker_overlay(frame, "Tiny", None, items, &mut state, 16);
+                let dump = buffer_dump(frame.buffer_mut());
+                assert!(
+                    !dump.contains("Tiny"),
+                    "overlay must not render on a 2-row terminal, got:\n{dump}"
+                );
+            })
+            .unwrap();
+    }
+
+    /// Empty-state overlay should reuse the uniform picker width and
+    /// surface both the title and the body message so it is visually
+    /// consistent with the populated variant that replaces it the
+    /// moment a candidate becomes available.
+    #[test]
+    fn render_picker_empty_overlay_renders_title_and_message() {
+        let backend = TestBackend::new(200, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_picker_empty_overlay(frame, "ProxyJump", "No other hosts configured");
+                let dump = buffer_dump(frame.buffer_mut());
+                assert!(dump.contains("ProxyJump"), "title missing, got:\n{dump}");
+                assert!(
+                    dump.contains("No other hosts configured"),
+                    "empty-state message missing, got:\n{dump}"
+                );
             })
             .unwrap();
     }

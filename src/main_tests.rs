@@ -982,29 +982,18 @@ fn welcome_i_with_known_hosts_transitions_to_host_list() {
 // =========================================================================
 
 #[test]
-fn cheat_sheet_contains_import_entry() {
-    // The help.rs host_list_columns() should contain "I" key with "import known_hosts"
-    let source = include_str!("ui/help.rs");
-    assert!(
-        source.contains(r#"help_line("I", "import known_hosts")"#),
-        "cheat sheet should have I key"
-    );
-}
-
-#[test]
-fn cheat_sheet_i_after_s_and_k() {
+fn cheat_sheet_k_before_s_in_tools() {
+    // Niche shortcuts (I import known_hosts, m theme, V vault sign, X purge
+    // stale, A add pattern, etc.) were moved to the wiki. The TOOLS section
+    // keeps primary entry points in a deliberate order: K before S.
     let source = include_str!("ui/help.rs");
     let k_pos = source
-        .find(r#"help_line("K","#)
+        .find(r#"help_line_short("K","#)
         .expect("K should be in cheat sheet");
     let s_pos = source
-        .find(r#"help_line("S","#)
+        .find(r#"help_line_short("S","#)
         .expect("S should be in cheat sheet");
-    let i_pos = source
-        .find(r#"help_line("I","#)
-        .expect("I should be in cheat sheet");
     assert!(k_pos < s_pos, "K should come before S");
-    assert!(s_pos < i_pos, "S should come before I");
 }
 
 // =========================================================================

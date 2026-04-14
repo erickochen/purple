@@ -63,10 +63,10 @@ pub use forms::{
 pub use ping::PingState;
 pub use types::{
     ConflictState, ContainerState, DeletedHost, FormBaseline, GroupBy, HostListItem, MessageClass,
-    PingStatus, ProviderFormBaseline, ReloadState, Screen, SearchState, SnippetFormBaseline,
-    SortMode, StatusMessage, SyncRecord, TagState, TunnelFormBaseline, UiSelection, ViewMode,
-    classify_ping, health_summary_spans, health_summary_spans_for, ping_sort_key,
-    propagate_ping_to_dependents, select_display_tags, status_glyph,
+    PingStatus, ProviderFormBaseline, ProxyJumpCandidate, ReloadState, Screen, SearchState,
+    SnippetFormBaseline, SortMode, StatusMessage, SyncRecord, TagState, TunnelFormBaseline,
+    UiSelection, ViewMode, classify_ping, health_summary_spans, health_summary_spans_for,
+    ping_sort_key, propagate_ping_to_dependents, select_display_tags, status_glyph,
 };
 pub use update::UpdateState;
 pub use vault::VaultState;
@@ -636,7 +636,7 @@ impl App {
         });
     }
 
-    /// Tick the footer status message timer. Info shows for 3s.
+    /// Tick the footer status message timer. Info shows for 4s.
     /// Sticky/Progress messages never expire automatically.
     pub fn tick_status(&mut self) {
         // Don't expire status while providers are still syncing

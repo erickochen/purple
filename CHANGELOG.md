@@ -1,3 +1,12 @@
+## 2.37.0
+
+- Smarter forms, jump host suggestions and polished overlays
+- Typing a domain or IP in the Name field auto-suggests it as the Host value. Works on Tab, Down and Enter, skips when Host is already populated
+- Tags in host and pattern detail panels separated by commas (`prod, web, europe`) instead of spaces, so tags containing spaces aren't ambiguous
+- Confirmation toasts now stay visible for 4 seconds instead of 3
+- ProxyJump picker promotes likely jump hosts into a Suggestions section, ranked by usage count, keyword match (`jump`/`bastion`/`gateway`/`proxy`/`gw`) and shared domain suffix ([#14](https://github.com/erickochen/purple/issues/14))
+- Help overlay redesigned: essentials only on the host list, centered layout, clearer labels, wiki link points to the full command reference
+
 ## 2.36.1
 
 - Host indicators stay visible when the detail panel is open

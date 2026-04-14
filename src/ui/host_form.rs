@@ -387,71 +387,78 @@ fn render_proxyjump_picker_overlay(frame: &mut Frame, app: &mut App) {
     let candidates = app.proxyjump_candidates();
 
     if candidates.is_empty() {
-        let area = super::centered_rect_fixed(50, 5, frame.area());
-        frame.render_widget(Clear, area);
-        let block = Block::bordered()
-            .border_type(BorderType::Rounded)
-            .title(Span::styled(" ProxyJump ", theme::brand()))
-            .border_style(theme::accent());
-        let msg = Paragraph::new(Line::from(Span::styled(
-            "  No other hosts configured",
-            theme::muted(),
-        )))
-        .block(block);
-        frame.render_widget(msg, area);
+        super::render_picker_empty_overlay(frame, "ProxyJump", "No other hosts configured");
         return;
     }
 
-    let height = (candidates.len() as u16 + 2).min(16);
-    let width = frame.area().width.clamp(50, 64);
-    let area = super::centered_rect_fixed(width, height, frame.area());
-    frame.render_widget(Clear, area);
-
+    let width = super::picker_overlay_width(frame);
+    // Row content width used by all items (Host, SectionLabel,
+    // Separator). Matches the password picker's `inner_width` so both
+    // overlays right-align their secondary column against the same
+    // visual edge: overlay width − 2 borders − 2 highlight-gutter − 1
+    // leading space − 1 trailing margin.
+    let inner = (width as usize).saturating_sub(6);
     let alias_col = 20;
-    let gap = 2;
-    let host_max = (width as usize).saturating_sub(2 + 2 + 1 + alias_col + gap);
+    let min_gap = 2;
+    let host_max = inner.saturating_sub(alias_col + min_gap);
 
     let items: Vec<ListItem> = candidates
         .iter()
-        .map(|(alias, hostname)| {
-            let host_display = super::truncate(hostname, host_max);
-            let line = Line::from(vec![
-                Span::styled(
-                    format!(
-                        " {:<width$}",
-                        super::truncate(alias, alias_col),
-                        width = alias_col
+        .map(|candidate| match candidate {
+            crate::app::ProxyJumpCandidate::SectionLabel(label) => ListItem::new(Line::from(
+                Span::styled(format!("  {}", label.to_ascii_uppercase()), theme::muted()),
+            )),
+            crate::app::ProxyJumpCandidate::Separator => ListItem::new(Line::from(Span::styled(
+                // Two leading spaces to match the SectionLabel indent,
+                // then dashes that span the remainder of `inner` so
+                // the separator has the same visual width as a Host
+                // row.
+                "  ".to_string() + &"─".repeat(inner.saturating_sub(2)),
+                theme::muted(),
+            ))),
+            crate::app::ProxyJumpCandidate::Host {
+                alias, hostname, ..
+            } => {
+                let alias_display = super::truncate(alias, alias_col);
+                let host_display = super::truncate(hostname, host_max);
+                // Right-align the hostname by padding the alias to
+                // consume the remainder of `inner`. Use the hostname's
+                // unicode display width (not `chars().count()`) so CJK
+                // and wide glyphs in a hostname do not overflow the
+                // right border. `alias_col` floors the padding so an
+                // unusually long hostname on a narrow terminal never
+                // collapses the alias column below its minimum width.
+                let host_width = host_display.width();
+                let alias_width = inner
+                    .saturating_sub(host_width)
+                    .saturating_sub(1)
+                    .max(alias_col);
+                let line = Line::from(vec![
+                    Span::styled(
+                        format!(" {:<width$}", alias_display, width = alias_width),
+                        theme::bold(),
                     ),
-                    theme::bold(),
-                ),
-                Span::raw(" ".repeat(gap)),
-                Span::styled(host_display, theme::muted()),
-            ]);
-            ListItem::new(line)
+                    Span::styled(host_display, theme::muted()),
+                ]);
+                ListItem::new(line)
+            }
         })
         .collect();
 
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .title(Span::styled(" ProxyJump ", theme::brand()))
-        .border_style(theme::accent());
-
-    let list = List::new(items)
-        .block(block)
-        .highlight_style(theme::selected_row())
-        .highlight_symbol("  ");
-
-    frame.render_stateful_widget(list, area, &mut app.ui.proxyjump_picker_state);
+    super::render_picker_overlay(
+        frame,
+        "ProxyJump",
+        None,
+        items,
+        &mut app.ui.proxyjump_picker_state,
+        16,
+    );
 }
 
 fn render_vault_role_picker_overlay(frame: &mut Frame, app: &mut App) {
     let candidates = app.vault_role_candidates();
 
-    let height = (candidates.len() as u16 + 2).min(12);
-    let width = frame.area().width.clamp(50, 64);
-    let area = super::centered_rect_fixed(width, height, frame.area());
-    frame.render_widget(Clear, area);
-
+    let width = super::picker_overlay_width(frame);
     let max_role = (width as usize).saturating_sub(6);
     let items: Vec<ListItem> = candidates
         .iter()
@@ -463,33 +470,27 @@ fn render_vault_role_picker_overlay(frame: &mut Frame, app: &mut App) {
         })
         .collect();
 
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .title(Span::styled(" Vault SSH Role ", theme::brand()))
-        .border_style(theme::accent());
-
-    let list = List::new(items)
-        .block(block)
-        .highlight_style(theme::selected_row())
-        .highlight_symbol("  ");
-
-    frame.render_stateful_widget(list, area, &mut app.ui.vault_role_picker_state);
+    super::render_picker_overlay(
+        frame,
+        "Vault SSH Role",
+        None,
+        items,
+        &mut app.ui.vault_role_picker_state,
+        12,
+    );
 }
 
 fn render_password_picker_overlay(frame: &mut Frame, app: &mut App) {
     let sources = crate::askpass::PASSWORD_SOURCES;
-    let height = sources.len() as u16 + 5; // items + borders + spacer + footer
-    let area = super::centered_rect_fixed(54, height, frame.area());
-    frame.render_widget(Clear, area);
-
+    let width = super::picker_overlay_width(frame);
+    // Inner usable width = overlay width − 2 borders − highlight gutter (2)
+    // − left label pad (1) − one trailing space before the hint.
+    let inner_width = (width as usize).saturating_sub(6);
     let items: Vec<ListItem> = sources
         .iter()
         .map(|src| {
             let hint_width = src.hint.len();
-            let label_width = 48_usize
-                .saturating_sub(4)
-                .saturating_sub(hint_width)
-                .saturating_sub(1);
+            let label_width = inner_width.saturating_sub(hint_width).saturating_sub(1);
             let line = Line::from(vec![
                 Span::styled(
                     format!(" {:<width$}", src.label, width = label_width),
@@ -501,39 +502,14 @@ fn render_password_picker_overlay(frame: &mut Frame, app: &mut App) {
         })
         .collect();
 
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .title(Span::styled(" Password Source ", theme::brand()))
-        .border_style(theme::accent());
-
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    // Split into list area + spacer + footer
-    let chunks = ratatui::layout::Layout::vertical([
-        ratatui::layout::Constraint::Min(0),
-        ratatui::layout::Constraint::Length(1),
-        ratatui::layout::Constraint::Length(1),
-    ])
-    .split(inner);
-
-    let list = List::new(items)
-        .highlight_style(theme::selected_row())
-        .highlight_symbol("  ");
-
-    frame.render_stateful_widget(list, chunks[0], &mut app.ui.password_picker_state);
-
-    let spans = vec![
-        Span::styled(" Enter ", theme::footer_key()),
-        Span::styled(" select ", theme::muted()),
-        Span::raw("  "),
-        Span::styled(" Ctrl+D ", theme::footer_key()),
-        Span::styled(" global default ", theme::muted()),
-        Span::raw("  "),
-        Span::styled(" Esc ", theme::footer_key()),
-        Span::styled(" cancel", theme::muted()),
-    ];
-    super::render_footer_with_status(frame, chunks[2], spans, app);
+    super::render_picker_overlay(
+        frame,
+        "Password Source",
+        Some("Ctrl+D: global default"),
+        items,
+        &mut app.ui.password_picker_state,
+        16,
+    );
 }
 
 /// Get the placeholder text for a field (public for tests).
@@ -686,22 +662,371 @@ fn render_field_content(
 
 #[cfg(test)]
 mod tests {
-    use ratatui::layout::{Constraint, Layout, Rect};
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use std::path::PathBuf;
 
+    fn make_app() -> App {
+        let config = crate::ssh_config::model::SshConfigFile {
+            elements: crate::ssh_config::model::SshConfigFile::parse_content(""),
+            path: PathBuf::from("/tmp/test_config"),
+            crlf: false,
+            bom: false,
+        };
+        App::new(config)
+    }
+
+    fn buffer_dump(buf: &ratatui::buffer::Buffer) -> String {
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Pin the wiring between `render_password_picker_overlay` and the
+    /// shared `render_picker_overlay` helper: the Ctrl+D affordance
+    /// must reach the rendered buffer via the title hint at this
+    /// specific callsite. A future edit that passes `None` or alters
+    /// the literal would fail this test.
     #[test]
-    fn password_picker_layout_has_spacer() {
-        let area = Rect::new(0, 0, 54, 15);
-        let chunks = Layout::vertical([
-            Constraint::Min(0),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .split(area);
-        assert_eq!(chunks[1].height, 1, "spacer row should be 1 tall");
-        assert_eq!(chunks[2].height, 1, "footer row should be 1 tall");
-        assert!(
-            chunks[2].y > chunks[0].y + chunks[0].height,
-            "footer should be below content end"
+    fn render_password_picker_overlay_shows_ctrl_d_hint_in_title() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = make_app();
+        app.ui.show_password_picker = true;
+        app.ui.password_picker_state.select(Some(0));
+        terminal
+            .draw(|frame| {
+                render_password_picker_overlay(frame, &mut app);
+                let dump = buffer_dump(frame.buffer_mut());
+                assert!(
+                    dump.contains("Password Source · Ctrl+D: global default"),
+                    "password picker must surface Ctrl+D hint in title, got:\n{dump}"
+                );
+            })
+            .unwrap();
+    }
+
+    /// Negative assertion pinning the intent of the refactor: after
+    /// moving the Ctrl+D affordance to the title, no row of the
+    /// rendered overlay should contain a "Ctrl+D" footer. Prevents a
+    /// regression where a future edit accidentally re-introduces a
+    /// divergent per-picker footer.
+    #[test]
+    fn render_password_picker_overlay_has_no_footer_row_with_ctrl_d() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = make_app();
+        app.ui.show_password_picker = true;
+        app.ui.password_picker_state.select(Some(0));
+        terminal
+            .draw(|frame| {
+                render_password_picker_overlay(frame, &mut app);
+                let buf = frame.buffer_mut();
+                // Only the title row (top border) may contain "Ctrl+D".
+                // Every other row must be free of that string so a
+                // footer reintroduction is caught immediately.
+                let mut title_row: Option<u16> = None;
+                for y in 0..buf.area.height {
+                    let mut row = String::new();
+                    for x in 0..buf.area.width {
+                        row.push_str(buf[(x, y)].symbol());
+                    }
+                    if row.contains("Password Source") {
+                        title_row = Some(y);
+                        break;
+                    }
+                }
+                let title_row = title_row.expect("title row must exist");
+                for y in 0..buf.area.height {
+                    if y == title_row {
+                        continue;
+                    }
+                    let mut row = String::new();
+                    for x in 0..buf.area.width {
+                        row.push_str(buf[(x, y)].symbol());
+                    }
+                    assert!(
+                        !row.contains("Ctrl+D"),
+                        "row {y} must not contain 'Ctrl+D' (footer regression): {row:?}"
+                    );
+                }
+            })
+            .unwrap();
+    }
+
+    /// Build a ProxyJump picker app with the given SSH config content,
+    /// open the edit screen for `editing_alias`, and select the first
+    /// available host in the picker. Returns an `App` ready for
+    /// `render_proxyjump_picker_overlay`.
+    fn proxyjump_picker_fixture(config_text: &str, editing_alias: &str) -> App {
+        let cfg = crate::ssh_config::model::SshConfigFile {
+            elements: crate::ssh_config::model::SshConfigFile::parse_content(config_text),
+            path: PathBuf::from("/tmp/test"),
+            crlf: false,
+            bom: false,
+        };
+        let mut app = App::new(cfg);
+        app.screen = Screen::EditHost {
+            alias: editing_alias.to_string(),
+        };
+        app.ui.show_proxyjump_picker = true;
+        app.ui
+            .proxyjump_picker_state
+            .select(app.proxyjump_first_host_index());
+        app
+    }
+
+    /// Locate the first row and column range containing `needle` in a
+    /// terminal buffer by scanning cell-by-cell. Returns (row, end_col)
+    /// where `end_col` is the inclusive column of the last cell of
+    /// the match. Avoids the byte-vs-column mismatch that comes from
+    /// `str::find` on a row with multi-byte border glyphs.
+    fn find_needle_in_buffer(
+        buf: &ratatui::buffer::Buffer,
+        needle: &str,
+    ) -> Option<(u16, u16, u16)> {
+        let chars: Vec<String> = needle.chars().map(|c| c.to_string()).collect();
+        let len = chars.len() as u16;
+        if len == 0 || buf.area.width < len {
+            return None;
+        }
+        for y in 0..buf.area.height {
+            for start_x in 0..=buf.area.width - len {
+                let matches = (0..len).all(|i| buf[(start_x + i, y)].symbol() == chars[i as usize]);
+                if matches {
+                    return Some((y, start_x, start_x + len - 1));
+                }
+            }
+        }
+        None
+    }
+
+    /// Return the rightmost border glyph column on the given row.
+    fn right_border_col(buf: &ratatui::buffer::Buffer, y: u16) -> Option<u16> {
+        for x in (0..buf.area.width).rev() {
+            let s = buf[(x, y)].symbol();
+            if s == "│" || s == "╮" || s == "╯" {
+                return Some(x);
+            }
+        }
+        None
+    }
+
+    /// The ProxyJump picker's hostname column should end at the right
+    /// edge of the inner content area, mirroring the password picker
+    /// layout. We verify this by locating the hostname substring on
+    /// its rendered row and checking that no non-space glyph follows
+    /// before the right border.
+    #[test]
+    fn render_proxyjump_picker_host_column_is_right_aligned() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = proxyjump_picker_fixture(
+            concat!(
+                "Host editing\n  HostName 9.9.9.9\n",
+                "Host plain\n  HostName 1.1.1.1\n",
+            ),
+            "editing",
         );
+        terminal
+            .draw(|frame| {
+                render_proxyjump_picker_overlay(frame, &mut app);
+                let buf = frame.buffer_mut();
+                let (y, _start, end_col) = find_needle_in_buffer(buf, "1.1.1.1")
+                    .expect("candidate host row must render '1.1.1.1'");
+                let border = right_border_col(buf, y).expect("right border on host row");
+                let gap = border.saturating_sub(end_col);
+                assert!(
+                    end_col < border && gap <= 3,
+                    "hostname must end flush with right border (end_col={end_col}, border_x={border}, gap={gap})"
+                );
+            })
+            .unwrap();
+    }
+
+    /// A hostname long enough to hit the truncation limit must still
+    /// stay strictly inside the right border — no overflow past the
+    /// inner area regardless of how much the alias + hostname together
+    /// would otherwise claim.
+    #[test]
+    fn render_proxyjump_picker_long_hostname_does_not_overflow() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        // 55-char hostname forces truncation (host_max at width=64 is
+        // inner(58) - alias_col(20) - min_gap(2) = 36).
+        let mut app = proxyjump_picker_fixture(
+            concat!(
+                "Host editing\n  HostName 9.9.9.9\n",
+                "Host plain\n  HostName very-long-hostname-that-should-be-truncated.example.com\n",
+            ),
+            "editing",
+        );
+        terminal
+            .draw(|frame| {
+                render_proxyjump_picker_overlay(frame, &mut app);
+                let buf = frame.buffer_mut();
+                // Find the row that renders the truncated hostname
+                // prefix; the full string will not fit so we anchor on
+                // a prefix that is guaranteed to survive truncation.
+                let (y, _start, end_col) = find_needle_in_buffer(buf, "very-long-hostname")
+                    .expect("truncated hostname prefix must render");
+                let border = right_border_col(buf, y).expect("right border on host row");
+                assert!(
+                    end_col < border,
+                    "truncated hostname must not overflow right border (end_col={end_col}, border_x={border})"
+                );
+            })
+            .unwrap();
+    }
+
+    /// On the minimum-width overlay (50 cols), the right-align math
+    /// must still place the hostname inside the right border without
+    /// collapsing the alias column below its floor.
+    #[test]
+    fn render_proxyjump_picker_right_aligns_on_narrow_terminal() {
+        // Terminal width equals the overlay minimum width clamp so the
+        // picker uses PICKER_MIN_WIDTH (50) exactly.
+        let backend = TestBackend::new(50, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = proxyjump_picker_fixture(
+            concat!(
+                "Host editing\n  HostName 9.9.9.9\n",
+                "Host plain\n  HostName 1.1.1.1\n",
+            ),
+            "editing",
+        );
+        terminal
+            .draw(|frame| {
+                render_proxyjump_picker_overlay(frame, &mut app);
+                let buf = frame.buffer_mut();
+                let (y, _start, end_col) = find_needle_in_buffer(buf, "1.1.1.1")
+                    .expect("hostname must render on narrow terminal");
+                let border = right_border_col(buf, y).expect("right border present");
+                assert!(
+                    end_col < border && border - end_col <= 3,
+                    "right-align must hold on narrow terminal (end_col={end_col}, border_x={border})"
+                );
+            })
+            .unwrap();
+    }
+
+    /// When a host is promoted into the suggested section and rendered
+    /// below a `SectionLabel`, the right-align layout must still apply
+    /// so the two sections of the picker share a visual right edge.
+    #[test]
+    fn render_proxyjump_picker_right_aligns_suggested_host_below_label() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        // `bastion` scores via the keyword heuristic so it is promoted
+        // into the suggested section below a `SectionLabel`.
+        let mut app = proxyjump_picker_fixture(
+            concat!(
+                "Host editing\n  HostName 9.9.9.9\n",
+                "Host bastion\n  HostName 1.2.3.4\n",
+                "Host plain\n  HostName 5.6.7.8\n",
+            ),
+            "editing",
+        );
+        terminal
+            .draw(|frame| {
+                render_proxyjump_picker_overlay(frame, &mut app);
+                let buf = frame.buffer_mut();
+                // Locate the SectionLabel row so we can anchor the
+                // search for the suggested host strictly below it.
+                let (label_y, _, _) = find_needle_in_buffer(buf, "SUGGESTIONS")
+                    .expect("SectionLabel must render above the suggested host");
+                let (y, _start, end_col) = find_needle_in_buffer(buf, "1.2.3.4")
+                    .expect("suggested host must render");
+                assert!(
+                    y > label_y,
+                    "suggested host must render below the SectionLabel (label_y={label_y}, host_y={y})"
+                );
+                let border = right_border_col(buf, y).expect("right border on host row");
+                assert!(
+                    end_col < border && border - end_col <= 3,
+                    "suggested host must right-align (end_col={end_col}, border_x={border})"
+                );
+            })
+            .unwrap();
+    }
+
+    /// Both Host rows in the same picker must share the same right
+    /// edge. Prevents a regression where one row miscomputes the
+    /// right-align math while another keeps it correct.
+    #[test]
+    fn render_proxyjump_picker_multiple_hosts_share_right_edge() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = proxyjump_picker_fixture(
+            concat!(
+                "Host editing\n  HostName 9.9.9.9\n",
+                "Host host-a\n  HostName 1.1.1.1\n",
+                "Host host-b\n  HostName 2.2.2.2\n",
+            ),
+            "editing",
+        );
+        terminal
+            .draw(|frame| {
+                render_proxyjump_picker_overlay(frame, &mut app);
+                let buf = frame.buffer_mut();
+                let (y1, _, end1) =
+                    find_needle_in_buffer(buf, "1.1.1.1").expect("host-a row must render");
+                let (y2, _, end2) =
+                    find_needle_in_buffer(buf, "2.2.2.2").expect("host-b row must render");
+                assert_ne!(y1, y2, "two distinct rows expected");
+                assert_eq!(
+                    end1, end2,
+                    "both hostnames must end at the same column (end1={end1}, end2={end2})"
+                );
+            })
+            .unwrap();
+    }
+
+    /// The `min_gap = 2` contract must leave at least two spaces
+    /// between the end of the alias column and the start of the
+    /// hostname column so the two visually distinct columns never run
+    /// into each other.
+    #[test]
+    fn render_proxyjump_picker_preserves_minimum_gap_between_columns() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = proxyjump_picker_fixture(
+            concat!(
+                "Host editing\n  HostName 9.9.9.9\n",
+                "Host a\n  HostName 1.1.1.1\n",
+            ),
+            "editing",
+        );
+        terminal
+            .draw(|frame| {
+                render_proxyjump_picker_overlay(frame, &mut app);
+                let buf = frame.buffer_mut();
+                let (y, host_start, _) = find_needle_in_buffer(buf, "1.1.1.1")
+                    .expect("hostname must render for gap check");
+                // Walk left from the hostname start until we hit a
+                // non-space cell — that is the alias column's last
+                // glyph. Count the intervening spaces.
+                let mut gap = 0_u16;
+                let mut x = host_start;
+                while x > 0 {
+                    x -= 1;
+                    if buf[(x, y)].symbol() == " " {
+                        gap += 1;
+                    } else {
+                        break;
+                    }
+                }
+                assert!(
+                    gap >= 2,
+                    "at least two spaces must separate alias and hostname columns (gap={gap})"
+                );
+            })
+            .unwrap();
     }
 }

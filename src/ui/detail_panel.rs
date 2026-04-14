@@ -209,14 +209,14 @@ fn wrap_tags<'a>(tags: &'a [String], max_width: usize) -> Vec<Vec<&'a str>> {
         let needed = if current_width == 0 {
             tag_width
         } else {
-            tag_width + 1 // space separator
+            tag_width + 2 // ", " separator
         };
         if current_width > 0 && current_width + needed > max_width {
             rows.push(std::mem::take(&mut current_row));
             current_width = 0;
         }
         if current_width > 0 {
-            current_width += 1; // space
+            current_width += 2; // ", "
         }
         current_row.push(tag);
         current_width += tag_width;
@@ -601,7 +601,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect, spinner_tick: u64) {
             let mut spans: Vec<Span<'static>> = Vec::new();
             for (i, tag) in row.iter().enumerate() {
                 if i > 0 {
-                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(", ".to_string(), theme::muted()));
                 }
                 spans.push(Span::styled(tag.to_string(), theme::accent()));
             }
@@ -931,11 +931,14 @@ fn render_pattern_detail(
         let inner_width = box_width.saturating_sub(4);
         let tag_rows = wrap_tags(&tag_strings, inner_width);
         for row in &tag_rows {
-            section_line(
-                &mut lines,
-                vec![Span::styled(row.join(" "), theme::accent())],
-                box_width,
-            );
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            for (i, tag) in row.iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::styled(", ".to_string(), theme::muted()));
+                }
+                spans.push(Span::styled(tag.to_string(), theme::accent()));
+            }
+            section_line(&mut lines, spans, box_width);
         }
         section_close(&mut lines, box_width);
     }

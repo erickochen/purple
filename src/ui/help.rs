@@ -17,7 +17,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let use_two_cols = is_host_list && frame.area().width >= 96;
 
     let (col1, col2) = if is_host_list {
-        host_list_columns(app)
+        host_list_columns()
     } else {
         let lines = match return_screen {
             Screen::FileBrowser { .. } => file_browser_lines(),
@@ -31,7 +31,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Screen::HostDetail { .. } => host_detail_lines(),
             Screen::TagPicker => tag_picker_lines(),
             Screen::ThemePicker => vec![
-                help_line("j/k", "up / down"),
+                help_line("j/k ↑↓", "up / down"),
                 help_line("Enter", "select theme"),
                 help_line("?", "help"),
                 help_line("Esc", "cancel"),
@@ -55,7 +55,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         50u16.min(frame.area().width.saturating_sub(4))
     };
 
-    let chrome = if is_host_list { 5 } else { 4 }; // host list: border(2) + footer(1) + 2 spacers; others: border(2) + footer(1) + 1 spacer
+    // chrome = non-content rows the overlay consumes regardless of content.
+    // Host list: 2 borders + top + 2 above info + 2 info + 2 above footer
+    // + footer + 1 bottom = 11.
+    // Others:   2 borders + top + spacer + footer = 5.
+    let chrome = if is_host_list { 11 } else { 5 };
     let max_body = frame.area().height.saturating_sub(chrome);
     let height = (total_lines + chrome).min(frame.area().height.saturating_sub(2));
     let area = super::centered_rect_fixed(overlay_width, height, frame.area());
@@ -68,10 +72,6 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .title(title)
         .border_style(theme::accent());
     if is_host_list {
-        let author = Line::from(Span::styled(
-            " Bugs or ideas? github.com/erickochen/purple/issues ",
-            theme::muted(),
-        ));
         let version = Line::from(vec![
             Span::styled(format!(" v{}", env!("CARGO_PKG_VERSION")), theme::version()),
             Span::styled(
@@ -79,9 +79,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 theme::muted(),
             ),
         ]);
-        block = block
-            .title_bottom(author)
-            .title_bottom(version.right_aligned());
+        block = block.title_bottom(version.right_aligned());
     }
 
     let inner = block.inner(area);
@@ -89,16 +87,20 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     let rows = if is_host_list {
         Layout::vertical([
-            Constraint::Min(0),
-            Constraint::Length(1), // spacer above footer
+            Constraint::Length(1), // top breathing (tighter, was 2)
+            Constraint::Min(0),    // content cols
+            Constraint::Length(2), // breathing above info
+            Constraint::Length(2), // wiki + issues info rows
+            Constraint::Length(2), // breathing above footer
             Constraint::Length(1), // footer
-            Constraint::Length(1), // spacer below footer (before bottom border with github url)
+            Constraint::Length(1), // bottom breathing (tighter, was 2)
         ])
         .split(inner)
     } else {
         Layout::vertical([
-            Constraint::Min(0),
-            Constraint::Length(1), // spacer above footer
+            Constraint::Length(1), // top breathing
+            Constraint::Min(0),    // content
+            Constraint::Length(1), // spacer
             Constraint::Length(1), // footer
         ])
         .split(inner)
@@ -109,21 +111,66 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         app.ui.help_scroll = max_scroll;
     }
 
+    // Fixed content widths: col1 fits its longest line
+    // (`group (off/provider/tag)` plus key chrome = 36), col2 fits its
+    // longest header (`CONNECT AND RUN` indented 9 = 24). Equal Fill(1)
+    // margins on either side centre the whole block horizontally inside
+    // the overlay so left and right whitespace are visually balanced.
+    const COL1_W: u16 = 36;
+    const COL_GAP: u16 = 4;
+    const COL2_W: u16 = 24;
+    const CONTENT_W: u16 = COL1_W + COL_GAP + COL2_W;
+
     if use_two_cols {
-        let cols = Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
-            .split(rows[0]);
+        let cols = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(COL1_W),
+            Constraint::Length(COL_GAP),
+            Constraint::Length(COL2_W),
+            Constraint::Fill(1),
+        ])
+        .split(rows[1]);
         let para1 = Paragraph::new(col1).scroll((app.ui.help_scroll, 0));
         let para2 = Paragraph::new(col2).scroll((app.ui.help_scroll, 0));
-        frame.render_widget(para1, cols[0]);
-        frame.render_widget(para2, cols[1]);
+        frame.render_widget(para1, cols[1]);
+        frame.render_widget(para2, cols[3]);
     } else if col2.is_empty() {
         let para = Paragraph::new(col1).scroll((app.ui.help_scroll, 0));
-        frame.render_widget(para, rows[0]);
+        frame.render_widget(para, rows[1]);
     } else {
         let mut all = col1;
         all.extend(col2);
         let para = Paragraph::new(all).scroll((app.ui.help_scroll, 0));
-        frame.render_widget(para, rows[0]);
+        frame.render_widget(para, rows[1]);
+    }
+
+    // Wiki + issues info block. The wiki line clearly tells the user this
+    // overlay shows basic commands and the wiki has them all, while the
+    // issues line stays the bug-report prompt. Both lines share the same
+    // left margin as the content columns so everything is left-aligned on a
+    // single imaginary vertical line. Host-list only (subscreen overlays
+    // are too narrow for the full URLs).
+    if is_host_list {
+        let info_area = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(CONTENT_W),
+            Constraint::Fill(1),
+        ])
+        .split(rows[3]);
+        // Prefixes padded to the same column so both URLs line up exactly.
+        // "All commands and docs:" = 22 chars + 2 spaces = 24.
+        // "Got an idea or a bug?" = 21 chars + 3 spaces = 24.
+        let info_lines = vec![
+            Line::from(vec![
+                Span::styled("All commands and docs:  ", theme::muted()),
+                Span::styled("github.com/erickochen/purple/wiki", theme::muted()),
+            ]),
+            Line::from(vec![
+                Span::styled("Got an idea or a bug?   ", theme::muted()),
+                Span::styled("github.com/erickochen/purple/issues", theme::muted()),
+            ]),
+        ];
+        frame.render_widget(Paragraph::new(info_lines), info_area[1]);
     }
 
     let can_scroll = total_lines > max_body;
@@ -131,18 +178,28 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     if can_scroll {
         let [k, l] = super::footer_action("j/k", " scroll ");
         spans.extend([k, l]);
+        let position = app.ui.help_scroll.saturating_add(1);
+        let max = max_scroll.saturating_add(1);
+        spans.push(Span::styled(
+            format!(" [{}/{}]", position, max),
+            theme::muted(),
+        ));
         spans.push(Span::raw("  "));
     } else {
         spans.push(Span::raw(" "));
     }
     let [k, l] = super::footer_action("Esc", " close");
     spans.extend([k, l]);
-    super::render_footer_with_status(frame, rows[2], spans, app);
+    let footer_row = if is_host_list { rows[5] } else { rows[3] };
+    super::render_footer_with_status(frame, footer_row, spans, app);
 }
 
 fn context_title(screen: &Screen) -> &'static str {
     match screen {
-        Screen::HostList | Screen::Welcome { .. } => "Host List",
+        // The host list is purple's main screen, so its help pane title is
+        // simply `Help` — no need to label "which" help, there is no other
+        // help the user could mean from here.
+        Screen::HostList | Screen::Welcome { .. } => "Help",
         Screen::FileBrowser { .. } => "File Explorer",
         Screen::SnippetPicker { .. } => "Snippets",
         Screen::SnippetOutput { .. } => "Output",
@@ -158,20 +215,31 @@ fn context_title(screen: &Screen) -> &'static str {
     }
 }
 
-fn section_header(label: &str) -> Vec<Line<'static>> {
-    let rule: String = "\u{2500}".repeat(label.len());
-    vec![
-        Line::from(Span::styled(
-            format!("  {}", label),
-            theme::section_header(),
-        )),
-        Line::from(Span::styled(format!("  {}", rule), theme::muted())),
-    ]
+fn section_header(label: &str) -> Line<'static> {
+    // Flush-left within the column. Matches the left edge of the info
+    // block ("All commands and docs:" / "Got an idea or a bug?") and the
+    // footer ("Esc close") so every group of content shares the same
+    // visual left gutter.
+    Line::from(Span::styled(label.to_string(), theme::section_header()))
 }
 
 fn help_line(key: &str, desc: &str) -> Line<'static> {
+    help_line_w(key, desc, 9)
+}
+
+fn help_line_short(key: &str, desc: &str) -> Line<'static> {
+    // Narrower key column for columns that hold short keys only
+    // (`^Space`, `q/Esc`, `r`, `R`, `^A`, `p/P`, single-letter shortcuts).
+    // Reclaims horizontal room for the description text.
+    help_line_w(key, desc, 6)
+}
+
+fn help_line_w(key: &str, desc: &str, width: usize) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!(" {:>11}  ", key), theme::accent_bold()),
+        Span::styled(
+            format!(" {:>width$}  ", key, width = width),
+            theme::accent_bold(),
+        ),
         Span::styled(desc.to_string(), theme::muted()),
     ])
 }
@@ -180,114 +248,65 @@ fn blank() -> Line<'static> {
     Line::from("")
 }
 
-fn host_list_columns(_app: &App) -> (Vec<Line<'static>>, Vec<Line<'static>>) {
-    // Both columns are aligned: section headers at matching heights.
-    // Each section pair has matching blank/header lines to stay in sync.
-    let mut col1 = vec![blank()];
-    let mut col2 = vec![blank()];
+fn host_list_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
+    // Essentials only. Headers in col2 are shifted down so CONNECT AND RUN
+    // vertically aligns with VIEW (col1) and TOOLS aligns with CLIPBOARD.
+    // The command palette (`:`) sits at the very bottom of col1, vertically
+    // aligned with `q/Esc quit` in col2, so the last row of both columns is
+    // a close/leave action. `r/R` mirrors `p/P` — single-target vs all.
+    let col1 = vec![
+        blank(),                    // row 0
+        section_header("NAVIGATE"), // row 1
+        blank(),                    // row 2
+        help_line("j/k ↑↓", "up / down"),
+        help_line("PgDn/PgUp", "page down / up"),
+        help_line("Enter", "connect"),
+        help_line("/", "search (scoped)"),
+        help_line("#", "tag picker"),
+        help_line("Esc", "clear filter / quit"),
+        blank(),                // row 9
+        section_header("VIEW"), // row 10 ↔ col2 CONNECT AND RUN
+        blank(),
+        help_line("v", "detail panel"),
+        help_line("s", "cycle sort"),
+        help_line("g", "group (off/provider/tag)"),
+        blank(),                     // row 15
+        section_header("CLIPBOARD"), // row 16 ↔ col2 TOOLS
+        blank(),
+        help_line("y", "copy ssh command"),
+        blank(),
+        blank(),
+        blank(),
+        blank(),
+        help_line(":", "command palette"), // row 23 ↔ col2 q/Esc quit
+    ];
 
-    // Row 1: NAVIGATE / MANAGE HOSTS
-    col1.extend(section_header("NAVIGATE"));
-    col2.extend(section_header("MANAGE HOSTS"));
-
-    col1.push(help_line("j/k", "up / down"));
-    col2.push(help_line("a", "add host"));
-
-    col1.push(help_line("PgDn/PgUp", "page down / up"));
-    col2.push(help_line("A", "add pattern"));
-
-    col1.push(help_line("Enter", "connect"));
-    col2.push(help_line("e", "edit"));
-
-    col1.push(help_line("Tab", "next group"));
-    col2.push(help_line("d", "del"));
-
-    col1.push(help_line("Shift+Tab", "prev group"));
-    col2.push(help_line("c", "clone"));
-
-    col1.push(help_line("/", "search (scoped)"));
-    col2.push(help_line("u", "undo del"));
-
-    col1.push(help_line("#", "filter by tag"));
-    col2.push(help_line("t", "tag (inline)"));
-
-    col1.push(help_line("Esc", "clear filter / quit"));
-    col2.push(help_line("i", "all directives"));
-
-    // Row 2: VIEW / CONNECT AND RUN
-    col1.push(blank());
-    col2.push(blank());
-
-    col1.extend(section_header("VIEW"));
-    col2.extend(section_header("CONNECT AND RUN"));
-
-    col1.push(help_line("v", "detail panel"));
-    col2.push(help_line("^Space", "multi-select"));
-
-    col1.push(help_line("s", "cycle sort"));
-    col2.push(help_line("^A", "select all / none"));
-
-    col1.push(help_line("g", "group (off/provider/tag)"));
-    col2.push(help_line("r", "run snippet"));
-
-    col1.push(help_line("[ / ]", "scroll detail"));
-    col2.push(help_line("R", "run on all visible"));
-
-    col1.push(help_line("tag:name", "fuzzy tag filter"));
-    col2.push(help_line("p/P", "ping / all"));
-
-    col1.push(help_line("tag=name", "exact tag filter"));
-    col2.push(help_line("!", "down-only filter"));
-
-    // Row 3: CLIPBOARD / TOOLS
-    col1.push(blank());
-    col2.push(blank());
-
-    col1.extend(section_header("CLIPBOARD"));
-    col2.extend(section_header("TOOLS"));
-
-    col1.push(help_line("y", "copy ssh command"));
-    col2.push(help_line("F", "file explorer"));
-
-    col1.push(help_line("x", "copy config block"));
-    col2.push(help_line("T", "tunnels"));
-
-    col1.push(help_line("X", "purge stale"));
-    col2.push(help_line("C", "containers"));
-
-    col1.push(blank());
-    col2.push(help_line("K", "SSH keys"));
-
-    // Row 4: FORMS / continued TOOLS + quit
-    col1.extend(section_header("FORMS"));
-    col2.push(help_line("S", "providers"));
-
-    // Always show V so the Vault SSH feature is discoverable. When no role is
-    // configured yet, the keybinding still appears with the same label; the
-    // status message produced by the handler explains where to configure it.
-    col1.push(blank());
-    col2.push(help_line("V", "vault sign"));
-
-    col1.push(help_line("Tab", "next field"));
-    col2.push(help_line("I", "import known_hosts"));
-
-    col1.push(help_line("Shift+Tab", "prev field"));
-    col2.push(help_line("m", "theme"));
-
-    col1.push(blank());
-    col2.push(help_line(":", "search commands"));
-
-    col1.push(help_line("Enter", "save / picker"));
-    col2.push(help_line("q/Esc", "quit"));
-
-    col1.push(help_line("Space", "toggle / cycle"));
-    col2.push(blank());
-
-    col1.push(help_line("^D", "set default"));
-    col2.push(blank());
-
-    col1.push(help_line("Esc", "cancel"));
-    col2.push(blank());
+    let col2 = vec![
+        blank(),                        // row 0
+        section_header("MANAGE HOSTS"), // row 1 ↔ col1 NAVIGATE
+        blank(),
+        help_line_short("a", "add host"),
+        help_line_short("e", "edit"),
+        help_line_short("d", "del"),
+        help_line_short("u", "undo del"),
+        help_line_short("t", "tag (inline)"),
+        blank(),
+        blank(),                           // row 9  padding so headers align
+        section_header("CONNECT AND RUN"), // row 10 ↔ col1 VIEW
+        blank(),
+        help_line_short("^Space", "multi-select"),
+        help_line_short("r/R", "snippet / all"),
+        help_line_short("p/P", "ping / all"),
+        blank(),
+        section_header("TOOLS"), // row 16 ↔ col1 CLIPBOARD
+        blank(),
+        help_line_short("F", "file explorer"),
+        help_line_short("T", "tunnels"),
+        help_line_short("C", "containers"),
+        help_line_short("K", "SSH keys"),
+        help_line_short("S", "providers"),
+        help_line_short("q/Esc", "quit"), // row 23 ↔ col1 `:`
+    ];
 
     (col1, col2)
 }
@@ -295,7 +314,7 @@ fn host_list_columns(_app: &App) -> (Vec<Line<'static>>, Vec<Line<'static>>) {
 fn file_browser_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
     lines.push(help_line("Tab", "switch pane"));
-    lines.push(help_line("j/k", "up / down"));
+    lines.push(help_line("j/k ↑↓", "up / down"));
     lines.push(help_line("Enter", "open dir / copy"));
     lines.push(help_line("Backspace", "go up"));
     lines.push(help_line("^Space", "select / deselect"));
@@ -304,6 +323,7 @@ fn file_browser_lines() -> Vec<Line<'static>> {
     lines.push(help_line("s", "cycle sort"));
     lines.push(help_line("R", "refresh"));
     lines.push(help_line("PgDn/PgUp", "page down / up"));
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc", "close"));
     lines
 }
@@ -316,8 +336,9 @@ fn snippet_picker_lines() -> Vec<Line<'static>> {
     lines.push(help_line("a", "add snippet"));
     lines.push(help_line("e", "edit"));
     lines.push(help_line("d", "del"));
-    lines.push(help_line("j/k", "up / down"));
+    lines.push(help_line("j/k ↑↓", "up / down"));
     lines.push(help_line("PgDn/PgUp", "page down / up"));
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc", "close"));
     lines
 }
@@ -327,47 +348,52 @@ fn snippet_output_lines() -> Vec<Line<'static>> {
     lines.push(help_line("G/g", "end / start"));
     lines.push(help_line("n/N", "next / prev host"));
     lines.push(help_line("c", "copy output"));
-    lines.push(help_line("j/k", "scroll"));
+    lines.push(help_line("j/k ↑↓", "scroll"));
     lines.push(help_line("PgDn/PgUp", "page down / up"));
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc", "close / cancel"));
     lines
 }
 
 fn containers_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k", "up / down"));
+    lines.push(help_line("j/k ↑↓", "up / down"));
     lines.push(help_line("s", "start"));
     lines.push(help_line("x", "stop"));
     lines.push(help_line("r", "restart"));
     lines.push(help_line("R", "refresh"));
     lines.push(help_line("PgDn/PgUp", "page down / up"));
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc", "close"));
     lines
 }
 
 fn tunnels_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k", "up / down"));
+    lines.push(help_line("j/k ↑↓", "up / down"));
     lines.push(help_line("a", "add tunnel"));
     lines.push(help_line("e", "edit"));
     lines.push(help_line("d", "del"));
     lines.push(help_line("Enter", "start / stop"));
     lines.push(help_line("PgDn/PgUp", "page down / up"));
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc", "close"));
     lines
 }
 
 fn key_list_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k", "up / down"));
+    lines.push(help_line("j/k ↑↓", "up / down"));
     lines.push(help_line("Enter", "view detail"));
     lines.push(help_line("PgDn/PgUp", "page down / up"));
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc", "close"));
     lines
 }
 
 fn key_detail_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc", "close"));
     lines
 }
@@ -377,27 +403,30 @@ fn host_detail_lines() -> Vec<Line<'static>> {
     lines.push(help_line("e", "edit host"));
     lines.push(help_line("r", "run snippet"));
     lines.push(help_line("T", "tunnels"));
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc/i", "close"));
     lines
 }
 
 fn tag_picker_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k", "up / down"));
+    lines.push(help_line("j/k ↑↓", "up / down"));
     lines.push(help_line("Enter", "filter by tag"));
     lines.push(help_line("PgDn/PgUp", "page down / up"));
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc/#", "close"));
     lines
 }
 
 fn providers_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k", "up / down"));
+    lines.push(help_line("j/k ↑↓", "up / down"));
     lines.push(help_line("Enter", "configure"));
     lines.push(help_line("s", "sync"));
     lines.push(help_line("d", "del config"));
     lines.push(help_line("X", "purge stale"));
     lines.push(help_line("PgDn/PgUp", "page down / up"));
+    lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc", "close"));
     lines
 }
@@ -409,19 +438,9 @@ mod tests {
     use ratatui::layout::Rect;
     use ratatui::style::Modifier;
 
-    fn empty_app() -> App {
-        let config = crate::ssh_config::model::SshConfigFile {
-            elements: Vec::new(),
-            path: std::path::PathBuf::from("/tmp/purple_help_test"),
-            crlf: false,
-            bom: false,
-        };
-        App::new(config)
-    }
-
     #[test]
     fn host_list_produces_two_column_groups() {
-        let (col1, col2) = host_list_columns(&empty_app());
+        let (col1, col2) = host_list_columns();
         assert!(!col1.is_empty(), "column 1 should have content");
         assert!(!col2.is_empty(), "column 2 should have content");
     }
@@ -471,9 +490,8 @@ mod tests {
 
     #[test]
     fn section_header_is_bold() {
-        let lines = section_header("TEST");
-        assert_eq!(lines.len(), 2, "header + rule");
-        let header_span = &lines[0].spans[0];
+        let line = section_header("TEST");
+        let header_span = &line.spans[0];
         assert!(
             header_span.style.add_modifier.contains(Modifier::BOLD),
             "header should be bold"
@@ -503,7 +521,7 @@ mod tests {
 
     #[test]
     fn overlay_title_matches_context() {
-        assert_eq!(context_title(&Screen::HostList), "Host List");
+        assert_eq!(context_title(&Screen::HostList), "Help");
         assert_eq!(
             context_title(&Screen::FileBrowser {
                 alias: "test".into()
@@ -538,40 +556,46 @@ mod tests {
     }
 
     #[test]
-    fn host_list_layout_has_spacers_around_footer() {
-        // Host list: content + spacer + footer + spacer (before bottom border with github url)
-        let area = Rect::new(0, 0, 80, 30);
+    fn host_list_layout_breathing_content_info_footer() {
+        // Host list: top(1) + content + breathing(2) + 2 info rows
+        // + breathing(2) + footer + bottom(1).
+        let area = Rect::new(0, 0, 80, 40);
         let rows = ratatui::layout::Layout::vertical([
-            ratatui::layout::Constraint::Min(0),
             ratatui::layout::Constraint::Length(1),
+            ratatui::layout::Constraint::Min(0),
+            ratatui::layout::Constraint::Length(2),
+            ratatui::layout::Constraint::Length(2),
+            ratatui::layout::Constraint::Length(2),
             ratatui::layout::Constraint::Length(1),
             ratatui::layout::Constraint::Length(1),
         ])
         .split(area);
-        assert_eq!(rows[1].height, 1, "spacer above footer should be 1 tall");
-        assert_eq!(rows[2].height, 1, "footer row should be 1 tall");
-        assert_eq!(rows[3].height, 1, "spacer below footer should be 1 tall");
+        assert_eq!(rows[0].height, 1, "top breathing");
+        assert_eq!(rows[3].height, 2, "info rows");
+        assert_eq!(rows[5].height, 1, "footer");
+        assert_eq!(rows[6].height, 1, "bottom breathing");
     }
 
     #[test]
-    fn compact_layout_has_spacer_and_footer() {
-        // Sub-screens: content + spacer + footer
+    fn compact_layout_breathing_content_footer() {
+        // Sub-screens: top(1) + content + spacer(1) + footer.
         let area = Rect::new(0, 0, 80, 30);
         let rows = ratatui::layout::Layout::vertical([
+            ratatui::layout::Constraint::Length(1),
             ratatui::layout::Constraint::Min(0),
             ratatui::layout::Constraint::Length(1),
             ratatui::layout::Constraint::Length(1),
         ])
         .split(area);
-        assert_eq!(rows[1].height, 1, "spacer above footer should be 1 tall");
-        assert_eq!(rows[2].height, 1, "footer row should be 1 tall");
+        assert_eq!(rows[0].height, 1, "top breathing");
+        assert_eq!(rows[3].height, 1, "footer");
     }
 
     // --- Content completeness tests ---
 
     #[test]
     fn host_list_col2_contains_all_tool_shortcuts() {
-        let (col1, col2) = host_list_columns(&empty_app());
+        let (col1, col2) = host_list_columns();
         let all_text: String = col1
             .iter()
             .chain(col2.iter())
@@ -583,40 +607,27 @@ mod tests {
             "containers",
             "SSH keys",
             "providers",
-            "import known_hosts",
-            "purge stale",
             "copy ssh command",
-            "copy config block",
         ] {
             assert!(all_text.contains(desc), "help columns missing '{}'", desc);
         }
     }
 
     #[test]
-    fn host_list_col1_contains_navigate_view_forms() {
-        let (col1, _) = host_list_columns(&empty_app());
+    fn host_list_col1_contains_navigate_and_view() {
+        let (col1, _) = host_list_columns();
         let text: String = col1.iter().map(|l| l.to_string()).collect();
         for desc in &[
             "up / down",
             "page down / up",
             "connect",
             "search",
-            "filter by tag",
+            "tag picker",
             "detail panel",
             "cycle sort",
         ] {
             assert!(text.contains(desc), "col1 missing '{}'", desc);
         }
-    }
-
-    // --- Section header rule width ---
-
-    #[test]
-    fn section_header_rule_width_matches_label() {
-        let lines = section_header("NAVIGATE");
-        let rule_text = lines[1].spans[0].content.trim_start();
-        let rule_char_count = rule_text.chars().count();
-        assert_eq!(rule_char_count, "NAVIGATE".len());
     }
 
     // --- Context title fallback ---
@@ -666,16 +677,151 @@ mod tests {
     }
 
     #[test]
-    fn host_list_contains_palette_shortcut() {
-        let (col1, col2) = host_list_columns(&empty_app());
-        let all_text: String = col1
-            .iter()
-            .chain(col2.iter())
-            .map(|l| l.to_string())
-            .collect();
+    fn all_subscreens_include_help_shortcut() {
+        let cases: Vec<(&str, Vec<Line<'_>>)> = vec![
+            ("file_browser", file_browser_lines()),
+            ("snippet_picker", snippet_picker_lines()),
+            ("snippet_output", snippet_output_lines()),
+            ("containers", containers_lines()),
+            ("tunnels", tunnels_lines()),
+            ("key_list", key_list_lines()),
+            ("key_detail", key_detail_lines()),
+            ("host_detail", host_detail_lines()),
+            ("tag_picker", tag_picker_lines()),
+            ("providers", providers_lines()),
+        ];
+        for (name, lines) in cases {
+            let has_help_key = lines.iter().any(|l| {
+                l.spans
+                    .first()
+                    .map(|s| s.content.trim() == "?")
+                    .unwrap_or(false)
+            });
+            assert!(has_help_key, "{name} missing help_line with key '?'");
+        }
+    }
+
+    #[test]
+    fn host_list_contains_arrow_keys() {
+        let (col1, _) = host_list_columns();
+        let text: String = col1.iter().map(|l| l.to_string()).collect();
         assert!(
-            all_text.contains("commands"),
-            "help should mention command palette"
+            text.contains("\u{2191}\u{2193}"),
+            "host list should show arrow key hints"
+        );
+    }
+
+    fn help_test_app(return_screen: Screen) -> App {
+        let config = crate::ssh_config::model::SshConfigFile {
+            elements: Vec::new(),
+            path: std::path::PathBuf::new(),
+            crlf: false,
+            bom: false,
+        };
+        let mut app = App::new(config);
+        app.screen = Screen::Help {
+            return_screen: Box::new(return_screen),
+        };
+        app
+    }
+
+    fn render_to_text(app: &mut App, width: u16, height: u16) -> String {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, app)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn host_list_help_renders_wiki_link() {
+        // Feature 6: the redesigned host-list help overlay shows a wiki link
+        // so users can discover the full command reference.
+        let mut app = help_test_app(Screen::HostList);
+        let text = render_to_text(&mut app, 100, 40);
+        assert!(
+            text.contains("github.com/erickochen/purple/wiki"),
+            "host-list help should render wiki link in the info block"
+        );
+        assert!(
+            text.contains("github.com/erickochen/purple/issues"),
+            "host-list help should render issues link in the info block"
+        );
+    }
+
+    #[test]
+    fn host_list_help_renders_two_column_section_headers() {
+        // Feature 6: centered two-column layout on wide terminals shows
+        // both column 1 (NAVIGATE/VIEW/CLIPBOARD) and column 2
+        // (MANAGE HOSTS/CONNECT AND RUN/TOOLS) headers.
+        let mut app = help_test_app(Screen::HostList);
+        let text = render_to_text(&mut app, 100, 40);
+        for header in [
+            "NAVIGATE",
+            "VIEW",
+            "CLIPBOARD",
+            "MANAGE HOSTS",
+            "CONNECT AND RUN",
+            "TOOLS",
+        ] {
+            assert!(
+                text.contains(header),
+                "host-list help should render section header '{header}'"
+            );
+        }
+    }
+
+    #[test]
+    fn host_list_help_fits_chrome_in_tall_terminal() {
+        // Feature 6: chrome constant raised from 5 to 11 on the host list
+        // overlay to account for the extra breathing rows and info block.
+        // Render at a generous 100x50 and assert (1) all content is visible
+        // without scrolling and (2) the scroll position stays at zero. If
+        // the chrome constant drifts too low, max_body grows and
+        // help_scroll can advance past zero. If it drifts too high,
+        // content is clipped and section headers will not render.
+        let mut app = help_test_app(Screen::HostList);
+        let text = render_to_text(&mut app, 100, 50);
+        assert_eq!(
+            app.ui.help_scroll, 0,
+            "host-list help should fit without scrolling at 100x50"
+        );
+        for header in ["NAVIGATE", "VIEW", "MANAGE HOSTS", "TOOLS"] {
+            assert!(
+                text.contains(header),
+                "host-list help should render '{header}' fully at 100x50"
+            );
+        }
+    }
+
+    #[test]
+    fn host_list_help_clamps_stale_scroll_when_content_fits() {
+        // Exercise the scroll-clamp branch directly: when content fits the
+        // viewport (max_scroll == 0), a previously elevated help_scroll
+        // must be clamped back to 0 so the overlay does not render blank.
+        let mut app = help_test_app(Screen::HostList);
+        app.ui.help_scroll = 999;
+        render_to_text(&mut app, 100, 50);
+        assert_eq!(
+            app.ui.help_scroll, 0,
+            "stale scroll must clamp to 0 when content fits"
+        );
+    }
+
+    #[test]
+    fn subscreen_help_renders_without_wiki_block() {
+        // Sub-screen overlays are narrower and intentionally omit the wiki
+        // and issues lines because the full URLs don't fit.
+        let mut app = help_test_app(Screen::Providers);
+        let text = render_to_text(&mut app, 80, 30);
+        assert!(
+            !text.contains("github.com/erickochen/purple/wiki"),
+            "sub-screen help should not render wiki link"
         );
     }
 }

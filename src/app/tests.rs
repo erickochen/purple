@@ -6281,12 +6281,12 @@ fn tick_toast_non_sticky_success_expires() {
     let mut app = make_app("");
     app.set_status("done", false);
     assert!(app.toast.is_some(), "confirmation should route to toast");
-    for _ in 0..=6 {
+    for _ in 0..=16 {
         app.tick_toast();
     }
     assert!(
         app.toast.is_none(),
-        "non-sticky confirmation toast must expire after 6 ticks"
+        "non-sticky confirmation toast must expire after 16 ticks"
     );
 }
 
@@ -6551,7 +6551,7 @@ fn set_info_status_goes_to_footer() {
 fn tick_status_info_expires() {
     let mut app = make_app("");
     app.set_info_status("done");
-    for _ in 0..=12 {
+    for _ in 0..=16 {
         app.tick_status();
     }
     assert!(app.status.is_none());
@@ -6571,7 +6571,7 @@ fn tick_status_does_not_expire_while_syncing() {
         "status must not expire while providers are syncing"
     );
     app.syncing_providers.clear();
-    for _ in 0..=12 {
+    for _ in 0..=16 {
         app.tick_status();
     }
     assert!(
@@ -6597,10 +6597,26 @@ fn tick_toast_confirmation_expires() {
     let mut app = make_app("");
     app.set_status("done", false);
     assert!(app.toast.is_some());
-    for _ in 0..=6 {
+    for _ in 0..=16 {
         app.tick_toast();
     }
     assert!(app.toast.is_none());
+}
+
+#[test]
+fn tick_toast_confirmation_still_visible_before_expiry() {
+    let mut app = make_app("");
+    app.set_status("done", false);
+    assert!(app.toast.is_some());
+    // 16 ticks is the timeout; tick_count must exceed it to expire.
+    // After 16 calls tick_count = 16, which is NOT > 16, so toast stays.
+    for _ in 0..16 {
+        app.tick_toast();
+    }
+    assert!(
+        app.toast.is_some(),
+        "confirmation toast must still be visible at tick 16 (expires after >16)"
+    );
 }
 
 #[test]
@@ -6651,8 +6667,8 @@ fn message_class_timeout_values() {
         tick_count: 0,
         sticky: false,
     };
-    assert_eq!(mk(MessageClass::Confirmation).timeout(), 6);
-    assert_eq!(mk(MessageClass::Info).timeout(), 12);
+    assert_eq!(mk(MessageClass::Confirmation).timeout(), 16);
+    assert_eq!(mk(MessageClass::Info).timeout(), 16);
     assert_eq!(mk(MessageClass::Alert).timeout(), 20);
     assert_eq!(mk(MessageClass::Progress).timeout(), u32::MAX);
 }
@@ -6720,4 +6736,616 @@ fn palette_selected_resets_on_query_change() {
     state.selected = 3;
     state.pop_query();
     assert_eq!(state.selected, 0, "selected should reset on pop too");
+}
+
+// --- ProxyJump candidate ranking tests ---
+
+use super::selection::{domain_suffix, has_jump_keyword, parse_proxy_jump_hops};
+use crate::app::ProxyJumpCandidate;
+
+fn host_aliases(items: &[ProxyJumpCandidate]) -> Vec<String> {
+    items
+        .iter()
+        .filter_map(|c| match c {
+            ProxyJumpCandidate::Host { alias, .. } => Some(alias.clone()),
+            ProxyJumpCandidate::Separator | ProxyJumpCandidate::SectionLabel(_) => None,
+        })
+        .collect()
+}
+
+fn open_edit_screen(app: &mut App, alias: &str) {
+    app.screen = Screen::EditHost {
+        alias: alias.to_string(),
+    };
+}
+
+#[test]
+fn proxyjump_candidates_empty_when_only_editing_host() {
+    let mut app = test_app_with_hosts(&["Host only\n  HostName 1.2.3.4\n"]);
+    open_edit_screen(&mut app, "only");
+    assert!(app.proxyjump_candidates().is_empty());
+}
+
+#[test]
+fn proxyjump_candidates_excludes_host_being_edited() {
+    let mut app = test_app_with_hosts(&[
+        "Host one\n  HostName 1.1.1.1\n",
+        "Host two\n  HostName 2.2.2.2\n",
+    ]);
+    open_edit_screen(&mut app, "one");
+    let aliases = host_aliases(&app.proxyjump_candidates());
+    assert_eq!(aliases, vec!["two"]);
+}
+
+#[test]
+fn proxyjump_candidates_alphabetical_without_signals() {
+    // Plain hostnames with no usage, no keywords, no shared domain. The
+    // list falls back to alphabetical order with no separator.
+    let mut app = test_app_with_hosts(&[
+        "Host zeta\n  HostName 10.0.0.3\n",
+        "Host alpha\n  HostName 10.0.0.1\n",
+        "Host mike\n  HostName 10.0.0.2\n",
+    ]);
+    open_edit_screen(&mut app, "alpha");
+    let candidates = app.proxyjump_candidates();
+    assert!(
+        !candidates
+            .iter()
+            .any(|c| matches!(c, ProxyJumpCandidate::Separator)),
+        "no separator expected when no signals fire"
+    );
+    assert_eq!(host_aliases(&candidates), vec!["mike", "zeta"]);
+}
+
+#[test]
+fn proxyjump_candidates_promotes_hosts_used_as_proxyjump() {
+    // `bastion` is referenced by two other hosts; `spare` by none. The
+    // heavily-used host should lead the list.
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host spare\n  HostName 2.2.2.2\n",
+        "Host web1\n  HostName 10.0.0.1\n  ProxyJump bastion\n",
+        "Host web2\n  HostName 10.0.0.2\n  ProxyJump bastion\n",
+    ]);
+    open_edit_screen(&mut app, "web1");
+    let candidates = app.proxyjump_candidates();
+    let sep_index = candidates
+        .iter()
+        .position(|c| matches!(c, ProxyJumpCandidate::Separator))
+        .expect("separator expected");
+    let before: Vec<_> = candidates[..sep_index]
+        .iter()
+        .filter_map(|c| match c {
+            ProxyJumpCandidate::Host { alias, .. } => Some(alias.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(before, vec!["bastion"]);
+}
+
+#[test]
+fn proxyjump_candidates_flags_suggested_items() {
+    let mut app = test_app_with_hosts(&[
+        "Host jumpbox\n  HostName 1.1.1.1\n",
+        "Host plain\n  HostName 2.2.2.2\n",
+    ]);
+    open_edit_screen(&mut app, "plain");
+    let candidates = app.proxyjump_candidates();
+    let first_host = candidates
+        .iter()
+        .find_map(|c| match c {
+            ProxyJumpCandidate::Host {
+                alias, suggested, ..
+            } => Some((alias.clone(), *suggested)),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(first_host.0, "jumpbox");
+    assert!(
+        first_host.1,
+        "keyword-matched host must be flagged suggested"
+    );
+}
+
+#[test]
+fn proxyjump_candidates_keyword_match_promotes() {
+    let mut app = test_app_with_hosts(&[
+        "Host aaa\n  HostName 1.1.1.1\n",
+        "Host gateway-eu\n  HostName 2.2.2.2\n",
+        "Host zzz\n  HostName 3.3.3.3\n",
+    ]);
+    open_edit_screen(&mut app, "aaa");
+    let aliases = host_aliases(&app.proxyjump_candidates());
+    assert_eq!(aliases.first().map(String::as_str), Some("gateway-eu"));
+}
+
+#[test]
+fn proxyjump_candidates_domain_suffix_match_promotes() {
+    let mut app = test_app_with_hosts(&[
+        "Host edit-me\n  HostName api.example.com\n",
+        "Host other\n  HostName cache.internal.net\n",
+        "Host same-dom\n  HostName db.example.com\n",
+    ]);
+    open_edit_screen(&mut app, "edit-me");
+    let aliases = host_aliases(&app.proxyjump_candidates());
+    assert_eq!(aliases.first().map(String::as_str), Some("same-dom"));
+}
+
+#[test]
+fn proxyjump_candidates_top_section_capped_at_three() {
+    // Five distinct hosts all matching a keyword. Only three may lead.
+    let mut app = test_app_with_hosts(&[
+        "Host jump-a\n  HostName 1.1.1.1\n",
+        "Host jump-b\n  HostName 1.1.1.2\n",
+        "Host jump-c\n  HostName 1.1.1.3\n",
+        "Host jump-d\n  HostName 1.1.1.4\n",
+        "Host jump-e\n  HostName 1.1.1.5\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    let sep_index = candidates
+        .iter()
+        .position(|c| matches!(c, ProxyJumpCandidate::Separator))
+        .expect("separator expected");
+    // The real invariant: at most three hosts appear before the separator,
+    // regardless of whether a label precedes them. Asserting the structural
+    // count instead of a positional magic number keeps the test resilient
+    // to picker layout changes.
+    let host_count_before_sep = candidates[..sep_index]
+        .iter()
+        .filter(|c| matches!(c, ProxyJumpCandidate::Host { .. }))
+        .count();
+    assert_eq!(
+        host_count_before_sep, 3,
+        "top section must contain exactly three suggested hosts"
+    );
+}
+
+#[test]
+fn proxyjump_candidates_no_separator_when_everything_scores() {
+    // All hosts score (keyword match), so there is no "rest" section and
+    // therefore no separator.
+    let mut app = test_app_with_hosts(&[
+        "Host jump-a\n  HostName 1.1.1.1\n",
+        "Host bastion-b\n  HostName 1.1.1.2\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    assert!(
+        !candidates
+            .iter()
+            .any(|c| matches!(c, ProxyJumpCandidate::Separator))
+    );
+}
+
+/// Locate the `Separator` index in a candidate list, or fail the test.
+/// Isolates the structural assumption so navigation tests fail with a
+/// clear message when the scoring layout shifts, instead of silently
+/// relying on a hard-coded index.
+fn separator_index(candidates: &[ProxyJumpCandidate]) -> usize {
+    candidates
+        .iter()
+        .position(|c| matches!(c, ProxyJumpCandidate::Separator))
+        .expect("expected a Separator in the candidate list")
+}
+
+#[test]
+fn select_next_proxyjump_skips_separator_forward() {
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host alpha\n  HostName 2.2.2.2\n",
+        "Host zeta\n  HostName 3.3.3.3\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    let sep = separator_index(&candidates);
+    // Select the host just before the separator and step forward once.
+    app.ui.proxyjump_picker_state.select(Some(sep - 1));
+    app.select_next_proxyjump();
+    assert_eq!(
+        app.ui.proxyjump_picker_state.selected(),
+        Some(sep + 1),
+        "forward navigation must skip the separator"
+    );
+}
+
+#[test]
+fn select_prev_proxyjump_skips_separator_backward() {
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host alpha\n  HostName 2.2.2.2\n",
+        "Host zeta\n  HostName 3.3.3.3\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    let sep = separator_index(&candidates);
+    // Select the host just after the separator and step backward once.
+    app.ui.proxyjump_picker_state.select(Some(sep + 1));
+    app.select_prev_proxyjump();
+    assert_eq!(
+        app.ui.proxyjump_picker_state.selected(),
+        Some(sep - 1),
+        "backward navigation must skip the separator"
+    );
+}
+
+#[test]
+fn select_next_proxyjump_skips_leading_section_label() {
+    // Cursor is parked on the `SectionLabel` at index 0; pressing Down
+    // must advance past it onto the first selectable `Host`. Regression
+    // guard: if `SectionLabel` ever started being treated like a Host,
+    // the cursor would stop on the label row instead of moving forward.
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host alpha\n  HostName 2.2.2.2\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    assert!(matches!(
+        candidates.first(),
+        Some(ProxyJumpCandidate::SectionLabel(_))
+    ));
+    app.ui.proxyjump_picker_state.select(Some(0));
+    app.select_next_proxyjump();
+    let selected = app.ui.proxyjump_picker_state.selected();
+    assert!(
+        selected.is_some()
+            && matches!(
+                candidates.get(selected.unwrap()),
+                Some(ProxyJumpCandidate::Host { .. })
+            ),
+        "Down from SectionLabel must land on a Host, got index {:?}",
+        selected
+    );
+}
+
+#[test]
+fn select_prev_proxyjump_from_section_label_lands_on_last_host() {
+    // Backwards from the label must wrap to the last host, not stay on
+    // the label and not land on the Separator.
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host alpha\n  HostName 2.2.2.2\n",
+        "Host zeta\n  HostName 3.3.3.3\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    app.ui.proxyjump_picker_state.select(Some(0));
+    app.select_prev_proxyjump();
+    let last = candidates.len() - 1;
+    assert_eq!(app.ui.proxyjump_picker_state.selected(), Some(last));
+    assert!(matches!(
+        candidates.get(last),
+        Some(ProxyJumpCandidate::Host { .. })
+    ));
+}
+
+#[test]
+fn select_prev_proxyjump_wraps_from_first_host_to_last() {
+    // Backwards from index 0 must wrap past a trailing `Separator`-free
+    // region and land on the last host, exercising the modular
+    // `(next + len - 1) % len` path together with the separator skip.
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host alpha\n  HostName 2.2.2.2\n",
+        "Host zeta\n  HostName 3.3.3.3\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    let last = candidates.len() - 1;
+    app.ui.proxyjump_picker_state.select(Some(0));
+    app.select_prev_proxyjump();
+    assert_eq!(
+        app.ui.proxyjump_picker_state.selected(),
+        Some(last),
+        "backward wrap from index 0 must land on the last host"
+    );
+}
+
+#[test]
+fn select_next_proxyjump_lands_on_index_zero_when_no_selection() {
+    // Regression for the bug where a fresh picker with selected() == None
+    // advanced to index 1 on the first Down press, skipping index 0.
+    let mut app = test_app_with_hosts(&[
+        "Host alpha\n  HostName 1.1.1.1\n",
+        "Host bravo\n  HostName 2.2.2.2\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    app.ui.proxyjump_picker_state.select(None);
+    app.select_next_proxyjump();
+    assert_eq!(app.ui.proxyjump_picker_state.selected(), Some(0));
+}
+
+#[test]
+fn select_prev_proxyjump_lands_on_last_when_no_selection() {
+    let mut app = test_app_with_hosts(&[
+        "Host alpha\n  HostName 1.1.1.1\n",
+        "Host bravo\n  HostName 2.2.2.2\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    app.ui.proxyjump_picker_state.select(None);
+    app.select_prev_proxyjump();
+    let last = app.proxyjump_candidates().len() - 1;
+    assert_eq!(app.ui.proxyjump_picker_state.selected(), Some(last));
+}
+
+#[test]
+fn select_next_proxyjump_wraps_past_trailing_separator_free_list() {
+    let mut app = test_app_with_hosts(&[
+        "Host a\n  HostName 1.1.1.1\n",
+        "Host b\n  HostName 2.2.2.2\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    app.ui.proxyjump_picker_state.select(Some(1));
+    app.select_next_proxyjump();
+    assert_eq!(app.ui.proxyjump_picker_state.selected(), Some(0));
+}
+
+#[test]
+fn proxyjump_first_host_index_skips_leading_label() {
+    // With a suggestion present, index 0 is the `SectionLabel` and the
+    // first selectable host sits at index 1.
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host alpha\n  HostName 2.2.2.2\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    assert!(matches!(
+        candidates.first(),
+        Some(ProxyJumpCandidate::SectionLabel(_))
+    ));
+    assert_eq!(app.proxyjump_first_host_index(), Some(1));
+}
+
+#[test]
+fn proxyjump_candidates_section_label_present_with_suggestions() {
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host plain\n  HostName 2.2.2.2\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    assert!(matches!(
+        candidates.first(),
+        Some(ProxyJumpCandidate::SectionLabel("Suggestions"))
+    ));
+}
+
+#[test]
+fn proxyjump_candidates_no_section_label_without_suggestions() {
+    let mut app = test_app_with_hosts(&[
+        "Host zeta\n  HostName 10.0.0.3\n",
+        "Host alpha\n  HostName 10.0.0.1\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    assert!(
+        !candidates
+            .iter()
+            .any(|c| matches!(c, ProxyJumpCandidate::SectionLabel(_))),
+        "no SectionLabel should be emitted when the suggested section is empty"
+    );
+}
+
+#[test]
+fn proxyjump_first_host_index_zero_when_no_label() {
+    // No scoring host means no suggested section and therefore no
+    // leading `SectionLabel`; the first host is at index 0.
+    let mut app = test_app_with_hosts(&[
+        "Host zeta\n  HostName 10.0.0.3\n",
+        "Host alpha\n  HostName 10.0.0.1\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    assert_eq!(app.proxyjump_first_host_index(), Some(0));
+}
+
+#[test]
+fn proxyjump_first_host_index_none_when_empty() {
+    let mut app = test_app_with_hosts(&["Host only\n  HostName 1.1.1.1\n"]);
+    open_edit_screen(&mut app, "only");
+    assert_eq!(app.proxyjump_first_host_index(), None);
+}
+
+#[test]
+fn parse_proxy_jump_hops_handles_comma_user_and_port() {
+    let hops = parse_proxy_jump_hops("alice@jump1:2222, bob@jump2");
+    assert_eq!(hops, vec!["jump1", "jump2"]);
+}
+
+#[test]
+fn parse_proxy_jump_hops_handles_bracketed_ipv6() {
+    let hops = parse_proxy_jump_hops("[::1]:2222,plainhost");
+    assert_eq!(hops, vec!["::1", "plainhost"]);
+}
+
+#[test]
+fn parse_proxy_jump_hops_ignores_empty_segments() {
+    assert!(parse_proxy_jump_hops("").is_empty());
+    assert_eq!(parse_proxy_jump_hops("a,,b"), vec!["a", "b"]);
+}
+
+#[test]
+fn has_jump_keyword_matches_case_insensitively() {
+    assert!(has_jump_keyword("BastionHost", ""));
+    assert!(has_jump_keyword("", "corp-gateway-01"));
+    assert!(has_jump_keyword("ops-gw-1", ""));
+    assert!(!has_jump_keyword("web-01", "10.0.0.1"));
+}
+
+#[test]
+fn domain_suffix_rejects_single_label_and_ip() {
+    assert_eq!(domain_suffix("localhost"), None);
+    assert_eq!(domain_suffix("10.0.0.1"), None);
+    assert_eq!(domain_suffix(""), None);
+    assert_eq!(domain_suffix("[::1]"), None);
+}
+
+#[test]
+fn domain_suffix_returns_last_two_labels_lowercased() {
+    assert_eq!(
+        domain_suffix("db.Prod.Example.COM").as_deref(),
+        Some("example.com")
+    );
+    assert_eq!(
+        domain_suffix("api.example.com").as_deref(),
+        Some("example.com")
+    );
+}
+
+#[test]
+fn proxyjump_candidates_counting_does_not_credit_editing_host() {
+    // `web1` is being edited and currently lists `bastion` as its own
+    // ProxyJump. That self-reference must not be counted as a usage
+    // signal. With no other references, `bastion` should still score
+    // only via the keyword heuristic, not via usage — which means the
+    // total list length is 2 and `bastion` leads without any usage
+    // count contribution.
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host plain\n  HostName 2.2.2.2\n",
+        "Host web1\n  HostName 10.0.0.1\n  ProxyJump bastion\n",
+    ]);
+    open_edit_screen(&mut app, "web1");
+    let candidates = app.proxyjump_candidates();
+    let aliases = host_aliases(&candidates);
+    assert_eq!(aliases.first().map(String::as_str), Some("bastion"));
+    // Layout: SectionLabel, Host{bastion}, Separator, Host{plain}.
+    let sep = separator_index(&candidates);
+    assert_eq!(sep, 2, "only bastion must lead; plain must follow");
+}
+
+#[test]
+fn proxyjump_candidates_tied_scores_break_alphabetically() {
+    // Two keyword-matching hosts both score 5 via the keyword heuristic.
+    // With no other signals, the tie must break by alias ascending.
+    let mut app = test_app_with_hosts(&[
+        "Host zeta-jump\n  HostName 1.1.1.1\n",
+        "Host alpha-jump\n  HostName 2.2.2.2\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let aliases = host_aliases(&app.proxyjump_candidates());
+    assert_eq!(
+        aliases,
+        vec!["alpha-jump", "zeta-jump"],
+        "tied scores must sort alphabetically"
+    );
+}
+
+#[test]
+fn proxyjump_candidates_exactly_three_scoring_no_rest_has_no_separator() {
+    // All three hosts score. The "rest" list is empty, so even though
+    // the top section hits the cap of 3 there must be no Separator.
+    let mut app = test_app_with_hosts(&[
+        "Host jump-a\n  HostName 1.1.1.1\n",
+        "Host jump-b\n  HostName 1.1.1.2\n",
+        "Host jump-c\n  HostName 1.1.1.3\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    // Layout: SectionLabel + three hosts, no separator, no rest.
+    assert_eq!(candidates.len(), 4);
+    assert!(matches!(
+        candidates.first(),
+        Some(ProxyJumpCandidate::SectionLabel(_))
+    ));
+    assert!(
+        !candidates
+            .iter()
+            .any(|c| matches!(c, ProxyJumpCandidate::Separator)),
+        "three scoring hosts with no rest must not emit a separator"
+    );
+}
+
+#[test]
+fn proxyjump_candidates_rest_items_are_not_flagged_suggested() {
+    let mut app = test_app_with_hosts(&[
+        "Host bastion\n  HostName 1.1.1.1\n",
+        "Host plain-a\n  HostName 2.2.2.2\n",
+        "Host plain-b\n  HostName 3.3.3.3\n",
+        "Host victim\n  HostName 9.9.9.9\n",
+    ]);
+    open_edit_screen(&mut app, "victim");
+    let candidates = app.proxyjump_candidates();
+    let sep = separator_index(&candidates);
+    for item in &candidates[sep + 1..] {
+        match item {
+            ProxyJumpCandidate::Host { suggested, .. } => {
+                assert!(
+                    !suggested,
+                    "rest-section hosts must have suggested == false"
+                );
+            }
+            ProxyJumpCandidate::Separator | ProxyJumpCandidate::SectionLabel(_) => {
+                panic!("unexpected non-host item in rest section")
+            }
+        }
+    }
+}
+
+#[test]
+fn proxyjump_candidates_does_not_panic_for_unknown_editing_alias() {
+    // The edit screen references an alias that is not present in
+    // `self.hosts`. This can happen in tests and during transient
+    // states; the function must not panic and should still return
+    // every existing host, excluding none.
+    let mut app = test_app_with_hosts(&[
+        "Host alpha\n  HostName 1.1.1.1\n",
+        "Host bravo\n  HostName 2.2.2.2\n",
+    ]);
+    open_edit_screen(&mut app, "ghost");
+    let aliases = host_aliases(&app.proxyjump_candidates());
+    assert_eq!(aliases, vec!["alpha", "bravo"]);
+}
+
+#[test]
+fn domain_suffix_rejects_valid_ip_literals() {
+    // Any syntactically valid IpAddr must return None. The IpAddr parse
+    // is strictly stronger than the original all-digits-per-label guard
+    // and also covers `::1`, `2001:db8::1`, `0.0.0.0`, and so on.
+    assert_eq!(domain_suffix("192.168.1.1"), None);
+    assert_eq!(domain_suffix("0.0.0.0"), None);
+    assert_eq!(domain_suffix("::1"), None);
+    assert_eq!(domain_suffix("2001:db8::1"), None);
+}
+
+#[test]
+fn domain_suffix_trims_trailing_fqdn_dot() {
+    assert_eq!(
+        domain_suffix("example.com.").as_deref(),
+        Some("example.com")
+    );
+    assert_eq!(
+        domain_suffix("db.prod.example.com.").as_deref(),
+        Some("example.com")
+    );
+}
+
+#[test]
+fn parse_proxy_jump_hops_rejects_unclosed_ipv6_bracket() {
+    // Malformed hop without closing bracket must be dropped, not
+    // returned as the literal `[ipv6` fragment.
+    assert!(parse_proxy_jump_hops("[::1").is_empty());
+    assert_eq!(
+        parse_proxy_jump_hops("[::1,good")
+            .last()
+            .map(String::as_str),
+        Some("good")
+    );
 }
