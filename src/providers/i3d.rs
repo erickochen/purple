@@ -57,6 +57,8 @@ struct FlexMetalServer {
 #[derive(Deserialize)]
 struct FlexMetalOs {
     #[serde(default)]
+    slug: Option<String>,
+    #[serde(default)]
     name: Option<String>,
 }
 
@@ -200,10 +202,13 @@ impl Provider for I3d {
                         metadata.push(("type".to_string(), server.instance_type.clone()));
                     }
                     if let Some(ref os) = server.os {
-                        if let Some(ref name) = os.name {
-                            if !name.is_empty() {
-                                metadata.push(("os".to_string(), name.clone()));
-                            }
+                        let os_val = os
+                            .slug
+                            .as_deref()
+                            .filter(|s| !s.is_empty())
+                            .or_else(|| os.name.as_deref().filter(|s| !s.is_empty()));
+                        if let Some(val) = os_val {
+                            metadata.push(("os".to_string(), val.to_string()));
                         }
                     }
                     if !server.status.is_empty() {
@@ -405,7 +410,7 @@ mod tests {
             "status": "delivered",
             "location": "Amsterdam",
             "instanceType": "bm.general1.small",
-            "os": {"name": "Ubuntu 22.04"},
+            "os": {"slug": "ubuntu-2204-lts"},
             "ipAddresses": [
                 {"ip": "1.2.3.4", "version": 4, "public": true},
                 {"ip": "10.0.0.1", "version": 4, "public": false}
@@ -420,11 +425,94 @@ mod tests {
         assert_eq!(servers[0].location, "Amsterdam");
         assert_eq!(servers[0].instance_type, "bm.general1.small");
         assert_eq!(
-            servers[0].os.as_ref().unwrap().name.as_deref(),
-            Some("Ubuntu 22.04")
+            servers[0].os.as_ref().unwrap().slug.as_deref(),
+            Some("ubuntu-2204-lts")
         );
         assert_eq!(servers[0].ip_addresses.len(), 2);
         assert_eq!(servers[0].tags, vec!["production", "web"]);
+    }
+
+    #[test]
+    fn test_parse_flexmetal_os_name_fallback() {
+        let json = r#"[{
+            "uuid": "abc",
+            "os": {"name": "Ubuntu 22.04"},
+            "ipAddresses": [{"ip": "1.2.3.4", "version": 4, "public": true}]
+        }]"#;
+        let servers: Vec<FlexMetalServer> = serde_json::from_str(json).unwrap();
+        let os = servers[0].os.as_ref().unwrap();
+        assert!(os.slug.is_none());
+        assert_eq!(os.name.as_deref(), Some("Ubuntu 22.04"));
+    }
+
+    #[test]
+    fn test_parse_flexmetal_os_slug_preferred_over_name() {
+        let json = r#"[{
+            "uuid": "abc",
+            "os": {"slug": "ubuntu-2204-lts", "name": "Ubuntu 22.04"},
+            "ipAddresses": [{"ip": "1.2.3.4", "version": 4, "public": true}]
+        }]"#;
+        let servers: Vec<FlexMetalServer> = serde_json::from_str(json).unwrap();
+        let os = servers[0].os.as_ref().unwrap();
+        assert_eq!(os.slug.as_deref(), Some("ubuntu-2204-lts"));
+        assert_eq!(os.name.as_deref(), Some("Ubuntu 22.04"));
+        // Verify slug wins in metadata assembly
+        let mut metadata = Vec::new();
+        let os_val = os
+            .slug
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| os.name.as_deref().filter(|s| !s.is_empty()));
+        if let Some(val) = os_val {
+            metadata.push(("os".to_string(), val.to_string()));
+        }
+        assert_eq!(
+            metadata,
+            [("os".to_string(), "ubuntu-2204-lts".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_parse_flexmetal_os_empty_object() {
+        let json = r#"[{"uuid": "abc", "os": {}, "ipAddresses": []}]"#;
+        let servers: Vec<FlexMetalServer> = serde_json::from_str(json).unwrap();
+        let os = servers[0].os.as_ref().unwrap();
+        assert!(os.slug.is_none());
+        assert!(os.name.is_none());
+    }
+
+    #[test]
+    fn test_parse_flexmetal_os_empty_slug_falls_back_to_name() {
+        let json = r#"[{
+            "uuid": "abc",
+            "os": {"slug": "", "name": "Ubuntu 22.04"},
+            "ipAddresses": [{"ip": "1.2.3.4", "version": 4, "public": true}]
+        }]"#;
+        let servers: Vec<FlexMetalServer> = serde_json::from_str(json).unwrap();
+        let os = servers[0].os.as_ref().unwrap();
+        let os_val = os
+            .slug
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| os.name.as_deref().filter(|s| !s.is_empty()));
+        assert_eq!(os_val, Some("Ubuntu 22.04"));
+    }
+
+    #[test]
+    fn test_parse_flexmetal_os_both_empty_strings() {
+        let json = r#"[{
+            "uuid": "abc",
+            "os": {"slug": "", "name": ""},
+            "ipAddresses": [{"ip": "1.2.3.4", "version": 4, "public": true}]
+        }]"#;
+        let servers: Vec<FlexMetalServer> = serde_json::from_str(json).unwrap();
+        let os = servers[0].os.as_ref().unwrap();
+        let os_val = os
+            .slug
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| os.name.as_deref().filter(|s| !s.is_empty()));
+        assert!(os_val.is_none());
     }
 
     #[test]
@@ -496,7 +584,7 @@ mod tests {
                 "status": "delivered",
                 "location": "Amsterdam",
                 "instanceType": "bm.general1.small",
-                "os": {"name": "Ubuntu 22.04"},
+                "os": {"slug": "ubuntu-2204-lts"},
                 "ipAddresses": [{"ip": "1.2.3.4", "version": 4, "public": true}],
                 "tags": ["prod"]
             }]"#,
@@ -608,7 +696,8 @@ mod tests {
             location: "Amsterdam".into(),
             instance_type: "bm.general1.small".into(),
             os: Some(FlexMetalOs {
-                name: Some("Ubuntu 22.04".into()),
+                slug: Some("ubuntu-2204-lts".into()),
+                name: None,
             }),
             ip_addresses: vec![FlexMetalIp {
                 ip: "1.2.3.4".into(),
@@ -626,10 +715,13 @@ mod tests {
             metadata.push(("type".to_string(), server.instance_type.clone()));
         }
         if let Some(ref os) = server.os {
-            if let Some(ref name) = os.name {
-                if !name.is_empty() {
-                    metadata.push(("os".to_string(), name.clone()));
-                }
+            let os_val = os
+                .slug
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .or_else(|| os.name.as_deref().filter(|s| !s.is_empty()));
+            if let Some(val) = os_val {
+                metadata.push(("os".to_string(), val.to_string()));
             }
         }
         if !server.status.is_empty() {
@@ -645,7 +737,10 @@ mod tests {
             metadata[1],
             ("type".to_string(), "bm.general1.small".to_string())
         );
-        assert_eq!(metadata[2], ("os".to_string(), "Ubuntu 22.04".to_string()));
+        assert_eq!(
+            metadata[2],
+            ("os".to_string(), "ubuntu-2204-lts".to_string())
+        );
         assert_eq!(metadata[3], ("status".to_string(), "delivered".to_string()));
     }
 

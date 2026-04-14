@@ -194,7 +194,7 @@ jobs:
           mkdir -p Formula
           cat > Formula/purple.rb << EOF
           class Purple < Formula
-            desc "Terminal SSH client with file transfer and cloud sync"
+            desc "Open-source terminal SSH manager and SSH config editor"
             homepage "https://github.com/erickochen/purple"
             version "${VERSION}"
             license "MIT"

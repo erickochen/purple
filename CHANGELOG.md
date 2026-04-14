@@ -1,3 +1,8 @@
+## 2.38.1
+
+- Fix i3D.net FlexMetal OS metadata not showing
+- The FlexMetal API returns `os.slug` (e.g. `ubuntu-2204-lts`), not `os.name`. Purple now reads `slug` first with `name` as fallback, so OS info appears in host details and metadata
+
 ## 2.38.0
 
 - Bulk tag editor for multi-host tagging
