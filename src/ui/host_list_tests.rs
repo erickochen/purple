@@ -201,7 +201,7 @@ fn test_columns_compute_host_shrinks() {
 #[test]
 fn test_footer_no_grouped_indicator() {
     // "grouped" indicator was removed (redundant with group bar)
-    let spans = footer_spans(false, false);
+    let spans = footer_spans(false, false, false);
     let text: String = spans.iter().map(|s| s.content.to_string()).collect();
     assert!(
         !text.contains("grouped"),
@@ -212,7 +212,7 @@ fn test_footer_no_grouped_indicator() {
 
 #[test]
 fn footer_shows_core_actions() {
-    let spans = footer_spans(false, false);
+    let spans = footer_spans(false, false, false);
     let text: String = spans.iter().map(|s| s.content.to_string()).collect();
     assert!(text.contains("Enter"));
     assert!(text.contains("connect"));
@@ -225,23 +225,42 @@ fn footer_shows_core_actions() {
 
 #[test]
 fn footer_view_label_detail_when_compact() {
-    let spans = footer_spans(false, false);
+    let spans = footer_spans(false, false, false);
     let text: String = spans.iter().map(|s| s.content.to_string()).collect();
     assert!(text.contains("detail"));
 }
 
 #[test]
 fn footer_view_label_compact_when_detail() {
-    let spans = footer_spans(true, false);
+    let spans = footer_spans(true, false, false);
     let text: String = spans.iter().map(|s| s.content.to_string()).collect();
     assert!(text.contains("compact"));
 }
 
 #[test]
 fn footer_down_only_indicator() {
-    let spans = footer_spans(false, true);
+    let spans = footer_spans(false, true, false);
     let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(text.contains("DOWN ONLY"));
+}
+
+#[test]
+fn footer_selection_active_replaces_view_hints_with_bulk_actions() {
+    let spans = footer_spans(false, false, true);
+    let text: String = spans.iter().map(|s| s.content.to_string()).collect();
+    assert!(text.contains("bulk tag"), "missing bulk tag hint: {text}");
+    assert!(text.contains(" run "), "missing run hint: {text}");
+    assert!(text.contains("clear"), "missing clear hint: {text}");
+    assert!(text.contains("help"), "missing help hint: {text}");
+    // Confirm we drop the noisy `:` and `v` keys to keep the line short.
+    assert!(
+        !text.contains(" cmds "),
+        "selection footer should drop cmds"
+    );
+    assert!(
+        !text.contains(" detail "),
+        "selection footer should drop view label"
+    );
 }
 
 #[test]

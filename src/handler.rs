@@ -8,6 +8,7 @@ use crate::app::{App, HostForm, Screen};
 use crate::event::AppEvent;
 use crate::ssh_config::model::HostEntry;
 
+mod bulk_tag_editor;
 mod command_palette;
 mod confirm;
 mod containers;
@@ -97,6 +98,7 @@ pub fn handle_key_event(
         Screen::KeyDetail { .. } => help::handle_key_detail(app, key),
         Screen::HostDetail { .. } => host_detail::handle_host_detail(app, key),
         Screen::TagPicker => tag_picker::handle_tag_picker_screen(app, key),
+        Screen::BulkTagEditor => bulk_tag_editor::handle_bulk_tag_editor_screen(app, key),
         Screen::ThemePicker => theme_picker::handle_theme_picker(app, key),
         Screen::Providers => provider::handle_provider_list(app, key, events_tx),
         Screen::ProviderForm { .. } => provider::handle_provider_form(app, key, events_tx),

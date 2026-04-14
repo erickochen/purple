@@ -1,3 +1,4 @@
+mod bulk_tag_editor;
 mod command_palette;
 mod confirm_dialog;
 pub(crate) mod containers;
@@ -92,6 +93,9 @@ pub fn render(frame: &mut Frame, app: &mut App, anim: &mut crate::animation::Ani
         }
         Screen::TagPicker => {
             render_overlay(frame, app, anim, tag_picker::render);
+        }
+        Screen::BulkTagEditor => {
+            render_overlay(frame, app, anim, bulk_tag_editor::render);
         }
         Screen::ThemePicker => {
             render_overlay_nodim(frame, app, anim, theme_picker::render);

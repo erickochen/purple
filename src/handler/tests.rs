@@ -6404,3 +6404,316 @@ fn host_form_smart_paste_no_fire_on_edit_with_hostname() {
     assert_eq!(app.form.hostname, "myserver.local");
     assert_eq!(app.form.alias, "db.example.com");
 }
+
+// ---------------------------------------------------------------------
+// Bulk tag editor — handler integration
+// ---------------------------------------------------------------------
+
+fn bulk_make_app() -> App {
+    // Config path gets written during apply — use a unique /tmp path per
+    // test so parallel runs don't stomp each other.
+    let path = std::env::temp_dir().join(format!("purple_bulk_test_{}.cfg", std::process::id()));
+    let mut app = make_app(
+        "Host a\n  HostName 1.1.1.1\n  # purple:tags prod\n\
+         Host b\n  HostName 2.2.2.2\n  # purple:tags prod,db\n\
+         Host c\n  HostName 3.3.3.3\n  # purple:tags db\n",
+    );
+    app.config.path = path;
+    app
+}
+
+#[test]
+fn plain_space_toggles_multi_select_in_host_list() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    // First host is selected by default.
+    let idx = app.selected_host_index().unwrap();
+    handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx).unwrap();
+    assert!(app.multi_select.contains(&idx));
+    handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx).unwrap();
+    assert!(!app.multi_select.contains(&idx));
+}
+
+#[test]
+fn esc_with_selection_clears_it_without_quitting() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    app.multi_select.insert(0);
+    handle_key_event(&mut app, key(KeyCode::Esc), &tx).unwrap();
+    assert!(app.multi_select.is_empty());
+    assert!(app.running, "Esc must not quit while clearing selection");
+}
+
+#[test]
+fn t_routes_to_bulk_editor_when_selection_active() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    app.multi_select.insert(0);
+    app.multi_select.insert(1);
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    assert_eq!(app.screen, Screen::BulkTagEditor);
+    assert!(app.tags.input.is_none(), "single-host input must NOT open");
+    assert_eq!(app.bulk_tag_editor.aliases.len(), 2);
+}
+
+#[test]
+fn t_opens_single_host_input_when_no_selection() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    assert_eq!(app.screen, Screen::HostList);
+    assert!(
+        app.tags.input.is_some(),
+        "must fall back to existing single-host tag input"
+    );
+}
+
+#[test]
+fn bulk_editor_space_cycles_and_enter_applies() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    // Select a + c. Apply "add prod" — a already has it, c does not.
+    let idx_a = app.hosts.iter().position(|h| h.alias == "a").unwrap();
+    let idx_c = app.hosts.iter().position(|h| h.alias == "c").unwrap();
+    app.multi_select.insert(idx_a);
+    app.multi_select.insert(idx_c);
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    assert_eq!(app.screen, Screen::BulkTagEditor);
+
+    // Land the cursor on `prod`.
+    let prod_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "prod")
+        .unwrap();
+    app.ui.bulk_tag_editor_state.select(Some(prod_row));
+    // One Space: Leave → AddToAll.
+    handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx).unwrap();
+    assert_eq!(
+        app.bulk_tag_editor.rows[prod_row].action,
+        crate::app::BulkTagAction::AddToAll
+    );
+    handle_key_event(&mut app, key(KeyCode::Enter), &tx).unwrap();
+    assert_eq!(app.screen, Screen::HostList);
+    // c now has prod.
+    let c = app.hosts.iter().find(|h| h.alias == "c").unwrap();
+    assert!(c.tags.contains(&"prod".to_string()));
+}
+
+#[test]
+fn bulk_editor_esc_cancels_without_mutating() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    app.multi_select.insert(0);
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    assert_eq!(app.screen, Screen::BulkTagEditor);
+    // Stage a change but cancel before Enter.
+    let prod_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "prod")
+        .unwrap();
+    app.ui.bulk_tag_editor_state.select(Some(prod_row));
+    handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx).unwrap();
+    handle_key_event(&mut app, key(KeyCode::Esc), &tx).unwrap();
+    assert_eq!(app.screen, Screen::HostList);
+    // State cleared — no half-open editor lingering.
+    assert!(app.bulk_tag_editor.rows.is_empty());
+}
+
+#[test]
+fn bulk_editor_plus_opens_new_tag_input() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    app.multi_select.insert(0);
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    handle_key_event(&mut app, key(KeyCode::Char('+')), &tx).unwrap();
+    assert!(app.bulk_tag_editor.new_tag_input.is_some());
+    // Type "eu" and Enter.
+    handle_key_event(&mut app, key(KeyCode::Char('e')), &tx).unwrap();
+    handle_key_event(&mut app, key(KeyCode::Char('u')), &tx).unwrap();
+    handle_key_event(&mut app, key(KeyCode::Enter), &tx).unwrap();
+    assert!(app.bulk_tag_editor.new_tag_input.is_none());
+    let eu = app.bulk_tag_editor.rows.iter().find(|r| r.tag == "eu");
+    assert!(eu.is_some(), "new tag `eu` should be appended as a row");
+    assert_eq!(eu.unwrap().action, crate::app::BulkTagAction::AddToAll);
+}
+
+#[test]
+fn bulk_tag_undo_restores_previous_tags() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    // Select a (has prod) + b (has prod, db). Remove `prod` from both.
+    let idx_a = app.hosts.iter().position(|h| h.alias == "a").unwrap();
+    let idx_b = app.hosts.iter().position(|h| h.alias == "b").unwrap();
+    app.multi_select.insert(idx_a);
+    app.multi_select.insert(idx_b);
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    let prod_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "prod")
+        .unwrap();
+    app.ui.bulk_tag_editor_state.select(Some(prod_row));
+    // Cycle to RemoveFromAll (Leave → AddToAll → RemoveFromAll).
+    handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx).unwrap();
+    handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx).unwrap();
+    handle_key_event(&mut app, key(KeyCode::Enter), &tx).unwrap();
+    assert_eq!(app.screen, Screen::HostList);
+    // Verify prod was removed.
+    let a = app.hosts.iter().find(|h| h.alias == "a").unwrap();
+    assert!(!a.tags.contains(&"prod".to_string()));
+    // Undo.
+    assert!(app.bulk_tag_undo.is_some());
+    handle_key_event(&mut app, key(KeyCode::Char('u')), &tx).unwrap();
+    assert!(app.bulk_tag_undo.is_none());
+    // Verify prod is back.
+    let a = app.hosts.iter().find(|h| h.alias == "a").unwrap();
+    let b = app.hosts.iter().find(|h| h.alias == "b").unwrap();
+    assert!(a.tags.contains(&"prod".to_string()));
+    assert!(b.tags.contains(&"prod".to_string()));
+    // b still has db (it wasn't touched).
+    assert!(b.tags.contains(&"db".to_string()));
+}
+
+#[test]
+fn bulk_editor_q_cancels_like_esc() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    app.multi_select.insert(0);
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    assert_eq!(app.screen, Screen::BulkTagEditor);
+    handle_key_event(&mut app, key(KeyCode::Char('q')), &tx).unwrap();
+    assert_eq!(app.screen, Screen::HostList);
+    assert!(app.bulk_tag_editor.rows.is_empty());
+}
+
+#[test]
+fn bulk_editor_jk_navigates_rows() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    app.multi_select.insert(0);
+    app.multi_select.insert(1);
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    assert!(app.bulk_tag_editor.rows.len() >= 2);
+    let initial = app.ui.bulk_tag_editor_state.selected();
+    handle_key_event(&mut app, key(KeyCode::Char('j')), &tx).unwrap();
+    let after_j = app.ui.bulk_tag_editor_state.selected();
+    assert_ne!(initial, after_j, "j should move selection");
+    handle_key_event(&mut app, key(KeyCode::Char('k')), &tx).unwrap();
+    let after_k = app.ui.bulk_tag_editor_state.selected();
+    assert_eq!(initial, after_k, "k should move back");
+}
+
+#[test]
+fn bulk_editor_help_roundtrip() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    app.multi_select.insert(0);
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    assert_eq!(app.screen, Screen::BulkTagEditor);
+    // Stage a change so we can verify state survives the help roundtrip.
+    app.ui.bulk_tag_editor_state.select(Some(0));
+    handle_key_event(&mut app, key(KeyCode::Char(' ')), &tx).unwrap();
+    let action_before = app.bulk_tag_editor.rows[0].action;
+    // Open help.
+    handle_key_event(&mut app, key(KeyCode::Char('?')), &tx).unwrap();
+    assert!(matches!(app.screen, Screen::Help { .. }));
+    // Return from help.
+    handle_key_event(&mut app, key(KeyCode::Esc), &tx).unwrap();
+    assert_eq!(app.screen, Screen::BulkTagEditor);
+    assert_eq!(app.bulk_tag_editor.rows[0].action, action_before);
+}
+
+#[test]
+fn bulk_editor_new_tag_input_backspace_and_cursor() {
+    let mut app = bulk_make_app();
+    let tx = mpsc::channel().0;
+    app.multi_select.insert(0);
+    handle_key_event(&mut app, key(KeyCode::Char('t')), &tx).unwrap();
+    // Open new-tag input.
+    handle_key_event(&mut app, key(KeyCode::Char('+')), &tx).unwrap();
+    // Type "abc".
+    handle_key_event(&mut app, key(KeyCode::Char('a')), &tx).unwrap();
+    handle_key_event(&mut app, key(KeyCode::Char('b')), &tx).unwrap();
+    handle_key_event(&mut app, key(KeyCode::Char('c')), &tx).unwrap();
+    assert_eq!(app.bulk_tag_editor.new_tag_input.as_deref(), Some("abc"));
+    assert_eq!(app.bulk_tag_editor.new_tag_cursor, 3);
+    // Backspace removes 'c'.
+    handle_key_event(&mut app, key(KeyCode::Backspace), &tx).unwrap();
+    assert_eq!(app.bulk_tag_editor.new_tag_input.as_deref(), Some("ab"));
+    assert_eq!(app.bulk_tag_editor.new_tag_cursor, 2);
+    // Left, Right.
+    handle_key_event(&mut app, key(KeyCode::Left), &tx).unwrap();
+    assert_eq!(app.bulk_tag_editor.new_tag_cursor, 1);
+    handle_key_event(&mut app, key(KeyCode::Right), &tx).unwrap();
+    assert_eq!(app.bulk_tag_editor.new_tag_cursor, 2);
+    // Home, End.
+    handle_key_event(&mut app, key(KeyCode::Home), &tx).unwrap();
+    assert_eq!(app.bulk_tag_editor.new_tag_cursor, 0);
+    handle_key_event(&mut app, key(KeyCode::End), &tx).unwrap();
+    assert_eq!(app.bulk_tag_editor.new_tag_cursor, 2);
+    // Esc cancels input without closing editor.
+    handle_key_event(&mut app, key(KeyCode::Esc), &tx).unwrap();
+    assert!(app.bulk_tag_editor.new_tag_input.is_none());
+    assert_eq!(app.screen, Screen::BulkTagEditor);
+}
+
+#[test]
+fn format_apply_status_variants() {
+    use crate::app::BulkTagApplyResult;
+    use crate::handler::bulk_tag_editor::format_apply_status;
+
+    // No changes, no skipped.
+    assert_eq!(format_apply_status(&BulkTagApplyResult::default()), "");
+
+    // Only adds.
+    let r = BulkTagApplyResult {
+        changed_hosts: 3,
+        added: 5,
+        removed: 0,
+        skipped_included: 0,
+    };
+    let s = format_apply_status(&r);
+    assert!(s.contains("Updated 3 hosts"), "{s}");
+    assert!(s.contains("+5"), "{s}");
+    assert!(!s.contains("-"), "{s}");
+
+    // Only removes.
+    let r = BulkTagApplyResult {
+        changed_hosts: 2,
+        added: 0,
+        removed: 3,
+        skipped_included: 0,
+    };
+    let s = format_apply_status(&r);
+    assert!(s.contains("-3"), "{s}");
+
+    // Both + skipped.
+    let r = BulkTagApplyResult {
+        changed_hosts: 4,
+        added: 2,
+        removed: 1,
+        skipped_included: 2,
+    };
+    let s = format_apply_status(&r);
+    assert!(s.contains("+2"), "{s}");
+    assert!(s.contains("-1"), "{s}");
+    assert!(s.contains("skipped 2"), "{s}");
+    assert!(s.contains("include files"), "{s}");
+
+    // Single host, single skipped (singular forms).
+    let r = BulkTagApplyResult {
+        changed_hosts: 1,
+        added: 1,
+        removed: 0,
+        skipped_included: 1,
+    };
+    let s = format_apply_status(&r);
+    assert!(s.contains("Updated 1 host"), "{s}");
+    assert!(!s.contains("hosts"), "should be singular: {s}");
+    assert!(s.contains("skipped 1 in include file"), "{s}");
+}

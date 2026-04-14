@@ -52,6 +52,10 @@ pub(super) fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::S
         KeyCode::Esc => {
             if app.group_filter.is_some() {
                 app.clear_group_filter();
+            } else if !app.multi_select.is_empty() {
+                // Clear the selection before quitting so Esc first resets
+                // bulk-edit intent, then a second Esc exits the app.
+                app.multi_select.clear();
             } else {
                 if let Some(ref cancel) = app.vault.signing_cancel {
                     cancel.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -311,6 +315,16 @@ pub(super) fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::S
             app.screen = Screen::KeyList;
         }
         KeyCode::Char('t') => {
+            // Context-sensitive: with a multi-host selection active, open
+            // the bulk tag editor. Otherwise fall back to the single-host
+            // tag input bar. `t` consistently means "edit tags" — only the
+            // scope changes.
+            if !app.multi_select.is_empty() {
+                if !app.open_bulk_tag_editor() {
+                    app.set_status("No hosts to tag.", true);
+                }
+                return;
+            }
             if app.is_pattern_selected() {
                 return;
             }
@@ -430,7 +444,34 @@ pub(super) fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::S
             app.ui.detail_scroll = app.ui.detail_scroll.saturating_sub(1);
         }
         KeyCode::Char('u') => {
-            if let Some(deleted) = app.undo_stack.pop() {
+            // Bulk-tag undo takes priority: the most recent bulk-tag apply
+            // can be reverted in one keystroke by restoring each host's
+            // previous tag list. After a successful undo the snapshot is
+            // cleared so the next `u` falls through to the deleted-host
+            // stack as usual.
+            if let Some(snapshot) = app.bulk_tag_undo.take() {
+                let config_backup = app.config.clone();
+                for (alias, tags) in &snapshot {
+                    app.config.set_host_tags(alias, tags);
+                }
+                if let Err(e) = app.config.write() {
+                    app.config = config_backup;
+                    app.bulk_tag_undo = Some(snapshot);
+                    app.set_status(format!("Failed to save: {}", e), true);
+                } else {
+                    let count = snapshot.len();
+                    app.update_last_modified();
+                    app.reload_hosts();
+                    app.set_status(
+                        format!(
+                            "Restored tags on {} host{}.",
+                            count,
+                            if count == 1 { "" } else { "s" }
+                        ),
+                        false,
+                    );
+                }
+            } else if let Some(deleted) = app.undo_stack.pop() {
                 let alias = match &deleted.element {
                     ConfigElement::HostBlock(block) => block.host_pattern.clone(),
                     _ => "host".to_string(),
@@ -533,6 +574,21 @@ pub(super) fn handle_host_list(app: &mut App, key: KeyEvent, events_tx: &mpsc::S
         }
         KeyCode::Char('V') => actions::initiate_bulk_vault_sign(app),
         KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if app.is_pattern_selected() {
+                return;
+            }
+            if let Some(idx) = app.selected_host_index() {
+                if app.multi_select.contains(&idx) {
+                    app.multi_select.remove(&idx);
+                } else {
+                    app.multi_select.insert(idx);
+                }
+            }
+        }
+        KeyCode::Char(' ') => {
+            // Plain Space mirrors Ctrl+Space so users familiar with
+            // ranger/k9s/mutt's muscle memory get the same mark toggle
+            // without a modifier. Ctrl+Space still works.
             if app.is_pattern_selected() {
                 return;
             }

@@ -1,3 +1,13 @@
+## 2.38.0
+
+- Bulk tag editor for multi-host tagging
+- Select hosts with Space (or Ctrl+Space), press t to open the bulk tag overlay. Tri-state checkboxes: [x] add to all, [ ] remove from all, [~] leave as-is. Space cycles through all three states
+- Press + to add a brand-new tag. Enter applies, Esc cancels. u undoes the entire operation in one keystroke
+- Plain Space now toggles host selection (Ctrl+Space still works). Esc clears the selection
+- Footer shows bulk actions (t bulk tag, r run, Esc clear, ? help) when hosts are selected
+- Include-file hosts are detected and skipped with a visible warning. Mixed-state rows show a "mixed" label for accessibility on NO_COLOR terminals
+- Closes [#15](https://github.com/erickochen/purple/issues/15)
+
 ## 2.37.0
 
 - Smarter forms, jump host suggestions and polished overlays

@@ -30,6 +30,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Screen::KeyDetail { .. } => key_detail_lines(),
             Screen::HostDetail { .. } => host_detail_lines(),
             Screen::TagPicker => tag_picker_lines(),
+            Screen::BulkTagEditor => bulk_tag_editor_lines(),
             Screen::ThemePicker => vec![
                 help_line("j/k ↑↓", "up / down"),
                 help_line("Enter", "select theme"),
@@ -210,6 +211,7 @@ fn context_title(screen: &Screen) -> &'static str {
         Screen::KeyDetail { .. } => "Key Detail",
         Screen::HostDetail { .. } => "All Directives",
         Screen::TagPicker => "Tags",
+        Screen::BulkTagEditor => "Bulk tags",
         Screen::ThemePicker => "Theme",
         _ => "Help",
     }
@@ -289,12 +291,12 @@ fn host_list_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
         help_line_short("e", "edit"),
         help_line_short("d", "del"),
         help_line_short("u", "undo del"),
-        help_line_short("t", "tag (inline)"),
+        help_line_short("t", "tag (bulk if sel.)"),
         blank(),
         blank(),                           // row 9  padding so headers align
         section_header("CONNECT AND RUN"), // row 10 ↔ col1 VIEW
         blank(),
-        help_line_short("^Space", "multi-select"),
+        help_line_short("Space", "multi-select"),
         help_line_short("r/R", "snippet / all"),
         help_line_short("p/P", "ping / all"),
         blank(),
@@ -415,6 +417,17 @@ fn tag_picker_lines() -> Vec<Line<'static>> {
     lines.push(help_line("PgDn/PgUp", "page down / up"));
     lines.push(help_line("?", "help"));
     lines.push(help_line("q/Esc/#", "close"));
+    lines
+}
+
+fn bulk_tag_editor_lines() -> Vec<Line<'static>> {
+    let mut lines = vec![blank()];
+    lines.push(help_line("j/k ↑↓", "up / down"));
+    lines.push(help_line("Space", "cycle [~] [x] [ ]"));
+    lines.push(help_line("+", "new tag"));
+    lines.push(help_line("Enter", "apply"));
+    lines.push(help_line("?", "help"));
+    lines.push(help_line("q/Esc", "cancel"));
     lines
 }
 

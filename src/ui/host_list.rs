@@ -298,7 +298,11 @@ pub fn render(frame: &mut Frame, app: &mut App, spinner_tick: u64, detail_progre
         let spans = if app.is_pattern_selected() {
             pattern_footer_spans(target_detail)
         } else {
-            footer_spans(target_detail, app.ping.filter_down_only)
+            footer_spans(
+                target_detail,
+                app.ping.filter_down_only,
+                !app.multi_select.is_empty(),
+            )
         };
         super::render_footer_with_help(frame, chunks[2], spans, app);
     }
@@ -1232,7 +1236,31 @@ fn render_search_bar(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) 
     frame.render_widget(Paragraph::new(search_line), area);
 }
 
-fn footer_spans(detail_active: bool, filter_down_only: bool) -> Vec<Span<'static>> {
+fn footer_spans(
+    detail_active: bool,
+    filter_down_only: bool,
+    selection_active: bool,
+) -> Vec<Span<'static>> {
+    // With a multi-host selection active, surface the bulk-edit affordance
+    // directly in the footer — otherwise new users would never know `t`
+    // applies to the whole selection. The hint replaces the less-urgent
+    // `v` and `:` items to keep the footer one line wide on narrow terms.
+    if selection_active {
+        return vec![
+            Span::styled(" t ", theme::footer_key()),
+            Span::styled(" bulk tag ", theme::muted()),
+            Span::raw("  "),
+            Span::styled(" r ", theme::footer_key()),
+            Span::styled(" run ", theme::muted()),
+            Span::raw("  "),
+            Span::styled(" Esc ", theme::footer_key()),
+            Span::styled(" clear ", theme::muted()),
+            Span::raw("  "),
+            Span::styled(" ? ", theme::footer_key()),
+            Span::styled(" help", theme::muted()),
+        ];
+    }
+
     let view_label = if detail_active {
         " compact "
     } else {

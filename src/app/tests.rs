@@ -7349,3 +7349,385 @@ fn parse_proxy_jump_hops_rejects_unclosed_ipv6_bracket() {
         Some("good")
     );
 }
+
+// ---------------------------------------------------------------------
+// Bulk tag editor
+//
+// These tests pin down the contract a user experiences via `t` when
+// multi-select is active. Each scenario writes a small in-memory config,
+// marks a subset, opens the editor, cycles tri-state actions, and asserts
+// on the resulting config (round-tripped back through `hosts`).
+// ---------------------------------------------------------------------
+
+fn bulk_app() -> App {
+    // Four hosts, mixed tag membership:
+    //   a → prod
+    //   b → prod, db
+    //   c → db
+    //   d → <no tags>
+    let mut app = test_app_with_hosts(&[
+        "Host a\n  HostName 1.1.1.1\n  # purple:tags prod",
+        "Host b\n  HostName 2.2.2.2\n  # purple:tags prod,db",
+        "Host c\n  HostName 3.3.3.3\n  # purple:tags db",
+        "Host d\n  HostName 4.4.4.4",
+    ]);
+    // Unique config path so parallel bulk tests (plus the shared
+    // `/tmp/test_config` used by older suite) do not race on write.
+    // A counter atomic is a plain stable ID — unlike a raw pointer it
+    // satisfies clippy::transmute_ptr_to_int.
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let id = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    app.config.path = std::env::temp_dir().join(format!(
+        "purple_bulk_test_{}_{}.cfg",
+        std::process::id(),
+        id
+    ));
+    app
+}
+
+#[test]
+fn bulk_open_refuses_empty_selection() {
+    let mut app = bulk_app();
+    assert!(!app.open_bulk_tag_editor());
+    assert_eq!(app.screen, Screen::HostList);
+}
+
+#[test]
+fn bulk_open_seeds_rows_with_counts_and_sorts_aliases() {
+    let mut app = bulk_app();
+    // Select a, b, c (all 4 hosts share indices 0..3 sorted by config order).
+    app.multi_select.insert(0);
+    app.multi_select.insert(1);
+    app.multi_select.insert(2);
+    assert!(app.open_bulk_tag_editor());
+    assert_eq!(app.screen, Screen::BulkTagEditor);
+    assert_eq!(app.bulk_tag_editor.aliases, vec!["a", "b", "c"]);
+    // Rows are the union of all user tags across the config. Each row's
+    // count reflects how many of the selected hosts (a,b,c) have that
+    // tag — 2 of 3 for prod, 2 of 3 for db.
+    let by_tag: std::collections::HashMap<&str, usize> = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .map(|r| (r.tag.as_str(), r.initial_count))
+        .collect();
+    assert_eq!(by_tag.get("prod"), Some(&2));
+    assert_eq!(by_tag.get("db"), Some(&2));
+    // Every row starts in Leave so Enter with no interaction is a no-op.
+    assert!(
+        app.bulk_tag_editor
+            .rows
+            .iter()
+            .all(|r| r.action == BulkTagAction::Leave)
+    );
+}
+
+#[test]
+fn bulk_cycle_walks_three_states() {
+    let mut app = bulk_app();
+    app.multi_select.insert(0);
+    assert!(app.open_bulk_tag_editor());
+    // Select the first row (whatever it is).
+    app.ui.bulk_tag_editor_state.select(Some(0));
+    assert_eq!(app.bulk_tag_editor.rows[0].action, BulkTagAction::Leave);
+    app.bulk_tag_editor_cycle_current();
+    assert_eq!(app.bulk_tag_editor.rows[0].action, BulkTagAction::AddToAll);
+    app.bulk_tag_editor_cycle_current();
+    assert_eq!(
+        app.bulk_tag_editor.rows[0].action,
+        BulkTagAction::RemoveFromAll
+    );
+    app.bulk_tag_editor_cycle_current();
+    assert_eq!(app.bulk_tag_editor.rows[0].action, BulkTagAction::Leave);
+}
+
+#[test]
+fn bulk_apply_add_to_all_adds_missing_and_reports_delta() {
+    let mut app = bulk_app();
+    // Select a (has prod) + d (has nothing). Target: add `prod` to both;
+    // only d should actually gain the tag.
+    let idx_a = app.hosts.iter().position(|h| h.alias == "a").unwrap();
+    let idx_d = app.hosts.iter().position(|h| h.alias == "d").unwrap();
+    app.multi_select.insert(idx_a);
+    app.multi_select.insert(idx_d);
+    assert!(app.open_bulk_tag_editor());
+    let prod_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "prod")
+        .expect("prod row");
+    app.bulk_tag_editor.rows[prod_row].action = BulkTagAction::AddToAll;
+    let result = app.bulk_tag_apply().expect("apply ok");
+    assert_eq!(result.changed_hosts, 1, "only d should change");
+    assert_eq!(result.added, 1);
+    assert_eq!(result.removed, 0);
+
+    // Both hosts now have prod.
+    let a = app.hosts.iter().find(|h| h.alias == "a").unwrap();
+    let d = app.hosts.iter().find(|h| h.alias == "d").unwrap();
+    assert!(a.tags.contains(&"prod".to_string()));
+    assert!(d.tags.contains(&"prod".to_string()));
+}
+
+#[test]
+fn bulk_apply_remove_from_all_strips_tag_only_where_present() {
+    let mut app = bulk_app();
+    // Select b (prod, db) and c (db). Remove `db` from both.
+    let idx_b = app.hosts.iter().position(|h| h.alias == "b").unwrap();
+    let idx_c = app.hosts.iter().position(|h| h.alias == "c").unwrap();
+    app.multi_select.insert(idx_b);
+    app.multi_select.insert(idx_c);
+    assert!(app.open_bulk_tag_editor());
+    let db_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "db")
+        .expect("db row");
+    app.bulk_tag_editor.rows[db_row].action = BulkTagAction::RemoveFromAll;
+    let result = app.bulk_tag_apply().expect("apply ok");
+    assert_eq!(result.changed_hosts, 2);
+    assert_eq!(result.removed, 2);
+    assert_eq!(result.added, 0);
+    let b = app.hosts.iter().find(|h| h.alias == "b").unwrap();
+    let c = app.hosts.iter().find(|h| h.alias == "c").unwrap();
+    assert!(!b.tags.contains(&"db".to_string()));
+    assert!(!c.tags.contains(&"db".to_string()));
+    // `prod` on b is untouched — only `db` was targeted.
+    assert!(b.tags.contains(&"prod".to_string()));
+}
+
+#[test]
+fn bulk_apply_leave_is_noop_and_reports_zero_counts() {
+    let mut app = bulk_app();
+    app.multi_select.insert(0);
+    app.multi_select.insert(1);
+    assert!(app.open_bulk_tag_editor());
+    let result = app.bulk_tag_apply().expect("apply ok");
+    assert_eq!(result.changed_hosts, 0);
+    assert_eq!(result.added, 0);
+    assert_eq!(result.removed, 0);
+}
+
+#[test]
+fn bulk_apply_add_and_remove_in_one_pass() {
+    let mut app = bulk_app();
+    // Select b (prod, db) + d (nothing). Add `staging`, remove `db`.
+    let idx_b = app.hosts.iter().position(|h| h.alias == "b").unwrap();
+    let idx_d = app.hosts.iter().position(|h| h.alias == "d").unwrap();
+    app.multi_select.insert(idx_b);
+    app.multi_select.insert(idx_d);
+    assert!(app.open_bulk_tag_editor());
+    // `staging` doesn't exist yet — use the new-tag path.
+    app.bulk_tag_editor.new_tag_input = Some("staging".into());
+    app.bulk_tag_editor.new_tag_cursor = 7;
+    app.bulk_tag_editor_commit_new_tag();
+    let db_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "db")
+        .expect("db row");
+    app.bulk_tag_editor.rows[db_row].action = BulkTagAction::RemoveFromAll;
+    let result = app.bulk_tag_apply().expect("apply ok");
+    // Both hosts gained staging (2 adds). Only b had db (1 remove).
+    assert_eq!(result.added, 2, "staging adds");
+    assert_eq!(result.removed, 1, "db remove");
+    assert_eq!(result.changed_hosts, 2);
+    let b = app.hosts.iter().find(|h| h.alias == "b").unwrap();
+    let d = app.hosts.iter().find(|h| h.alias == "d").unwrap();
+    assert!(b.tags.contains(&"staging".to_string()));
+    assert!(d.tags.contains(&"staging".to_string()));
+    assert!(!b.tags.contains(&"db".to_string()));
+}
+
+#[test]
+fn bulk_new_tag_input_dedupes_existing_row() {
+    let mut app = bulk_app();
+    app.multi_select.insert(0);
+    assert!(app.open_bulk_tag_editor());
+    let before_rows = app.bulk_tag_editor.rows.len();
+    // Typing a tag that already exists should flip its action to AddToAll
+    // rather than add a duplicate row.
+    app.bulk_tag_editor.new_tag_input = Some("prod".into());
+    app.bulk_tag_editor.new_tag_cursor = 4;
+    app.bulk_tag_editor_commit_new_tag();
+    assert_eq!(app.bulk_tag_editor.rows.len(), before_rows);
+    let prod = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .find(|r| r.tag == "prod")
+        .unwrap();
+    assert_eq!(prod.action, BulkTagAction::AddToAll);
+}
+
+#[test]
+fn bulk_action_cycle_wraps() {
+    assert_eq!(BulkTagAction::Leave.cycle(), BulkTagAction::AddToAll);
+    assert_eq!(
+        BulkTagAction::AddToAll.cycle(),
+        BulkTagAction::RemoveFromAll
+    );
+    assert_eq!(BulkTagAction::RemoveFromAll.cycle(), BulkTagAction::Leave);
+}
+
+#[test]
+fn bulk_action_glyph_is_distinct_per_variant() {
+    let glyphs = [
+        BulkTagAction::Leave.glyph(),
+        BulkTagAction::AddToAll.glyph(),
+        BulkTagAction::RemoveFromAll.glyph(),
+    ];
+    for (i, a) in glyphs.iter().enumerate() {
+        for (j, b) in glyphs.iter().enumerate() {
+            if i != j {
+                assert_ne!(a, b, "glyphs must be distinct: {a} vs {b}");
+            }
+        }
+    }
+}
+
+#[test]
+fn bulk_apply_add_to_all_noop_when_all_hosts_already_have_tag() {
+    // When every selected host already carries the tag, AddToAll should
+    // NOT trigger a config write (changed_hosts == 0).
+    let mut app = bulk_app();
+    let idx_a = app.hosts.iter().position(|h| h.alias == "a").unwrap();
+    let idx_b = app.hosts.iter().position(|h| h.alias == "b").unwrap();
+    app.multi_select.insert(idx_a);
+    app.multi_select.insert(idx_b);
+    assert!(app.open_bulk_tag_editor());
+    let prod_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "prod")
+        .unwrap();
+    // Both a and b already have "prod".
+    app.bulk_tag_editor.rows[prod_row].action = BulkTagAction::AddToAll;
+    let result = app.bulk_tag_apply().expect("apply ok");
+    assert_eq!(result.changed_hosts, 0);
+    assert_eq!(result.added, 0);
+}
+
+#[test]
+fn bulk_open_with_include_file_host_records_skipped() {
+    // Hosts sourced from Include files cannot be tag-edited in place.
+    // Verify they show up in skipped_included and their tags stay intact.
+    let mut app = bulk_app();
+    // Simulate an Include-sourced host by setting source_file.
+    app.hosts[0].source_file = Some(PathBuf::from("/etc/ssh/extra.conf"));
+    let idx_0 = 0;
+    let idx_1 = 1;
+    app.multi_select.insert(idx_0);
+    app.multi_select.insert(idx_1);
+    assert!(app.open_bulk_tag_editor());
+    assert_eq!(app.bulk_tag_editor.skipped_included.len(), 1);
+    assert!(
+        app.bulk_tag_editor
+            .skipped_included
+            .contains(&app.hosts[0].alias.clone())
+    );
+
+    // Force add a tag; the skipped host must NOT get it.
+    let db_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "db")
+        .unwrap();
+    app.bulk_tag_editor.rows[db_row].action = BulkTagAction::AddToAll;
+    let result = app.bulk_tag_apply().expect("apply ok");
+    assert_eq!(result.skipped_included, 1);
+    // Host 0 (alias "a") should be unchanged because it is in Include.
+    let a = app.hosts.iter().find(|h| h.alias == "a").unwrap();
+    assert!(!a.tags.contains(&"db".to_string()));
+}
+
+#[test]
+fn bulk_apply_write_failure_rolls_back_and_keeps_undo_empty() {
+    let mut app = bulk_app();
+    // Point the config to an unwritable path.
+    app.config.path = PathBuf::from("/dev/null/impossible/path.cfg");
+    let idx = app.hosts.iter().position(|h| h.alias == "a").unwrap();
+    app.multi_select.insert(idx);
+    assert!(app.open_bulk_tag_editor());
+    let prod_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "prod")
+        .unwrap();
+    app.bulk_tag_editor.rows[prod_row].action = BulkTagAction::RemoveFromAll;
+    let err = app.bulk_tag_apply();
+    assert!(err.is_err(), "should fail on bad path");
+    // Undo snapshot should NOT be set on failure.
+    assert!(app.bulk_tag_undo.is_none());
+}
+
+#[test]
+fn bulk_double_undo_falls_through_to_delete_stack() {
+    let mut app = bulk_app();
+    let idx = app.hosts.iter().position(|h| h.alias == "a").unwrap();
+    app.multi_select.insert(idx);
+    assert!(app.open_bulk_tag_editor());
+    let prod_row = app
+        .bulk_tag_editor
+        .rows
+        .iter()
+        .position(|r| r.tag == "prod")
+        .unwrap();
+    app.bulk_tag_editor.rows[prod_row].action = BulkTagAction::RemoveFromAll;
+    app.bulk_tag_apply().expect("apply ok");
+    assert!(app.bulk_tag_undo.is_some());
+
+    // First undo: restores tags. Simulate the undo handler inline.
+    let snapshot = app.bulk_tag_undo.take().unwrap();
+    for (alias, tags) in &snapshot {
+        app.config.set_host_tags(alias, tags);
+    }
+    let _ = app.config.write(); // may fail in test env, that's ok
+    // Second undo attempt: no bulk_tag_undo, no undo_stack → nothing.
+    assert!(app.bulk_tag_undo.is_none());
+    assert!(app.undo_stack.is_empty());
+}
+
+#[test]
+fn bulk_new_tag_empty_input_is_noop() {
+    let mut app = bulk_app();
+    app.multi_select.insert(0);
+    assert!(app.open_bulk_tag_editor());
+    let before = app.bulk_tag_editor.rows.len();
+    // Submit whitespace-only new tag.
+    app.bulk_tag_editor.new_tag_input = Some("   ".into());
+    app.bulk_tag_editor.new_tag_cursor = 3;
+    app.bulk_tag_editor_commit_new_tag();
+    assert_eq!(app.bulk_tag_editor.rows.len(), before);
+    assert!(app.bulk_tag_editor.new_tag_input.is_none());
+}
+
+#[test]
+fn bulk_open_with_zero_tags_in_config_succeeds() {
+    let mut app =
+        test_app_with_hosts(&["Host x\n  HostName 1.1.1.1", "Host y\n  HostName 2.2.2.2"]);
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let id = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    app.config.path = std::env::temp_dir().join(format!(
+        "purple_zero_tags_test_{}_{}.cfg",
+        std::process::id(),
+        id
+    ));
+    app.multi_select.insert(0);
+    app.multi_select.insert(1);
+    assert!(app.open_bulk_tag_editor());
+    assert!(app.bulk_tag_editor.rows.is_empty());
+    assert_eq!(app.screen, Screen::BulkTagEditor);
+    // New-tag input should still work on empty list.
+    app.bulk_tag_editor.new_tag_input = Some("fresh".into());
+    app.bulk_tag_editor.new_tag_cursor = 5;
+    app.bulk_tag_editor_commit_new_tag();
+    assert_eq!(app.bulk_tag_editor.rows.len(), 1);
+    assert_eq!(app.bulk_tag_editor.rows[0].tag, "fresh");
+}

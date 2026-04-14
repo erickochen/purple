@@ -177,7 +177,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
   "url": "https://getpurple.sh",
   "downloadUrl": "https://getpurple.sh",
   "installUrl": "https://github.com/erickochen/purple/releases",
-  "softwareVersion": "2.37.0",
+  "softwareVersion": "2.38.0",
   "datePublished": "2024-10-01",
   "dateModified": "2026-04-14",
   "softwareRequirements": "macOS or Linux",
@@ -914,7 +914,7 @@ footer .sep { margin: 0 0.3em; }
           <button class="copy-btn copy-inline" id="copy-btn" onclick="copy(this)" style="display:none">copy</button>
         </div>
         <div class="install-output" id="install-output" style="display:none">
-          <div>Downloading purple v2.37.0 for darwin-arm64...</div>
+          <div>Downloading purple v2.38.0 for darwin-arm64...</div>
           <div>Installing to /usr/local/bin/purple... <span class="success">done.</span></div>
         </div>
         <div class="alt-installs" id="alt-installs" style="display:none">
@@ -1032,7 +1032,7 @@ footer .sep { margin: 0 0.3em; }
         <summary>How do I troubleshoot connection problems?</summary>
         <div class="answer">Run with <code>--verbose</code> to enable debug logging, then <code>purple logs --tail</code> in another terminal. Logs are written to <code>~/.purple/purple.log</code> with fault domain prefixes: <code>[external]</code> for remote/tool errors, <code>[config]</code> for local config issues. Set <code>PURPLE_LOG=trace</code> for maximum detail.</div>
       </details>
-      <div class="man-foot"><span>purple v2.37.0</span><span>2026-04-14</span><span>PURPLE(1)</span></div>
+      <div class="man-foot"><span>purple v2.38.0</span><span>2026-04-14</span><span>PURPLE(1)</span></div>
     </div>
   </div>
 
@@ -1195,7 +1195,7 @@ purple is an open-source terminal SSH manager and SSH config editor written in R
 - Short-lived SSH certificates via the HashiCorp Vault SSH secrets engine. Per-host or per-provider role configuration (# purple:vault-ssh). Bulk sign with V key. Cert cache under ~/.purple/certs/ with TTL tracking and renewal. Vault SSH address resolved from CLI flag > per-host \`# purple:vault-addr\` > provider \`vault_addr\` > parent shell \`VAULT_ADDR\` env, so users no longer need to export \`VAULT_ADDR\` before launching purple. Distinct from the Vault KV password source above
 - Container management via SSH (Docker and Podman). View, start, stop and restart containers. Auto-detected runtime. No agent. No web UI. No extra ports. Works with both Docker and Podman
 - SSH tunnel management: LocalForward, RemoteForward, DynamicForward. Start/stop from TUI or CLI
-- Host tagging via SSH config comments. User tags in # purple:tags, provider tags in # purple:provider_tags (exact mirror of remote). Tag picker, fuzzy and exact tag filtering
+- Host tagging via SSH config comments. User tags in # purple:tags, provider tags in # purple:provider_tags (exact mirror of remote). Tag picker, fuzzy and exact tag filtering. Bulk tag editor: select hosts with Space, press t to add or remove tags across all selected hosts at once with tri-state checkboxes. Undoable with u
 - Bulk import from hosts files or ~/.ssh/known_hosts
 - SSH key browsing with metadata (type, bits, fingerprint) and host linking
 - Split-pane detail panel showing connection info, activity sparkline, tags, provider metadata, tunnels and snippets
@@ -1493,7 +1493,7 @@ A: Press m in the host list to open the theme picker with live preview. 11 built
 
 ## Status
 
-- Current version: 2.37.0 (April 2026)
+- Current version: 2.38.0 (April 2026)
 - Release cadence: approximately bi-weekly
 - Test suite: 6200+ tests (unit, integration, property-based and HTTP mocking)
 - CI: fmt, clippy, test on macOS and Linux, cargo-deny, MSRV 1.86 check

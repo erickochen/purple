@@ -181,6 +181,10 @@ pub enum Screen {
         host_count: usize,
         known_hosts_count: usize,
     },
+    /// Bulk tag editor: tri-state checkbox picker that edits tags across
+    /// all hosts in `multi_select` in one go. Opened via `t` when a
+    /// multi-host selection is active.
+    BulkTagEditor,
 }
 
 /// Classification of status messages for routing to toast overlay vs footer.
@@ -558,6 +562,7 @@ pub struct UiSelection {
     pub show_vault_role_picker: bool,
     pub vault_role_picker_state: ListState,
     pub tag_picker_state: ListState,
+    pub bulk_tag_editor_state: ListState,
     pub theme_picker_state: ListState,
     pub theme_picker_builtins: Vec<crate::ui::theme::ThemeDef>,
     pub theme_picker_custom: Vec<crate::ui::theme::ThemeDef>,
@@ -652,6 +657,75 @@ pub struct TagState {
     pub input: Option<String>,
     pub cursor: usize,
     pub list: Vec<String>,
+}
+
+/// User action per tag row in the bulk tag editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BulkTagAction {
+    /// `[~]` Leave each host's state for this tag unchanged.
+    Leave,
+    /// `[x]` Ensure the tag is present on every selected host.
+    AddToAll,
+    /// `[ ]` Ensure the tag is absent from every selected host.
+    RemoveFromAll,
+}
+
+impl BulkTagAction {
+    /// 3-way cycle: `Leave` → `AddToAll` → `RemoveFromAll` → `Leave`.
+    pub fn cycle(self) -> Self {
+        match self {
+            BulkTagAction::Leave => BulkTagAction::AddToAll,
+            BulkTagAction::AddToAll => BulkTagAction::RemoveFromAll,
+            BulkTagAction::RemoveFromAll => BulkTagAction::Leave,
+        }
+    }
+
+    pub fn glyph(self) -> &'static str {
+        match self {
+            BulkTagAction::Leave => "[~]",
+            BulkTagAction::AddToAll => "[x]",
+            BulkTagAction::RemoveFromAll => "[ ]",
+        }
+    }
+}
+
+/// A single row in the bulk tag editor.
+#[derive(Debug, Clone)]
+pub struct BulkTagRow {
+    pub tag: String,
+    /// Number of selected hosts that had this tag at editor open time.
+    pub initial_count: usize,
+    pub action: BulkTagAction,
+}
+
+/// Snapshot state for the bulk tag editor overlay.
+#[derive(Debug, Default)]
+pub struct BulkTagEditorState {
+    pub rows: Vec<BulkTagRow>,
+    /// Aliases being edited, snapshot at open time so selection changes
+    /// during the flow do not affect the in-progress edit.
+    pub aliases: Vec<String>,
+    /// Aliases that live in an Include file and cannot be edited in place.
+    /// Surfaced in the header so the user sees the blast radius.
+    pub skipped_included: Vec<String>,
+    /// Draft name for a brand-new tag being typed by the user. `None` when
+    /// the input bar is inactive. Newly entered tags are appended to `rows`
+    /// with `action = AddToAll`.
+    pub new_tag_input: Option<String>,
+    pub new_tag_cursor: usize,
+}
+
+/// Outcome of applying a bulk tag edit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BulkTagApplyResult {
+    /// Hosts whose tag list actually changed.
+    pub changed_hosts: usize,
+    /// Total (host, tag) additions.
+    pub added: usize,
+    /// Total (host, tag) removals.
+    pub removed: usize,
+    /// Hosts skipped because they live in an Include file.
+    pub skipped_included: usize,
 }
 
 /// Baseline snapshot of provider form content for dirty-check on Esc.

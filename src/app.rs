@@ -62,8 +62,9 @@ pub use forms::{
 };
 pub use ping::PingState;
 pub use types::{
-    ConflictState, ContainerState, DeletedHost, FormBaseline, GroupBy, HostListItem, MessageClass,
-    PingStatus, ProviderFormBaseline, ProxyJumpCandidate, ReloadState, Screen, SearchState,
+    BulkTagAction, BulkTagApplyResult, BulkTagEditorState, BulkTagRow, ConflictState,
+    ContainerState, DeletedHost, FormBaseline, GroupBy, HostListItem, MessageClass, PingStatus,
+    ProviderFormBaseline, ProxyJumpCandidate, ReloadState, Screen, SearchState,
     SnippetFormBaseline, SortMode, StatusMessage, SyncRecord, TagState, TunnelFormBaseline,
     UiSelection, ViewMode, classify_ping, health_summary_spans, health_summary_spans_for,
     ping_sort_key, propagate_ping_to_dependents, select_display_tags, status_glyph,
@@ -118,6 +119,12 @@ pub struct App {
 
     // Tags
     pub tags: TagState,
+    pub bulk_tag_editor: BulkTagEditorState,
+    /// Snapshot of the last bulk tag apply, used by `u` to revert the
+    /// operation even though `undo_stack` only holds deleted hosts. Holds
+    /// `(alias, previous_tags)` pairs so restore is idempotent. Cleared
+    /// after a successful undo or on the next mutation.
+    pub bulk_tag_undo: Option<Vec<(String, Vec<String>)>>,
 
     // History + preferences
     pub history: ConnectionHistory,
@@ -261,6 +268,7 @@ impl App {
                 show_vault_role_picker: false,
                 vault_role_picker_state: ListState::default(),
                 tag_picker_state: ListState::default(),
+                bulk_tag_editor_state: ListState::default(),
                 theme_picker_state: ListState::default(),
                 theme_picker_builtins: Vec::new(),
                 theme_picker_custom: Vec::new(),
@@ -296,6 +304,8 @@ impl App {
             },
             keys: Vec::new(),
             tags: TagState::default(),
+            bulk_tag_editor: BulkTagEditorState::default(),
+            bulk_tag_undo: None,
             history: ConnectionHistory::load(),
             sort_mode: SortMode::Original,
             group_by: GroupBy::None,
@@ -398,8 +408,9 @@ impl App {
         }
 
         // Close tag pickers if open — tags.list is stale after reload
-        if matches!(self.screen, Screen::TagPicker) {
+        if matches!(self.screen, Screen::TagPicker | Screen::BulkTagEditor) {
             self.screen = Screen::HostList;
+            self.bulk_tag_editor = BulkTagEditorState::default();
         }
 
         // Multi-select stores indices into hosts; clear to avoid stale refs
@@ -698,6 +709,7 @@ impl App {
                 | Screen::ConfirmImport { .. }
                 | Screen::ConfirmVaultSign { .. }
                 | Screen::TagPicker
+                | Screen::BulkTagEditor
                 | Screen::ThemePicker
         ) || self.tags.input.is_some()
         {
