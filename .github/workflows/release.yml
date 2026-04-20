@@ -116,7 +116,7 @@ jobs:
           cat "${{ env.ARCHIVE }}.sha256"
 
       - name: Set up Node.js (for mcpb pack)
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
 
