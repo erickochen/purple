@@ -500,6 +500,7 @@ Host key verification failed.
     /// Mutex to serialise tests that mutate the TMUX env var.
     static TMUX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    #[cfg(unix)]
     #[test]
     fn is_in_tmux_returns_true_when_set() {
         let _guard = TMUX_LOCK.lock().unwrap_or_else(|p| p.into_inner());

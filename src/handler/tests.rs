@@ -40,6 +40,23 @@ fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
+/// Build a path whose parent is a regular file, so `atomic_write`'s
+/// `create_dir_all(parent)` fails on every platform. Used to force save
+/// failures in rollback tests; portable replacement for hardcoded
+/// `/nonexistent/...` paths that silently succeed on Windows because
+/// the user can write under `C:\`.
+fn unwritable_path() -> PathBuf {
+    let blocker = std::env::temp_dir().join(format!(
+        "purple_handler_unwritable_{}_{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&blocker);
+    let _ = std::fs::remove_file(&blocker);
+    std::fs::write(&blocker, b"block").expect("write blocker file");
+    blocker.join("child").join("snippets")
+}
+
 /// App met een geconfigureerde DigitalOcean (auto_sync=true) en een nieuw Proxmox.
 fn make_providers_app_with_do() -> App {
     let mut app = make_app("Host test\n  HostName test.com\n");
@@ -3004,7 +3021,7 @@ fn test_snippet_picker_d_last_item_selects_none() {
 fn test_snippet_picker_d_rollback_on_save_failure() {
     let mut app = make_snippet_app();
     // Point to a non-writable path to force save failure
-    app.snippets.store.path_override = Some(PathBuf::from("/nonexistent/dir/snippets"));
+    app.snippets.store.path_override = Some(unwritable_path());
     let (tx, _rx) = mpsc::channel();
 
     let _ = handle_key_event(&mut app, key(KeyCode::Char('d')), &tx);
@@ -3180,7 +3197,7 @@ fn test_snippet_form_submit_rejects_duplicate_name() {
 fn test_snippet_form_submit_rollback_on_save_failure() {
     let mut app = make_snippet_app();
     // Force save failure
-    app.snippets.store.path_override = Some(PathBuf::from("/nonexistent/dir/snippets"));
+    app.snippets.store.path_override = Some(unwritable_path());
     app.snippets.form = crate::app::SnippetForm::new();
     app.snippets.form.name = "new-cmd".to_string();
     app.snippets.form.command = "whoami".to_string();
@@ -3202,7 +3219,7 @@ fn test_snippet_form_submit_rollback_on_save_failure() {
 fn test_snippet_form_edit_rename_rollback_on_save_failure() {
     let mut app = make_snippet_app();
     // Force save failure
-    app.snippets.store.path_override = Some(PathBuf::from("/nonexistent/dir/snippets"));
+    app.snippets.store.path_override = Some(unwritable_path());
     app.snippets.form =
         crate::app::SnippetForm::from_snippet(&app.snippets.store.snippets[0].clone());
     app.snippets.form.name = "renamed".to_string();

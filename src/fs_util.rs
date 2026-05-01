@@ -8,7 +8,6 @@ use log::{debug, error};
 /// The lock is released when the `FileLock` is dropped.
 pub struct FileLock {
     lock_path: PathBuf,
-    #[cfg(unix)]
     _file: fs::File,
 }
 
@@ -137,23 +136,45 @@ pub fn atomic_write(path: &Path, content: &[u8]) -> io::Result<()> {
 
     #[cfg(not(unix))]
     {
-        if let Err(e) = fs::write(&tmp_path, content) {
+        use std::io::Write;
+        // Open with write access so sync_all (FlushFileBuffers) succeeds on
+        // Windows; opening read-only and calling sync_all returns Access
+        // Denied because FlushFileBuffers requires GENERIC_WRITE.
+        let open = || {
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp_path)
+        };
+        let mut file = match open() {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                let _ = fs::remove_file(&tmp_path);
+                open().map_err(|e| {
+                    io::Error::new(
+                        e.kind(),
+                        format!("Failed to create temp file {}: {}", tmp_path.display(), e),
+                    )
+                })?
+            }
+            Err(e) => {
+                return Err(io::Error::new(
+                    e.kind(),
+                    format!("Failed to create temp file {}: {}", tmp_path.display(), e),
+                ));
+            }
+        };
+        if let Err(e) = file.write_all(content) {
+            drop(file);
             let _ = fs::remove_file(&tmp_path);
             return Err(e);
         }
-        // sync_all via reopen since fs::write doesn't return a File handle
-        match fs::File::open(&tmp_path) {
-            Ok(f) => {
-                if let Err(e) = f.sync_all() {
-                    let _ = fs::remove_file(&tmp_path);
-                    return Err(e);
-                }
-            }
-            Err(e) => {
-                let _ = fs::remove_file(&tmp_path);
-                return Err(e);
-            }
+        if let Err(e) = file.sync_all() {
+            drop(file);
+            let _ = fs::remove_file(&tmp_path);
+            return Err(e);
         }
+        drop(file);
     }
 
     let result = fs::rename(&tmp_path, path);

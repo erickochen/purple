@@ -365,6 +365,7 @@ const MAX_OUTPUT_LINES: usize = 10_000;
 /// Uses SIGTERM first, then escalates to SIGKILL after a brief wait.
 pub struct ChildGuard {
     inner: std::sync::Mutex<Option<std::process::Child>>,
+    #[cfg_attr(not(unix), allow(dead_code))]
     pgid: i32,
 }
 

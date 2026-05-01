@@ -530,14 +530,19 @@ Host beta
 
 #[test]
 fn is_recent_marker_returns_false_for_nonexistent() {
-    let path = PathBuf::from("/tmp/purple_test_nonexistent_marker");
+    let path = std::env::temp_dir().join("purple_test_nonexistent_marker");
+    let _ = std::fs::remove_file(&path);
     assert!(!is_recent_marker(&path));
 }
 
 #[test]
 fn is_recent_marker_returns_true_for_fresh_file() {
-    let path = PathBuf::from("/tmp/purple_test_fresh_marker");
-    let _ = std::fs::write(&path, b"");
+    let path = std::env::temp_dir().join(format!(
+        "purple_test_fresh_marker_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+    std::fs::write(&path, b"").expect("write marker");
     assert!(is_recent_marker(&path));
     let _ = std::fs::remove_file(&path);
 }

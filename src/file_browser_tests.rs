@@ -144,9 +144,13 @@ fn test_build_scp_args_upload() {
         &["file.txt".to_string()],
         false,
     );
+    let expected_local = Path::new("/home/user/docs")
+        .join("file.txt")
+        .to_string_lossy()
+        .into_owned();
     assert_eq!(
         args,
-        vec!["--", "/home/user/docs/file.txt", "myhost:/remote/path/",]
+        vec!["--".to_string(), expected_local, "myhost:/remote/path/".to_string()]
     );
 }
 

@@ -140,6 +140,11 @@ fn mcp_e2e_full_session() {
 // list. The unit tests for `expand_user_path` cover the function in isolation;
 // this test covers the full subprocess chain that mirrors how the .mcpb
 // bundle launches in production.
+//
+// Unix-only: on Windows `dirs::home_dir()` uses SHGetKnownFolderPath, which
+// ignores HOME/USERPROFILE env overrides, so the subprocess always reads
+// the real user profile and the test cannot redirect it to a tempdir.
+#[cfg(unix)]
 #[test]
 fn mcp_subprocess_expands_literal_home_in_args() {
     use tempfile::TempDir;

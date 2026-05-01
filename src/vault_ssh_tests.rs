@@ -4,20 +4,21 @@ use super::*;
 /// a mock `ssh-keygen` or `vault` binary. Without this, parallel tests
 /// race on the process-wide environment and one test's PATH restore
 /// overwrites another's mock.
-#[cfg(unix)]
 static PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn cert_path_for_simple_alias() {
     let path = cert_path_for("webserver").unwrap();
-    assert!(path.ends_with("certs/webserver-cert.pub"));
-    assert!(path.to_string_lossy().contains(".purple/certs/"));
+    assert!(path.ends_with(Path::new("certs").join("webserver-cert.pub")));
+    assert!(path.ends_with(
+        Path::new(".purple").join("certs").join("webserver-cert.pub")
+    ));
 }
 
 #[test]
 fn cert_path_for_alias_with_prefix() {
     let path = cert_path_for("aws-prod-web01").unwrap();
-    assert!(path.ends_with("certs/aws-prod-web01-cert.pub"));
+    assert!(path.ends_with(Path::new("certs").join("aws-prod-web01-cert.pub")));
 }
 
 /// Regression: a public key path that contains `=` would split the
@@ -605,10 +606,13 @@ fn resolve_cert_path_uses_certificate_file_when_set() {
 #[test]
 fn resolve_cert_path_falls_back_to_default() {
     let path = resolve_cert_path("myhost", "").unwrap();
+    let suffix = Path::new(".purple")
+        .join("certs")
+        .join("myhost-cert.pub");
     assert!(
-        path.to_string_lossy()
-            .contains(".purple/certs/myhost-cert.pub"),
-        "got: {}",
+        path.ends_with(&suffix),
+        "expected suffix {}, got: {}",
+        suffix.display(),
         path.display()
     );
 }
