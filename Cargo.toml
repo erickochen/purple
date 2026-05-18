@@ -36,7 +36,7 @@ serde_json = "1"
 sha1 = "0.11"
 sha2 = "0.10"
 hmac = "0.12"
-quick-xml = { version = "0.39", features = ["serde", "serialize"] }
+quick-xml = { version = "0.40", features = ["serde", "serialize"] }
 rsa = { version = "0.9", features = ["sha2"] }
 base64 = "0.22"
 libc = "0.2"
