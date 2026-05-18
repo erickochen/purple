@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Substitute version into PKGBUILD
         env:
           VERSION: ${{ needs.resolve-version.outputs.version }}
@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Substitute version and fetch arch-specific sha256 sidecars
         env:
           VERSION: ${{ needs.resolve-version.outputs.version }}
