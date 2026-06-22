@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Build worker from source
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # build.mjs injects the Cargo.toml version + build date into the source
       # documents and embeds them into the worker template. It throws on an
@@ -30,7 +30,7 @@ jobs:
     needs: build
     if: github.event_name == 'push'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Generate worker.generated.ts from source
         run: node scripts/site/build.mjs

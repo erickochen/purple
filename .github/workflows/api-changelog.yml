@@ -18,7 +18,7 @@ jobs:
     name: Check provider changelogs
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Check changelogs for breaking keywords
         id: check

@@ -18,7 +18,7 @@ jobs:
     name: Pre-release checks
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
@@ -58,7 +58,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
@@ -199,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
@@ -261,7 +261,7 @@ jobs:
           echo "sha256_x86_64=$(sha256sum x86_64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Checkout homebrew-purple tap
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: erickochen/homebrew-purple
           token: ${{ secrets.HOMEBREW_PURPLE_TAP_TOKEN }}
