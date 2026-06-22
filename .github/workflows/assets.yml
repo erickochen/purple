@@ -91,7 +91,7 @@ jobs:
         run: gifsicle -O3 -o demo.gif demo.gif
 
       - name: Commit refreshed assets
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "chore: regenerate marketing assets from the live TUI"
           file_pattern: "assets/png/*.png assets/hero.svg demo.gif demo.webm"
