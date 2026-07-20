@@ -65,7 +65,7 @@ jobs:
           fi
       - name: Push to AUR
         # KSXGitHub/github-actions-deploy-aur v4.1.3 pinned to SHA
-        uses: KSXGitHub/github-actions-deploy-aur@da03e160361ce01bf087e790b6ffd196d7dccff7
+        uses: KSXGitHub/github-actions-deploy-aur@084b0d9b15415bf9cdb65d44dad1efe37a354050
         with:
           pkgname: purple
           pkgbuild: ./packaging/aur/purple/PKGBUILD
@@ -130,7 +130,7 @@ jobs:
           fi
       - name: Push to AUR
         # KSXGitHub/github-actions-deploy-aur v4.1.3 pinned to SHA
-        uses: KSXGitHub/github-actions-deploy-aur@da03e160361ce01bf087e790b6ffd196d7dccff7
+        uses: KSXGitHub/github-actions-deploy-aur@084b0d9b15415bf9cdb65d44dad1efe37a354050
         with:
           pkgname: purple-bin
           pkgbuild: ./packaging/aur/purple-bin/PKGBUILD
