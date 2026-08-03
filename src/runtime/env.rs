@@ -208,6 +208,11 @@ impl Env {
         }
     }
 
+    /// `AWS_SESSION_TOKEN`, set alongside temporary STS credentials.
+    pub fn aws_session_token(&self) -> Option<&str> {
+        self.var("AWS_SESSION_TOKEN")
+    }
+
     /// `PURPLE_TOKEN`, the self-invocation auth token.
     pub fn purple_token(&self) -> Option<&str> {
         self.var("PURPLE_TOKEN")

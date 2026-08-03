@@ -122,6 +122,7 @@ fn test_sign_request_format() {
     let creds = AwsCredentials {
         access_key: "AKIDEXAMPLE".to_string(),
         secret_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_string(),
+        session_token: None,
     };
     let auth = sign_request(
         &creds,
@@ -143,6 +144,7 @@ fn test_sign_request_deterministic() {
     let creds = AwsCredentials {
         access_key: "AK".to_string(),
         secret_key: "SK".to_string(),
+        session_token: None,
     };
     let a = sign_request(
         &creds,
@@ -168,6 +170,7 @@ fn test_sign_request_different_regions() {
     let creds = AwsCredentials {
         access_key: "AK".to_string(),
         secret_key: "SK".to_string(),
+        session_token: None,
     };
     let a = sign_request(
         &creds,
@@ -231,10 +234,75 @@ fn test_parse_credentials_whitespace_handling() {
 
 #[test]
 fn test_parse_credentials_extra_keys_ignored() {
-    let content = "[default]\naws_access_key_id = AK\naws_secret_access_key = SK\naws_session_token = TOKEN\nregion = us-east-1\n";
+    let content = "[default]\naws_access_key_id = AK\naws_secret_access_key = SK\nregion = us-east-1\n";
     let creds = parse_credentials(content, "default").unwrap();
     assert_eq!(creds.access_key, "AK");
     assert_eq!(creds.secret_key, "SK");
+    assert_eq!(creds.session_token, None);
+}
+
+#[test]
+fn test_parse_credentials_session_token() {
+    let content = "[default]\naws_access_key_id = ASIAEXAMPLE\naws_secret_access_key = SK\naws_session_token = TOKEN\n";
+    let creds = parse_credentials(content, "default").unwrap();
+    assert_eq!(creds.access_key, "ASIAEXAMPLE");
+    assert_eq!(creds.secret_key, "SK");
+    assert_eq!(creds.session_token.as_deref(), Some("TOKEN"));
+}
+
+#[test]
+fn test_sign_request_includes_security_token_when_present() {
+    let creds = AwsCredentials {
+        access_key: "ASIAEXAMPLE".to_string(),
+        secret_key: "SK".to_string(),
+        session_token: Some("TOKEN".to_string()),
+    };
+    let auth = sign_request(
+        &creds,
+        "eu-central-1",
+        "ec2.eu-central-1.amazonaws.com",
+        "Action=DescribeInstances&Version=2016-11-15",
+        "20240101T000000Z",
+        "20240101",
+    );
+    assert!(auth.contains("SignedHeaders=host;x-amz-date;x-amz-security-token,"));
+}
+
+#[test]
+fn test_sign_request_session_token_changes_signature() {
+    let base = AwsCredentials {
+        access_key: "ASIAEXAMPLE".to_string(),
+        secret_key: "SK".to_string(),
+        session_token: None,
+    };
+    let with_token = AwsCredentials {
+        access_key: "ASIAEXAMPLE".to_string(),
+        secret_key: "SK".to_string(),
+        session_token: Some("TOKEN".to_string()),
+    };
+    let args = (
+        "eu-central-1",
+        "ec2.eu-central-1.amazonaws.com",
+        "Action=DescribeInstances",
+        "20240101T000000Z",
+        "20240101",
+    );
+    let a = sign_request(&base, args.0, args.1, args.2, args.3, args.4);
+    let b = sign_request(&with_token, args.0, args.1, args.2, args.3, args.4);
+    assert_ne!(a, b);
+}
+
+#[test]
+fn test_resolve_credentials_token_with_session_token() {
+    let creds = resolve_credentials(
+        "ASIAEXAMPLE:SECRET:TOKEN",
+        "",
+        &crate::runtime::env::Env::empty(),
+    )
+    .unwrap();
+    assert_eq!(creds.access_key, "ASIAEXAMPLE");
+    assert_eq!(creds.secret_key, "SECRET");
+    assert_eq!(creds.session_token.as_deref(), Some("TOKEN"));
 }
 
 #[test]

@@ -67,6 +67,11 @@ pub const AWS_REGION_GROUPS: &[(&str, usize, usize)] = &[
 struct AwsCredentials {
     access_key: String,
     secret_key: String,
+    /// `aws_session_token` / `AWS_SESSION_TOKEN`. Present for temporary
+    /// credentials (access key IDs starting with `ASIA`) issued by STS via
+    /// AssumeRole, IAM Identity Center (SSO) or GetSessionToken. Must be sent
+    /// as a signed `x-amz-security-token` header or AWS rejects the request.
+    session_token: Option<String>,
 }
 
 fn resolve_credentials(
@@ -78,12 +83,17 @@ fn resolve_credentials(
     if !profile.is_empty() {
         return read_credentials_file(profile, env);
     }
-    // Token field: ACCESS_KEY_ID:SECRET_ACCESS_KEY
-    if let Some((ak, sk)) = token.split_once(':') {
+    // Token field: ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN]
+    if let Some((ak, rest)) = token.split_once(':') {
+        let (sk, st) = match rest.split_once(':') {
+            Some((sk, st)) if !st.is_empty() => (sk, Some(st.to_string())),
+            _ => (rest, None),
+        };
         if !ak.is_empty() && !sk.is_empty() {
             return Ok(AwsCredentials {
                 access_key: ak.to_string(),
                 secret_key: sk.to_string(),
+                session_token: st,
             });
         }
     }
@@ -93,6 +103,7 @@ fn resolve_credentials(
             return Ok(AwsCredentials {
                 access_key: ak.to_string(),
                 secret_key: sk.to_string(),
+                session_token: env.aws_session_token().map(str::to_string),
             });
         }
     }
@@ -105,6 +116,7 @@ fn parse_credentials(content: &str, profile: &str) -> Option<AwsCredentials> {
     let mut in_section = false;
     let mut access_key = String::new();
     let mut secret_key = String::new();
+    let mut session_token = String::new();
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -119,6 +131,7 @@ fn parse_credentials(content: &str, profile: &str) -> Option<AwsCredentials> {
             match key.trim() {
                 "aws_access_key_id" => access_key = value.trim().to_string(),
                 "aws_secret_access_key" => secret_key = value.trim().to_string(),
+                "aws_session_token" => session_token = value.trim().to_string(),
                 _ => {}
             }
         }
@@ -130,6 +143,7 @@ fn parse_credentials(content: &str, profile: &str) -> Option<AwsCredentials> {
         Some(AwsCredentials {
             access_key,
             secret_key,
+            session_token: (!session_token.is_empty()).then_some(session_token),
         })
     }
 }
@@ -194,8 +208,21 @@ fn sign_request(
     datestamp: &str,
 ) -> String {
     let payload_hash = hex_encode(&sha256_hash(b""));
-    let canonical_headers = format!("host:{}\nx-amz-date:{}\n", host, timestamp);
-    let signed_headers = "host;x-amz-date";
+    // Canonical headers must be sorted by lowercase header name. With
+    // temporary credentials `x-amz-security-token` sorts after `x-amz-date`.
+    let (canonical_headers, signed_headers) = match &creds.session_token {
+        Some(token) => (
+            format!(
+                "host:{}\nx-amz-date:{}\nx-amz-security-token:{}\n",
+                host, timestamp, token
+            ),
+            "host;x-amz-date;x-amz-security-token",
+        ),
+        None => (
+            format!("host:{}\nx-amz-date:{}\n", host, timestamp),
+            "host;x-amz-date",
+        ),
+    };
 
     let canonical_request = format!(
         "GET\n/\n{}\n{}\n{}\n{}",
@@ -345,12 +372,14 @@ fn ec2_get(
     let auth = sign_request(creds, region, &host, &query_string, &timestamp, &datestamp);
     let url = format!("{}/?{}", endpoint, query_string);
 
-    let mut resp = agent
+    let mut req = agent
         .get(&url)
         .header("Authorization", &auth)
-        .header("x-amz-date", &timestamp)
-        .call()
-        .map_err(super::map_ureq_error)?;
+        .header("x-amz-date", &timestamp);
+    if let Some(token) = &creds.session_token {
+        req = req.header("x-amz-security-token", token);
+    }
+    let mut resp = req.call().map_err(super::map_ureq_error)?;
 
     resp.body_mut()
         .read_to_string()
