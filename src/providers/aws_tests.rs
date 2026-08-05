@@ -234,7 +234,8 @@ fn test_parse_credentials_whitespace_handling() {
 
 #[test]
 fn test_parse_credentials_extra_keys_ignored() {
-    let content = "[default]\naws_access_key_id = AK\naws_secret_access_key = SK\nregion = us-east-1\n";
+    let content =
+        "[default]\naws_access_key_id = AK\naws_secret_access_key = SK\nregion = us-east-1\n";
     let creds = parse_credentials(content, "default").unwrap();
     assert_eq!(creds.access_key, "AK");
     assert_eq!(creds.secret_key, "SK");
@@ -290,6 +291,41 @@ fn test_sign_request_session_token_changes_signature() {
     let a = sign_request(&base, args.0, args.1, args.2, args.3, args.4);
     let b = sign_request(&with_token, args.0, args.1, args.2, args.3, args.4);
     assert_ne!(a, b);
+}
+
+#[test]
+fn test_resolve_credentials_env_without_session_token() {
+    let env = crate::runtime::env::Env::for_test("/tmp/x")
+        .with_var("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE")
+        .with_var("AWS_SECRET_ACCESS_KEY", "SECRET");
+    let creds = resolve_credentials("", "", &env).unwrap();
+    assert_eq!(creds.access_key, "AKIDEXAMPLE");
+    assert_eq!(creds.secret_key, "SECRET");
+    assert_eq!(creds.session_token, None);
+}
+
+#[test]
+fn test_resolve_credentials_env_with_session_token() {
+    let env = crate::runtime::env::Env::for_test("/tmp/x")
+        .with_var("AWS_ACCESS_KEY_ID", "ASIAEXAMPLE")
+        .with_var("AWS_SECRET_ACCESS_KEY", "SECRET")
+        .with_var("AWS_SESSION_TOKEN", "TOKEN");
+    let creds = resolve_credentials("", "", &env).unwrap();
+    assert_eq!(creds.access_key, "ASIAEXAMPLE");
+    assert_eq!(creds.secret_key, "SECRET");
+    assert_eq!(creds.session_token.as_deref(), Some("TOKEN"));
+}
+
+#[test]
+fn test_resolve_credentials_profile_shadows_env_session_token() {
+    // A configured profile returns early, so the env fallback never runs.
+    // With no readable credentials file this is an auth failure, not a
+    // silent fall-through to the environment.
+    let env = crate::runtime::env::Env::empty()
+        .with_var("AWS_ACCESS_KEY_ID", "ASIAEXAMPLE")
+        .with_var("AWS_SECRET_ACCESS_KEY", "SECRET")
+        .with_var("AWS_SESSION_TOKEN", "TOKEN");
+    assert!(resolve_credentials("", "default", &env).is_err());
 }
 
 #[test]

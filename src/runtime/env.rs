@@ -375,6 +375,23 @@ mod tests {
     }
 
     #[test]
+    fn aws_session_token_reads_env_var() {
+        let env = Env::for_test("/tmp/x");
+        assert_eq!(env.aws_session_token(), None);
+        let with_token = env.with_var("AWS_SESSION_TOKEN", "TOKEN");
+        assert_eq!(with_token.aws_session_token(), Some("TOKEN"));
+    }
+
+    #[test]
+    fn aws_session_token_is_independent_of_key_pair() {
+        // Temporary credentials always arrive as a triple, but the accessor
+        // must not depend on the key pair being present.
+        let env = Env::for_test("/tmp/x").with_var("AWS_SESSION_TOKEN", "TOKEN");
+        assert_eq!(env.aws_credentials(), None);
+        assert_eq!(env.aws_session_token(), Some("TOKEN"));
+    }
+
+    #[test]
     fn active_proxy_vars_filters_empty_and_orders() {
         let env = Env::for_test("/tmp/x")
             .with_var("HTTPS_PROXY", "http://proxy:3128")
