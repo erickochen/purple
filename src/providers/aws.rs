@@ -87,7 +87,8 @@ fn resolve_credentials(
     if let Some((ak, rest)) = token.split_once(':') {
         let (sk, st) = match rest.split_once(':') {
             Some((sk, st)) if !st.is_empty() => (sk, Some(st.to_string())),
-            _ => (rest, None),
+            Some((sk, _)) => (sk, None),
+            None => (rest, None),
         };
         if !ak.is_empty() && !sk.is_empty() {
             return Ok(AwsCredentials {
