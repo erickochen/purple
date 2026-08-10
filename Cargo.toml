@@ -52,7 +52,7 @@ nucleo-matcher = "0.3"
 # detail panel without spawning the `ss` userland tool.
 [target.'cfg(target_os = "linux")'.dependencies]
 netlink-packet-sock-diag = "0.4"
-netlink-packet-core = "0.7"
+netlink-packet-core = "0.8"
 netlink-sys = "0.8"
 
 # musl static builds need OpenSSL compiled from source. Without this,
