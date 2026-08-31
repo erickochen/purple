@@ -51,7 +51,7 @@ nucleo-matcher = "0.3"
 # by src/tcp_diag.rs to populate live tunnel throughput on the Tunnels
 # detail panel without spawning the `ss` userland tool.
 [target.'cfg(target_os = "linux")'.dependencies]
-netlink-packet-sock-diag = "0.4"
+netlink-packet-sock-diag = "0.5"
 netlink-packet-core = "0.7"
 netlink-sys = "0.9"
 
