@@ -25,7 +25,7 @@ ratatui = "0.30"
 crossterm = "0.29"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
-dirs = "6"
+dirs = "7"
 glob = "0.3"
 anyhow = "1"
 thiserror = "2"
