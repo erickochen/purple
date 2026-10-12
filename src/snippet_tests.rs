@@ -487,13 +487,27 @@ fn run_in_sandbox(shell: &str, script: &str, stdin: &str) -> std::process::Outpu
         .stderr(std::process::Stdio::piped())
         .spawn()
         .expect("run shell");
-    child
+    // A shell that exits without reading stdin closes the pipe under the write.
+    let written = child
         .stdin
         .take()
         .expect("stdin")
-        .write_all(stdin.as_bytes())
-        .expect("write stdin");
+        .write_all(stdin.as_bytes());
+    if let Err(e) = written {
+        assert_eq!(e.kind(), std::io::ErrorKind::BrokenPipe, "write stdin: {e}");
+    }
     child.wait_with_output().expect("wait shell")
+}
+
+/// More than any default pipe buffer holds, so the write outlives a shell
+/// that never reads stdin.
+const PIPE_OVERFLOW_BYTES: usize = 1 << 20;
+
+#[test]
+fn test_sandbox_tolerates_a_shell_that_exits_without_reading_stdin() {
+    let stdin = "x".repeat(PIPE_OVERFLOW_BYTES);
+    let out = run_in_sandbox("/bin/sh", "exit 3", &stdin);
+    assert_eq!(out.status.code(), Some(3));
 }
 
 #[test]
