@@ -10,6 +10,13 @@ updates:
       # satisfying NetlinkDeserializable. Patches within 0.7 still come through.
       - dependency-name: netlink-packet-core
         versions: [">= 0.8"]
+      # rsa 0.9 signs with the digest 0.10 traits, so its SigningKey and our
+      # Hmac need the sha2 0.10 hashers. sha2 0.11 and hmac 0.13 move to digest
+      # 0.11 and stop compiling. They move together with rsa 0.10.
+      - dependency-name: sha2
+        versions: [">= 0.11"]
+      - dependency-name: hmac
+        versions: [">= 0.13"]
 
   - package-ecosystem: cargo
     directory: /fuzz
