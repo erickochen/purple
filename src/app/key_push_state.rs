@@ -11,7 +11,7 @@ use std::sync::atomic::AtomicBool;
 use ratatui::widgets::ListState;
 
 use crate::key_push::{InflightChild, KeyPushResult};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// A question the finished run left for the user, drained one at a time
 /// once no run is in flight. Each entry carries the key its run was
@@ -23,12 +23,22 @@ pub enum KeyPushPrompt {
     Trust { alias: String, key_path: String },
     /// ssh ended with `Permission denied` and the server takes a password.
     Password { alias: String, key_path: String },
+    /// A security key that signs the login wants a PIN. `security_key` is
+    /// that key file; `refused` says why it turned the last PIN down.
+    SecurityKeyPin {
+        alias: String,
+        key_path: String,
+        security_key: String,
+        refused: Option<crate::security_key::RefusalReason>,
+    },
 }
 
 impl KeyPushPrompt {
     pub fn alias(&self) -> &str {
         match self {
-            KeyPushPrompt::Trust { alias, .. } | KeyPushPrompt::Password { alias, .. } => alias,
+            KeyPushPrompt::Trust { alias, .. }
+            | KeyPushPrompt::Password { alias, .. }
+            | KeyPushPrompt::SecurityKeyPin { alias, .. } => alias,
         }
     }
 
@@ -36,9 +46,9 @@ impl KeyPushPrompt {
     /// spells it.
     pub fn key_path(&self) -> &str {
         match self {
-            KeyPushPrompt::Trust { key_path, .. } | KeyPushPrompt::Password { key_path, .. } => {
-                key_path
-            }
+            KeyPushPrompt::Trust { key_path, .. }
+            | KeyPushPrompt::Password { key_path, .. }
+            | KeyPushPrompt::SecurityKeyPin { key_path, .. } => key_path,
         }
     }
 }
@@ -62,6 +72,9 @@ pub struct KeyPushState {
     /// when the run completes and the summary toast / sticky error is
     /// rendered.
     pub results: Vec<KeyPushResult>,
+    /// What each landed host's run said about security key PINs, settled as
+    /// its result arrives so the PIN markers are still fresh.
+    pub pin_outcomes: HashMap<String, super::PinOutcome>,
     /// Total hosts the current run is targeting. Used to know when the
     /// run is "done" so the summary can fire exactly once.
     pub expected_count: usize,
@@ -128,6 +141,7 @@ impl KeyPushState {
         trust_new_host_key: bool,
     ) -> (u64, Arc<AtomicBool>) {
         self.results.clear();
+        self.pin_outcomes.clear();
         self.expected_count = expected;
         self.key_path = key_path;
         self.trust_new_host_key = trust_new_host_key;
@@ -143,6 +157,7 @@ impl KeyPushState {
     /// worker has already exited.
     pub fn finish_run(&mut self) {
         self.results.clear();
+        self.pin_outcomes.clear();
         self.expected_count = 0;
         self.selected.clear();
         self.cancel = None;
@@ -163,6 +178,7 @@ impl KeyPushState {
         }
         self.inflight.terminate();
         self.results.clear();
+        self.pin_outcomes.clear();
         self.expected_count = 0;
         self.cancel = None;
         self.selected.clear();

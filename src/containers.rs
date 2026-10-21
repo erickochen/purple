@@ -479,6 +479,13 @@ fn friendly_container_error(stderr: &str, code: Option<i32>) -> String {
         crate::messages::HOST_KEY_UNKNOWN.to_string()
     } else if lower.contains("command not found") {
         crate::messages::CONTAINER_RUNTIME_NOT_FOUND.to_string()
+    } else if crate::connection::auth_refused(stderr)
+        && !crate::security_key::sign_failures(stderr).is_empty()
+    {
+        // The login itself failed on the key. Checked before the generic
+        // refusal, because the docker group is not the answer here.
+        log::debug!("[external] Security key did not sign; returning the PIN hint");
+        crate::messages::CONTAINER_SECURITY_KEY_PIN.to_string()
     } else if lower.contains("permission denied") || lower.contains("got permission denied") {
         crate::messages::CONTAINER_PERMISSION_DENIED.to_string()
     } else if lower.contains("cannot connect to the docker daemon")

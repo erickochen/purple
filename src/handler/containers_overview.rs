@@ -501,6 +501,7 @@ fn spawn_refresh(
     config_path: std::path::PathBuf,
     env: std::sync::Arc<crate::runtime::env::Env>,
     bw_session: Option<String>,
+    security_key: crate::security_key::SecurityKeyRun,
     item: crate::app::RefreshQueueItem,
     events_tx: &mpsc::Sender<AppEvent>,
 ) {
@@ -512,6 +513,7 @@ fn spawn_refresh(
         bw_session,
         has_tunnel: item.has_tunnel,
         trust_new_host_key: false,
+        security_key,
         env,
     };
     let tx = events_tx.clone();
@@ -573,6 +575,7 @@ fn refresh_selected_host(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         app.reload.config_path().to_path_buf(),
         std::sync::Arc::clone(&app.env),
         app.bw_session.clone(),
+        app.security_key_confirmed_run(),
         crate::app::RefreshQueueItem {
             alias,
             askpass,
@@ -666,6 +669,7 @@ pub(crate) fn auto_fetch_new_hosts(app: &mut App, events_tx: &mpsc::Sender<AppEv
             config_path.clone(),
             std::sync::Arc::clone(&app.env),
             bw_session.clone(),
+            app.security_key_confirmed_run(),
             item,
             events_tx,
         );
@@ -785,6 +789,7 @@ fn refresh_all_hosts(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
             config_path.clone(),
             std::sync::Arc::clone(&app.env),
             bw_session.clone(),
+            app.security_key_confirmed_run(),
             item,
             events_tx,
         );
@@ -1229,6 +1234,7 @@ pub(crate) fn prefetch_inspect_for_listing(
             bw_session: bw_session.clone(),
             has_tunnel,
             trust_new_host_key: false,
+            security_key: app.security_key_confirmed_run(),
             env: std::sync::Arc::clone(&app.env),
         };
         let tx = events_tx.clone();
@@ -1405,6 +1411,7 @@ pub(super) fn ensure_inspect_for_host_header(app: &mut App, events_tx: &mpsc::Se
             bw_session: bw_session.clone(),
             has_tunnel,
             trust_new_host_key: false,
+            security_key: app.security_key_confirmed_run(),
             env: std::sync::Arc::clone(&app.env),
         };
         let tx = events_tx.clone();
@@ -1485,6 +1492,7 @@ pub(super) fn ensure_list_for_selected_host(app: &mut App, events_tx: &mpsc::Sen
         app.reload.config_path().to_path_buf(),
         std::sync::Arc::clone(&app.env),
         app.bw_session.clone(),
+        app.security_key_confirmed_run(),
         crate::app::RefreshQueueItem {
             alias,
             askpass,

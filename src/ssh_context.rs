@@ -14,6 +14,9 @@ pub struct SshContext<'a> {
     /// `StrictHostKeyChecking=accept-new` for that one run so the host key
     /// is recorded on first contact.
     pub trust_new_host_key: bool,
+    /// Security key PINs this run may hand out plus the flow that asks for
+    /// a missing one.
+    pub security_key: &'a crate::security_key::SecurityKeyRun,
     pub env: &'a crate::runtime::env::Env,
 }
 
@@ -26,6 +29,7 @@ pub struct OwnedSshContext {
     pub bw_session: Option<String>,
     pub has_tunnel: bool,
     pub trust_new_host_key: bool,
+    pub security_key: crate::security_key::SecurityKeyRun,
     pub env: std::sync::Arc<crate::runtime::env::Env>,
 }
 
@@ -40,6 +44,7 @@ impl OwnedSshContext {
             bw_session: self.bw_session.as_deref(),
             has_tunnel: self.has_tunnel,
             trust_new_host_key: self.trust_new_host_key,
+            security_key: &self.security_key,
             env: &self.env,
         }
     }

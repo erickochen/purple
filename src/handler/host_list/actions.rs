@@ -228,7 +228,7 @@ pub(super) fn open_file_browser(app: &mut App, events_tx: &mpsc::Sender<AppEvent
     // Resolve the remote home (when we have no saved path) and list it in
     // the background. Same call the retry after a password or trust dialog
     // makes, so both recover identically.
-    let ctx = app.ssh_context_for(alias, askpass);
+    let ctx = app.file_browser_ssh_context(alias, askpass);
     crate::file_browser::spawn_remote_open(
         ctx,
         remote_path,

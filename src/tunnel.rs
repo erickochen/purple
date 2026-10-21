@@ -295,18 +295,29 @@ impl ActiveTunnel {
         mut child: Child,
         alias: &str,
         parser_tx: std::sync::mpsc::Sender<crate::tunnel_live::ParserMessage>,
+        watch: crate::tunnel_live::AuthWatch,
     ) -> Self {
         let started_at = Instant::now();
         let mut live = crate::tunnel_live::TunnelLiveState::new(started_at);
         if let Some(stderr) = child.stderr.take() {
+            let flags = crate::tunnel_live::ParserFlags {
+                stop: live.parser_stop.clone(),
+                authenticated: live.authenticated.clone(),
+                auth_refused: live.auth_refused.clone(),
+                drained: live.drained.clone(),
+            };
             let handle = crate::tunnel_live::spawn_parser_thread(
                 stderr,
                 alias.to_string(),
                 parser_tx,
                 live.stderr_buffer.clone(),
-                live.parser_stop.clone(),
+                flags,
+                watch,
             );
             live.parser_thread = Some(handle);
+        } else {
+            live.drained
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         Self {
             child,
@@ -355,6 +366,7 @@ pub(crate) fn build_tunnel_command(
     askpass: Option<&str>,
     session_password: Option<&str>,
     bw_session: Option<&str>,
+    security_key: &crate::security_key::SecurityKeyRun,
 ) -> Command {
     let mut cmd = Command::new("ssh");
     cmd.arg("-F")
@@ -384,6 +396,7 @@ pub(crate) fn build_tunnel_command(
         bw_session,
         true,
     );
+    crate::security_key::configure(&mut cmd, security_key);
     cmd
 }
 
@@ -400,8 +413,16 @@ pub fn start_tunnel(
     askpass: Option<&str>,
     session_password: Option<&str>,
     bw_session: Option<&str>,
+    security_key: &crate::security_key::SecurityKeyRun,
 ) -> Result<Child> {
-    let mut cmd = build_tunnel_command(alias, config_path, askpass, session_password, bw_session);
+    let mut cmd = build_tunnel_command(
+        alias,
+        config_path,
+        askpass,
+        session_password,
+        bw_session,
+        security_key,
+    );
 
     #[cfg(unix)]
     // SAFETY: pre_exec runs after fork, before exec in the child process.
@@ -1078,6 +1099,7 @@ mod tests {
             askpass,
             session_password,
             None,
+            &crate::security_key::NO_SECURITY_KEY,
         )
         .get_args()
         .map(|a| a.to_string_lossy().into_owned())
@@ -1091,6 +1113,7 @@ mod tests {
             askpass,
             None,
             bw_session,
+            &crate::security_key::NO_SECURITY_KEY,
         )
         .get_envs()
         .filter_map(|(k, v)| {
@@ -1180,6 +1203,39 @@ mod tests {
         // ssh config setting decides.
         let args = tunnel_args(None, None);
         assert!(!args.iter().any(|a| a.contains("StrictHostKeyChecking")));
+    }
+
+    #[test]
+    fn start_tunnel_carries_security_key_pins_in_env_only() {
+        let run = crate::security_key::SecurityKeyRun {
+            pins: vec![crate::security_key::SecurityKeyPin {
+                key_path: "/home/u/.ssh/id_sk".into(),
+                pin: "4242".into(),
+            }],
+            flow: Some(crate::security_key::PinFlow::Tunnel),
+        };
+        let cmd = build_tunnel_command(
+            "web1",
+            std::path::Path::new("/tmp/cfg"),
+            None,
+            None,
+            None,
+            &run,
+        );
+        assert!(cmd.get_args().all(|a| a != "4242"));
+        let envs: Vec<(String, String)> = cmd
+            .get_envs()
+            .filter_map(|(k, v)| {
+                v.map(|v| {
+                    (
+                        k.to_string_lossy().into_owned(),
+                        v.to_string_lossy().into_owned(),
+                    )
+                })
+            })
+            .collect();
+        assert!(envs.contains(&("PURPLE_ASKPASS_SK_PIN_0".into(), "4242".into())));
+        assert!(envs.contains(&("PURPLE_ASKPASS_SK_FLOW".into(), "tunnel".into())));
     }
 
     #[test]

@@ -8,6 +8,24 @@ use crate::app::TunnelFormBaseline;
 use crate::app::forms::TunnelForm;
 use crate::tunnel::{ActiveTunnel, TunnelRule};
 
+/// How long an exited tunnel waits for its parser to reach the end of
+/// stderr. A `ProxyCommand` that outlives ssh can hold the pipe open, so the
+/// wait is bounded.
+const EXIT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// A tunnel whose ssh ended, as `TunnelState::poll` reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunnelExit {
+    pub alias: String,
+    /// Toast text for the exit.
+    pub message: String,
+    pub is_error: bool,
+    /// ssh gave up on authentication before the tunnel came up.
+    pub auth_refused: bool,
+    /// The target let ssh in before it exited.
+    pub authenticated: bool,
+}
+
 /// Sort order for the tunnels overview screen. Cycled with `s`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TunnelSortMode {
@@ -318,9 +336,9 @@ impl TunnelState {
     /// Drain the parser channel into per-tunnel live state, drain the
     /// lsof channel into the shared `clients` and `conflicts` maps,
     /// rotate per-tunnel history buckets and finally poll every active
-    /// child for exit. Returns (alias, message, is_error) tuples so the
-    /// outer loop can route them through `notify_*`.
-    pub fn poll(&mut self) -> Vec<(String, String, bool)> {
+    /// child for exit. Returns one `TunnelExit` per tunnel that ended so the
+    /// outer loop can route it through `notify_*`.
+    pub fn poll(&mut self) -> Vec<TunnelExit> {
         let now = Instant::now();
         // Drain channel events first so any pending opens are reflected
         // before we report exits.
@@ -418,6 +436,14 @@ impl TunnelState {
         for (alias, tunnel) in &mut self.active {
             match tunnel.child.try_wait() {
                 Ok(Some(status)) => {
+                    // Give the parser a moment to read ssh's last lines, so
+                    // the exit is judged on everything ssh wrote.
+                    let exited_at = *tunnel.live.exited_at.get_or_insert(now);
+                    if !tunnel.live.drained.load(Ordering::Relaxed)
+                        && now.saturating_duration_since(exited_at) < EXIT_DRAIN_GRACE
+                    {
+                        continue;
+                    }
                     // The parser thread holds child.stderr; ask the
                     // shared stderr ringbuffer for the last meaningful
                     // line instead of re-reading the pipe.
@@ -468,16 +494,24 @@ impl TunnelState {
                             true,
                         )
                     };
-                    exited.push((alias.clone(), msg, is_error));
+                    exited.push(TunnelExit {
+                        alias: alias.clone(),
+                        message: msg,
+                        is_error,
+                        auth_refused: tunnel.live.auth_refused.load(Ordering::Relaxed),
+                        authenticated: tunnel.live.authenticated.load(Ordering::Relaxed),
+                    });
                     to_remove.push(alias.clone());
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    exited.push((
-                        alias.clone(),
-                        format!("Tunnel for {} lost: {}", alias, e),
-                        true,
-                    ));
+                    exited.push(TunnelExit {
+                        alias: alias.clone(),
+                        message: format!("Tunnel for {} lost: {}", alias, e),
+                        is_error: true,
+                        auth_refused: false,
+                        authenticated: tunnel.live.authenticated.load(Ordering::Relaxed),
+                    });
                     to_remove.push(alias.clone());
                 }
             }
@@ -567,6 +601,49 @@ mod tests {
         let mut s = TunnelState::default();
         let result = s.poll();
         assert!(result.is_empty());
+        assert!(s.active.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_exit_waits_for_the_parser_to_read_the_last_lines() {
+        let mut s = TunnelState::default();
+        // A grandchild keeps stderr open after the shell exits, so the
+        // parser cannot reach the end of the pipe yet.
+        let child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 10 >&2 & exit 3")
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn sh");
+        let tunnel = crate::tunnel::ActiveTunnel::spawn(
+            child,
+            "h",
+            s.parser_tx(),
+            crate::tunnel_live::AuthWatch::default(),
+        );
+        s.active.insert("h".into(), tunnel);
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        while s
+            .active
+            .get("h")
+            .is_some_and(|t| t.live.exited_at.is_none())
+            && Instant::now() < deadline
+        {
+            assert!(s.poll().is_empty(), "held back while the parser drains");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(s.active.contains_key("h"), "still waiting on the parser");
+        // Pinned, so a slow machine cannot drift past the grace here.
+        s.active.get_mut("h").expect("tunnel").live.exited_at = Some(Instant::now());
+        assert!(s.poll().is_empty(), "inside the grace the exit waits");
+        // Past the grace the exit is reported whether or not the pipe closed.
+        s.active.get_mut("h").expect("tunnel").live.exited_at =
+            Some(Instant::now() - EXIT_DRAIN_GRACE);
+        let exits = s.poll();
+        assert_eq!(exits.len(), 1);
+        assert!(exits[0].is_error, "exit 3 is an error");
+        assert!(!exits[0].auth_refused);
         assert!(s.active.is_empty());
     }
 

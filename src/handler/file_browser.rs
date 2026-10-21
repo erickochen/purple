@@ -24,6 +24,8 @@ struct FileBrowserCtx<'a> {
     /// Passwords typed in the TUI this session, read so every listing and
     /// transfer after the prompt reuses the one the user already gave.
     session_passwords: &'a crate::app::SessionPasswords,
+    /// Security key PINs a listing or transfer on this host may hand out.
+    security_key: crate::security_key::SecurityKeyRun,
     config_path: &'a std::path::Path,
     env: std::sync::Arc<crate::runtime::env::Env>,
     effects: Effects,
@@ -51,6 +53,7 @@ fn fb_ssh_context(
     tunnels: &TunnelState,
     session_passwords: &crate::app::SessionPasswords,
     bw_session: Option<&str>,
+    security_key: &crate::security_key::SecurityKeyRun,
     config_path: &std::path::Path,
     env: &std::sync::Arc<crate::runtime::env::Env>,
 ) -> crate::ssh_context::OwnedSshContext {
@@ -62,11 +65,17 @@ fn fb_ssh_context(
         bw_session: bw_session.map(str::to_string),
         has_tunnel: tunnels.active_contains(alias),
         trust_new_host_key: false,
+        security_key: security_key.clone(),
         env: std::sync::Arc::clone(env),
     }
 }
 
 pub(super) fn handle_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEvent>) {
+    let security_key = app
+        .file_browser_session
+        .as_ref()
+        .map(|fb| app.security_key_run_for(&fb.alias, crate::security_key::PinFlow::FileBrowser))
+        .unwrap_or_default();
     let effects = {
         let mut ctx = FileBrowserCtx {
             session: &mut app.file_browser_session,
@@ -74,6 +83,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<
             screen: &mut app.screen,
             bw_session: app.bw_session.as_deref(),
             session_passwords: &app.session_passwords,
+            security_key,
             config_path: app.reload.config_path(),
             env: std::sync::Arc::clone(&app.env),
             effects: Effects::default(),
@@ -159,6 +169,7 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
                     ctx.tunnels,
                     ctx.session_passwords,
                     ctx.bw_session,
+                    &ctx.security_key,
                     ctx.config_path,
                     &ctx.env,
                 );
@@ -275,6 +286,7 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
                 env,
                 bw_session.as_deref(),
                 session_password.as_deref(),
+                &ctx.security_key,
                 has_tunnel,
                 events_tx,
             );
@@ -304,6 +316,11 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
                     }
                 }
                 BrowserPane::Remote => {
+                    // One remote ssh at a time: a PIN on trial must reach the
+                    // key from one run only.
+                    if fb.remote_loading {
+                        return;
+                    }
                     let path = fb.remote_path.clone();
                     let parent = if path == "/" {
                         "/".to_string()
@@ -328,6 +345,7 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
                             ctx.tunnels,
                             ctx.session_passwords,
                             ctx.bw_session,
+                            &ctx.security_key,
                             ctx.config_path,
                             &ctx.env,
                         );
@@ -406,6 +424,9 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
                 }
             }
         }
+        // One remote ssh at a time: a PIN on trial must reach the key from
+        // one run only.
+        KeyCode::Char('.') | KeyCode::Char('R') if fb.remote_loading => {}
         KeyCode::Char('.') => {
             fb.show_hidden = !fb.show_hidden;
             // Refresh local
@@ -434,6 +455,7 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
                     ctx.tunnels,
                     ctx.session_passwords,
                     ctx.bw_session,
+                    &ctx.security_key,
                     ctx.config_path,
                     &ctx.env,
                 );
@@ -475,6 +497,7 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
                     ctx.tunnels,
                     ctx.session_passwords,
                     ctx.bw_session,
+                    &ctx.security_key,
                     ctx.config_path,
                     &ctx.env,
                 );
@@ -534,6 +557,7 @@ fn fb_enter(
     env: std::sync::Arc<crate::runtime::env::Env>,
     bw_session: Option<&str>,
     session_password: Option<&str>,
+    security_key: &crate::security_key::SecurityKeyRun,
     has_tunnel: bool,
     events_tx: &mpsc::Sender<AppEvent>,
 ) {
@@ -560,8 +584,9 @@ fn fb_enter(
                 }
             } else if let Some(entry) = fb.local_entries.get(idx - 1).cloned() {
                 if !fb.local_selected.is_empty() {
-                    // Multi-select active: copy all selected items
-                    if fb.remote_path.is_empty() {
+                    // Multi-select active: copy all selected items. Not while
+                    // a listing runs: one remote ssh at a time.
+                    if fb.remote_path.is_empty() || fb.remote_loading {
                         return;
                     }
                     let sources: Vec<String> = fb.local_selected.iter().cloned().collect();
@@ -589,8 +614,9 @@ fn fb_enter(
                     fb.local_list_state.select(Some(0));
                     fb.local_selected.clear();
                 } else {
-                    // No selection, cursor on file: copy single file
-                    if fb.remote_path.is_empty() {
+                    // No selection, cursor on file: copy single file. Not
+                    // while a listing runs: one remote ssh at a time.
+                    if fb.remote_path.is_empty() || fb.remote_loading {
                         return;
                     }
                     fb.confirm_copy = Some(CopyRequest {
@@ -634,6 +660,7 @@ fn fb_enter(
                         bw_session: bw_session.map(str::to_string),
                         has_tunnel,
                         trust_new_host_key: false,
+                        security_key: security_key.clone(),
                         env: std::sync::Arc::clone(&env),
                     };
                     let show_hidden = fb.show_hidden;
@@ -679,6 +706,7 @@ fn fb_enter(
                         bw_session: bw_session.map(str::to_string),
                         has_tunnel,
                         trust_new_host_key: false,
+                        security_key: security_key.clone(),
                         env: std::sync::Arc::clone(&env),
                     };
                     let show_hidden = fb.show_hidden;

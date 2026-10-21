@@ -731,6 +731,30 @@ fn friendly_error_permission_denied() {
 }
 
 #[test]
+fn friendly_error_security_key_pin_wins_over_the_generic_refusal() {
+    // ssh ends this case with `Permission denied (publickey)`, so the docker
+    // group hint would point the wrong way.
+    let msg = friendly_container_error(
+        "sign_and_send_pubkey: signing failed for ECDSA-SK \"/home/u/.ssh/id_sk\": incorrect passphrase supplied to decrypt private key\n\
+         u@host: Permission denied (publickey).",
+        Some(255),
+    );
+    assert_eq!(msg, crate::messages::CONTAINER_SECURITY_KEY_PIN);
+}
+
+#[test]
+fn friendly_error_keeps_the_docker_hint_when_the_login_got_in_another_way() {
+    // The key had no PIN, ssh logged in with another method and docker
+    // itself refused: the PIN is not the problem.
+    let msg = friendly_container_error(
+        "sign_and_send_pubkey: signing failed for ECDSA-SK \"/home/u/.ssh/id_sk\": incorrect passphrase supplied to decrypt private key\n\
+         Got permission denied while trying to connect to the Docker daemon socket",
+        Some(1),
+    );
+    assert_eq!(msg, crate::messages::CONTAINER_PERMISSION_DENIED);
+}
+
+#[test]
 fn friendly_error_daemon_not_running() {
     let msg = friendly_container_error(
         "Cannot connect to the Docker daemon at unix:///var/run/docker.sock",

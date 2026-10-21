@@ -1,6 +1,6 @@
 [package]
 name = "purple-ssh"
-version = "3.30.0"
+version = "3.31.0"
 edition = "2024"
 description = "Free, open-source terminal SSH manager and SSH config editor in Rust for macOS and Linux that keeps ~/.ssh/config in sync with 18 cloud providers, monitors live SSH tunnels and manages Docker and Podman containers fleet-wide. Spin up a VM, it shows up. Destroy it, it dims. Plus scp, Vault SSH certs and an MCP server for AI agents. MIT licensed."
 license = "MIT"

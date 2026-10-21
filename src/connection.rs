@@ -492,6 +492,13 @@ pub fn needs_password(stderr: &str) -> bool {
     })
 }
 
+/// True when ssh gave up on authentication: some hop printed
+/// `<user>@<host>: Permission denied (<methods>).`. A remote command that
+/// fails with its own "permission denied" does not count.
+pub fn auth_refused(stderr: &str) -> bool {
+    stderr.lines().any(|l| l.contains(": Permission denied ("))
+}
+
 /// True when strict host key checking refused a host that is not in
 /// `known_hosts` yet. A changed key prints the `@@@` banner plus an
 /// `Offending` line instead and stays with `parse_host_key_error`.
@@ -817,6 +824,19 @@ mod tests {
         assert!(needs_password(
             "test@localhost: Permission denied (publickey,keyboard-interactive).\n"
         ));
+    }
+
+    #[test]
+    fn auth_refused_reads_only_the_line_ssh_prints() {
+        assert!(auth_refused(
+            "sign_and_send_pubkey: signing failed\nops@10.0.0.5: Permission denied (publickey).\n"
+        ));
+        // A remote command's own refusal is not an authentication failure.
+        assert!(!auth_refused(
+            "Got permission denied while trying to connect to the Docker daemon socket"
+        ));
+        assert!(!auth_refused("ls: /root: Permission denied"));
+        assert!(!auth_refused(""));
     }
 
     #[test]

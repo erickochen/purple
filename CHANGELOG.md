@@ -1,3 +1,12 @@
+## 3.31.0 - 2026-10-21
+
+- feat: Use your YubiKey with a PIN everywhere in purple.
+- feat: A tunnel, a file browser listing or a key push that needs your security key PIN asks for it inside purple and carries on with it. Touch the key when it blinks. This needs OpenSSH 8.5 or newer.
+- feat: purple keeps the PIN in memory per key until you quit and never writes it to disk. Once a connection proves it right, later tunnels, listings, transfers, container commands and snippets reuse it.
+- feat: A wrong PIN costs your key one attempt. purple stops using a PIN the key refused, tells you why and asks again. Hosts that share a key take turns, so one wrong PIN never spends an attempt on every host at once.
+- feat: Connecting from the host list asks for your security key PIN in the terminal, even when the host has a password source. Your password only ever answers a password prompt.
+- change: Provider sync and the update check use current TLS root certificates and the latest certificate checks.
+
 ## 3.30.0 - 2026-09-22
 
 - feat: Snippets can run with your full shell setup.

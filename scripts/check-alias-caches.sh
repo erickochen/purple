@@ -41,6 +41,7 @@ app/containers_overview.rs:in_flight_aliases
 app/file_browser_state.rs:host_paths
 app/host_state.rs:group_alias_map
 app/host_state.rs:group_host_counts
+app/key_push_state.rs:pin_outcomes
 app/key_push_state.rs:selected
 app/ping.rs:last_checked
 app/ping.rs:status
@@ -68,6 +69,9 @@ app/vault.rs:sign_in_flight"
 #     containers_overview::in_flight_aliases (on refresh_batch).
 #   alias, self-pruning:
 #     tunnel_state::active (worker drops entry when tunnel process exits).
+#   transient, scoped to one push run, cleared by start_run, finish_run
+#   and cancel_run:
+#     key_push_state::pin_outcomes.
 #   transient, scoped to one picker session, reset on screen exit:
 #     key_push_state::selected,
 #     snippet_state::selected (SnippetHostPick: reset on picker open via

@@ -36,6 +36,12 @@ pub(crate) const BATCH_MODE_OPT: &str = "BatchMode=yes";
 /// a person really can type a different password.
 pub(crate) const SINGLE_PASSWORD_PROMPT_OPT: &str = "NumberOfPasswordPrompts=1";
 
+/// True in an askpass helper started by a background run. Only those runs
+/// carry `SINGLE_ATTEMPT_VAR`; a terminal run has a tty to ask on.
+pub(crate) fn runs_in_background(env: &crate::runtime::env::Env) -> bool {
+    env.var(SINGLE_ATTEMPT_VAR) == Some("1")
+}
+
 /// True when a background ssh child has no way to answer a password prompt:
 /// no configured source and no password typed earlier this session. The
 /// caller then passes `BATCH_MODE_OPT` so ssh exits with `Permission denied`

@@ -18,6 +18,13 @@ enum ListingBlocked {
     Trust(Option<String>),
     /// The server takes a password and ssh had none to give.
     Password(Option<String>),
+    /// A security key wants a PIN. `refused` says why the key turned the
+    /// last one down, if it did. The key belongs to whichever hop asked, so
+    /// no host name is needed.
+    SecurityKeyPin {
+        key_path: String,
+        refused: Option<crate::security_key::RefusalReason>,
+    },
 }
 
 /// Handle `AppEvent::FileBrowserListing`.
@@ -43,6 +50,21 @@ fn apply_file_browser_listing(
 ) {
     let mut record_connection = false;
     let mut blocked: Option<ListingBlocked> = None;
+    let pin_outcome = app.settle_security_key_run(
+        &alias,
+        crate::security_key::PinFlow::FileBrowser,
+        crate::app::RunEnd::from_run(
+            entries.is_ok(),
+            entries.as_ref().err().map_or("", String::as_str),
+        ),
+    );
+    let pin_label = match &pin_outcome {
+        crate::app::PinOutcome::Needed { key_path }
+        | crate::app::PinOutcome::Rejected { key_path, .. } => {
+            Some(app.security_key_label(key_path))
+        }
+        crate::app::PinOutcome::NotInvolved => None,
+    };
     if let Some(ref mut fb) = app.file_browser_session
         && fb.alias == alias
     {
@@ -66,23 +88,51 @@ fn apply_file_browser_listing(
                     fb.remote_path = path.clone();
                 }
                 fb.remote_entries.clear();
-                // A background ssh has no tty, so the two questions it
-                // cannot ask come back as an error. Ask them in the TUI and
-                // run the listing again with the answer. The hop that
-                // refused is named on the line, and only the target's own
-                // refusal is ours to answer.
-                if crate::connection::is_unknown_host_key(&msg) {
-                    blocked = Some(ListingBlocked::Trust(
-                        crate::connection::unknown_host_key_host(&msg).map(str::to_string),
-                    ));
-                } else if crate::connection::needs_password(&msg) {
-                    blocked = Some(ListingBlocked::Password(
-                        crate::connection::denied_host(&msg).map(str::to_string),
-                    ));
+                // A background ssh has no tty, so the questions it cannot
+                // ask come back as an error. Ask them in the TUI and run the
+                // listing again with the answer. The hop that refused is
+                // named on the line, and only the target's own refusal is
+                // ours to answer. A security key PIN goes first: the key is
+                // the user's own whichever hop asked for it.
+                let pin = match &pin_outcome {
+                    crate::app::PinOutcome::Needed { key_path } => Some((key_path.clone(), None)),
+                    crate::app::PinOutcome::Rejected {
+                        key_path, reason, ..
+                    } => Some((key_path.clone(), Some(*reason))),
+                    crate::app::PinOutcome::NotInvolved => None,
+                };
+                if let Some((key_path, refused)) = pin {
+                    let label = pin_label.as_deref().unwrap_or(&key_path);
+                    fb.remote_error =
+                        Some(crate::messages::askpass::pin_needed_listing(&alias, label));
+                    blocked = Some(ListingBlocked::SecurityKeyPin { key_path, refused });
+                } else {
+                    if crate::connection::is_unknown_host_key(&msg) {
+                        blocked = Some(ListingBlocked::Trust(
+                            crate::connection::unknown_host_key_host(&msg).map(str::to_string),
+                        ));
+                    } else if crate::connection::needs_password(&msg) {
+                        blocked = Some(ListingBlocked::Password(
+                            crate::connection::denied_host(&msg).map(str::to_string),
+                        ));
+                    }
+                    fb.remote_error = Some(msg);
                 }
-                fb.remote_error = Some(msg);
             }
         }
+    }
+    // The key refused the PIN while the host let the listing in another way:
+    // nothing to retry, but the PIN is gone and the user should know.
+    if let crate::app::PinOutcome::Rejected {
+        connected: true,
+        key_path,
+        ..
+    } = &pin_outcome
+    {
+        let label = pin_label.as_deref().unwrap_or(key_path);
+        app.notify_warning(crate::messages::askpass::pin_refused_but_connected(
+            &alias, label,
+        ));
     }
     if record_connection {
         app.history.record(&alias);
@@ -109,11 +159,21 @@ fn open_listing_dialog(app: &mut App, alias: &str, path: String, kind: ListingBl
         log::debug!("[purple] file_browser: cannot ask right now for alias={alias}");
         return;
     }
+    let retry_for = |path: String| crate::app::PendingRetry::FileBrowserListing {
+        alias: alias.to_string(),
+        path,
+    };
+    // A PIN belongs to the user's own key, whichever hop asked for it.
+    if let ListingBlocked::SecurityKeyPin { key_path, refused } = kind {
+        app.open_security_key_pin_prompt(alias, &key_path, retry_for(path), refused, None);
+        return;
+    }
     // Whichever hop ssh named has to be this host. A jump host that refused
     // on the way is a different question, and the pane already carries its
     // reason, so the dialog stays shut.
     let named = match &kind {
         ListingBlocked::Trust(host) | ListingBlocked::Password(host) => host.clone(),
+        ListingBlocked::SecurityKeyPin { .. } => None,
     };
     if !app.refusal_is_this_host(alias, named.as_deref()) {
         log::debug!(
@@ -122,11 +182,10 @@ fn open_listing_dialog(app: &mut App, alias: &str, path: String, kind: ListingBl
         );
         return;
     }
-    let retry = crate::app::PendingRetry::FileBrowserListing {
-        alias: alias.to_string(),
-        path,
-    };
+    let retry = retry_for(path);
     match kind {
+        // Answered above, before the hop check.
+        ListingBlocked::SecurityKeyPin { .. } => {}
         ListingBlocked::Trust(_) => app.open_host_key_trust(alias, retry),
         ListingBlocked::Password(_) => {
             if crate::askpass::take_withheld(app.env.paths(), alias) {
@@ -171,6 +230,55 @@ pub(crate) fn handle_scp_complete(
     events_tx: &mpsc::Sender<AppEvent>,
     terminal: &mut tui::Tui,
 ) {
+    apply_scp_complete(app, alias, success, message, events_tx);
+    // Force full redraw: ssh may have written to /dev/tty
+    terminal.force_redraw();
+}
+
+/// Everything the transfer event does to `App`. Split from the terminal
+/// redraw so the state transitions are testable without a live terminal.
+fn apply_scp_complete(
+    app: &mut App,
+    alias: String,
+    success: bool,
+    message: String,
+    events_tx: &mpsc::Sender<AppEvent>,
+) {
+    // A transfer has no retry of its own, so a PIN it wanted is explained in
+    // the transfer error and entered through the listing.
+    let pin_outcome = app.settle_security_key_run(
+        &alias,
+        crate::security_key::PinFlow::FileBrowser,
+        crate::app::RunEnd::from_run(success, &message),
+    );
+    let pin_message = match &pin_outcome {
+        crate::app::PinOutcome::Needed { key_path } => {
+            Some(crate::messages::askpass::pin_needed_transfer(
+                &alias,
+                &app.security_key_label(key_path),
+            ))
+        }
+        crate::app::PinOutcome::Rejected {
+            key_path,
+            reason,
+            connected: false,
+        } => Some(crate::messages::askpass::pin_refused(
+            &app.security_key_label(key_path),
+            *reason,
+        )),
+        _ => None,
+    };
+    if let crate::app::PinOutcome::Rejected {
+        key_path,
+        connected: true,
+        ..
+    } = &pin_outcome
+    {
+        let label = app.security_key_label(key_path);
+        app.notify_warning(crate::messages::askpass::pin_refused_but_connected(
+            &alias, &label,
+        ));
+    }
     // Track whether we need to spawn a remote refresh (can't do it inside the fb borrow
     // because spawn_remote_listing needs values from app too)
     let mut refresh_remote: Option<(
@@ -222,7 +330,7 @@ pub(crate) fn handle_scp_complete(
                     ));
                 }
             } else {
-                fb.transfer_error = Some(message.clone());
+                fb.transfer_error = Some(pin_message.unwrap_or_else(|| message.clone()));
             }
             true
         } else {
@@ -237,7 +345,7 @@ pub(crate) fn handle_scp_complete(
         app.apply_sort();
     }
     if let Some((fb_alias, askpass_fb, path, show_hidden, sort)) = refresh_remote {
-        let ctx = app.ssh_context_for(fb_alias, askpass_fb);
+        let ctx = app.file_browser_ssh_context(fb_alias, askpass_fb);
         let tx = events_tx.clone();
         file_browser::spawn_remote_listing(ctx, path, show_hidden, sort, move |a, p, e| {
             let _ = tx.send(AppEvent::FileBrowserListing {
@@ -248,8 +356,6 @@ pub(crate) fn handle_scp_complete(
         });
     }
     crate::askpass::cleanup_marker(app.env.paths(), &alias);
-    // Force full redraw: ssh may have written to /dev/tty
-    terminal.force_redraw();
 }
 
 #[cfg(test)]
@@ -418,6 +524,166 @@ mod tests {
         );
         assert_eq!(app.screen, Screen::FileBrowser { alias: "h".into() });
         assert!(app.password_prompt.is_none());
+    }
+
+    const KEY: &str = "/home/u/.ssh/id_sk";
+
+    #[test]
+    fn a_pin_request_opens_the_pin_prompt_ahead_of_the_password_check() {
+        // The server also takes a password, yet the key signs the login
+        // first, so the PIN is the question to ask.
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_browser(&mut app, "h", "/var/log");
+        crate::security_key::arm_pin_request(
+            app.env.paths(),
+            crate::security_key::PinFlow::FileBrowser,
+            "h",
+            KEY,
+        );
+        apply_file_browser_listing(
+            &mut app,
+            "h".into(),
+            "/var/log".into(),
+            Err(DENIED.to_string()),
+        );
+        assert_eq!(app.screen, Screen::PasswordPrompt);
+        let state = app.password_prompt.as_ref().expect("prompt");
+        assert_eq!(state.security_key.as_deref(), Some(KEY));
+        assert_eq!(
+            state.retry,
+            PendingRetry::FileBrowserListing {
+                alias: "h".into(),
+                path: "/var/log".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_pin_request_waits_in_the_pane_while_no_dialog_may_open() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_browser(&mut app, "h", "/var/log");
+        app.search.set_query(Some("x".to_string()));
+        crate::security_key::arm_pin_request(
+            app.env.paths(),
+            crate::security_key::PinFlow::FileBrowser,
+            "h",
+            KEY,
+        );
+        apply_file_browser_listing(
+            &mut app,
+            "h".into(),
+            "/var/log".into(),
+            Err(DENIED.to_string()),
+        );
+        assert!(app.password_prompt.is_none());
+        assert_eq!(
+            app.file_browser_session.as_ref().unwrap().remote_error,
+            Some(crate::messages::askpass::pin_needed_listing("h", KEY))
+        );
+    }
+
+    #[test]
+    fn a_refused_trial_pin_reopens_the_prompt_and_says_why() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_browser(&mut app, "h", "/var/log");
+        app.security_key_pins.start_trial(crate::app::PinTrial {
+            alias: "h".into(),
+            key_path: KEY.into(),
+            pin: "0000".into(),
+            flow: crate::security_key::PinFlow::FileBrowser,
+        });
+        crate::security_key::note_refusal(
+            app.env.paths(),
+            &crate::security_key::SignFailure {
+                key_path: KEY.into(),
+                reason: crate::security_key::RefusalReason::WrongPin,
+            },
+        );
+        apply_file_browser_listing(
+            &mut app,
+            "h".into(),
+            "/var/log".into(),
+            Err("u@h: Permission denied (publickey).".to_string()),
+        );
+        assert_eq!(app.screen, Screen::PasswordPrompt);
+        assert!(app.security_key_pins.trial().is_none(), "the PIN is gone");
+        let toast = app.status_center.toast().expect("toast");
+        assert!(toast.text.contains(KEY), "got: {}", toast.text);
+    }
+
+    #[test]
+    fn a_listing_that_went_out_with_a_trial_pin_confirms_it() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_browser(&mut app, "h", "");
+        app.security_key_pins.start_trial(crate::app::PinTrial {
+            alias: "h".into(),
+            key_path: KEY.into(),
+            pin: "4242".into(),
+            flow: crate::security_key::PinFlow::FileBrowser,
+        });
+        crate::security_key::record_hand_out(app.env.paths(), "h", 1, KEY);
+        apply_file_browser_listing(&mut app, "h".into(), "/root".into(), Ok(Vec::new()));
+        assert_eq!(app.security_key_pins.confirmed_pin(KEY), Some("4242"));
+    }
+
+    #[test]
+    fn a_transfer_that_wanted_a_pin_says_so_in_its_error() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_browser(&mut app, "h", "/var/log");
+        crate::security_key::arm_pin_request(
+            app.env.paths(),
+            crate::security_key::PinFlow::FileBrowser,
+            "h",
+            KEY,
+        );
+        let (tx, _rx) = mpsc::channel();
+        apply_scp_complete(
+            &mut app,
+            "h".into(),
+            false,
+            "u@h: Permission denied (publickey).".into(),
+            &tx,
+        );
+        assert_eq!(
+            app.file_browser_session.as_ref().unwrap().transfer_error,
+            Some(crate::messages::askpass::pin_needed_transfer("h", KEY))
+        );
+    }
+
+    #[test]
+    fn a_listing_that_got_in_but_failed_opens_no_pin_prompt() {
+        // ssh met the PIN prompt, logged in another way and `ls` failed.
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_browser(&mut app, "h", "/var/log");
+        crate::security_key::arm_pin_request(
+            app.env.paths(),
+            crate::security_key::PinFlow::FileBrowser,
+            "h",
+            KEY,
+        );
+        apply_file_browser_listing(
+            &mut app,
+            "h".into(),
+            "/var/log".into(),
+            Err("ls: /var/log: Permission denied".to_string()),
+        );
+        assert!(app.password_prompt.is_none());
+        assert_eq!(
+            app.file_browser_session.as_ref().unwrap().remote_error,
+            Some("ls: /var/log: Permission denied".to_string())
+        );
+    }
+
+    #[test]
+    fn a_plain_transfer_failure_keeps_its_own_message() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_browser(&mut app, "h", "/var/log");
+        let (tx, _rx) = mpsc::channel();
+        apply_scp_complete(&mut app, "h".into(), false, "No such file".into(), &tx);
+        assert_eq!(
+            app.file_browser_session.as_ref().unwrap().transfer_error,
+            Some("No such file".to_string())
+        );
     }
 
     #[test]

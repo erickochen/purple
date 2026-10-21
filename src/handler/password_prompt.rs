@@ -21,7 +21,10 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<
     match key.code {
         KeyCode::Esc => cancel(app),
         KeyCode::Tab | KeyCode::Down | KeyCode::BackTab | KeyCode::Up => {
-            if let Some(state) = app.password_prompt.as_mut() {
+            // A PIN prompt has one field: nothing to move to.
+            if let Some(state) = app.password_prompt.as_mut()
+                && state.security_key.is_none()
+            {
                 state.focus = state.focus.next();
             }
         }
@@ -60,12 +63,29 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<
 
 /// Append one character to the password buffer. Control characters are
 /// dropped so a paste carrying a newline or an escape cannot smuggle extra
-/// input past the single-line field, and the buffer is capped.
+/// input past the single-line field, and the buffer is capped. A PIN stops
+/// at the CTAP2 limit.
 fn insert_char(state: &mut crate::app::PasswordPromptState, c: char) {
     if c.is_control() || state.input.chars().count() >= PASSWORD_MAX_CHARS {
         return;
     }
+    if state.security_key.is_some()
+        && state.input.len() + c.len_utf8() > crate::security_key::PIN_MAX_BYTES
+    {
+        return;
+    }
     state.input.push(c);
+}
+
+/// The screen this prompt returns to: the tunnel list it opened over, else
+/// the page any dialog returns to.
+fn prompt_return_screen(app: &App, state: &crate::app::PasswordPromptState) -> Screen {
+    match &state.return_to_tunnel_list {
+        Some(alias) => Screen::TunnelList {
+            alias: alias.clone(),
+        },
+        None => return_screen(app),
+    }
 }
 
 /// Esc: drop the prompt and the operation behind it, then offer the next
@@ -75,9 +95,14 @@ fn cancel(app: &mut App) {
         return;
     };
     log::debug!("[purple] password prompt: dismissed alias={}", state.alias);
-    let back = return_screen(app);
+    let back = prompt_return_screen(app, &state);
     app.set_screen(back);
-    app.notify_warning(crate::messages::askpass::prompt_cancelled(&state.alias));
+    let toast = if state.security_key.is_some() {
+        crate::messages::askpass::pin_prompt_canceled(&state.alias)
+    } else {
+        crate::messages::askpass::prompt_cancelled(&state.alias)
+    };
+    app.notify_warning(toast);
     super::event_loop::key_push::drain_next_key_push_prompt(app);
 }
 
@@ -88,6 +113,10 @@ fn submit(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         return;
     };
     if state.input.is_empty() {
+        return;
+    }
+    if state.security_key.is_some() {
+        submit_security_key_pin(app, events_tx);
         return;
     }
     let Some(state) = app.password_prompt.take() else {
@@ -123,6 +152,60 @@ fn submit(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
     // Hand the next waiting host its dialog. A key-push retry has just
     // started a run, so the drain refuses and that run's finalize takes
     // over. Any other retry leaves the queue free to continue here.
+    super::event_loop::key_push::drain_next_key_push_prompt(app);
+}
+
+/// Enter on a PIN prompt: put the PIN on trial and run the operation again
+/// with it. A PIN too short to ever be right stays in the field, because
+/// sending it would still cost the key an attempt.
+fn submit_security_key_pin(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
+    let too_short = app
+        .password_prompt
+        .as_ref()
+        .is_some_and(|s| s.input.chars().count() < crate::security_key::PIN_MIN_CHARS);
+    if too_short {
+        app.notify_warning(crate::messages::askpass::pin_too_short());
+        return;
+    }
+    let Some(state) = app.password_prompt.take() else {
+        return;
+    };
+    let back = prompt_return_screen(app, &state);
+    let crate::app::PasswordPromptState {
+        alias,
+        input,
+        retry,
+        security_key,
+        ..
+    } = state;
+    let Some(key_path) = security_key else {
+        return;
+    };
+    // A new PIN starts clean: an old refusal or an old hand-out must not
+    // decide what happens to this one.
+    let paths = app.env.paths().cloned();
+    crate::security_key::clear_refusal(paths.as_ref(), &key_path);
+    let _ = crate::security_key::take_handed_out_keys(paths.as_ref(), &alias);
+    log::debug!(
+        "[purple] security key: PIN submitted alias={} key={} retry={}",
+        alias,
+        key_path,
+        retry.kind_label()
+    );
+    let flow = retry.pin_flow();
+    app.security_key_pins.start_trial(crate::app::PinTrial {
+        alias: alias.clone(),
+        key_path,
+        pin: input,
+        flow,
+    });
+    app.set_screen(back);
+    if execute_retry(app, retry, false, events_tx) {
+        app.notify(crate::messages::askpass::PIN_TOUCH_KEY);
+    } else {
+        // Nothing carries the PIN, so the next run asks for it again.
+        app.abandon_security_key_trial(flow, Some(&alias));
+    }
     super::event_loop::key_push::drain_next_key_push_prompt(app);
 }
 
@@ -203,13 +286,13 @@ pub(crate) fn return_screen(app: &App) -> Screen {
 
 /// Run the operation a dialog was holding. `trust_new_host_key` is true
 /// only right after the user accepted the trust dialog, so ssh records the
-/// host key on that one run.
+/// host key on that one run. Returns true when the operation started.
 pub(crate) fn execute_retry(
     app: &mut App,
     retry: PendingRetry,
     trust_new_host_key: bool,
     events_tx: &mpsc::Sender<AppEvent>,
-) {
+) -> bool {
     match retry {
         PendingRetry::KeyPush { key_path, alias } => {
             // Look the key up by path: a successful push rebuilds the list,
@@ -222,7 +305,7 @@ pub(crate) fn execute_retry(
                 .position(|k| k.display_path == key_path)
             else {
                 log::debug!("[purple] retry: key {key_path} is gone, dropping alias={alias}");
-                return;
+                return false;
             };
             log::debug!("[purple] retry: key push alias={alias} trust={trust_new_host_key}");
             super::confirm::start_key_push(
@@ -231,15 +314,15 @@ pub(crate) fn execute_retry(
                 vec![alias],
                 trust_new_host_key,
                 events_tx,
-            );
+            )
         }
         PendingRetry::FileBrowserListing { alias, path } => {
             // The overlay may have been closed while the dialog was open.
             let Some(fb) = app.file_browser_session.as_mut() else {
-                return;
+                return false;
             };
             if fb.alias != alias {
-                return;
+                return false;
             }
             fb.remote_loading = true;
             fb.remote_error = None;
@@ -257,7 +340,7 @@ pub(crate) fn execute_retry(
                 fb.askpass = askpass.clone();
             }
             log::debug!("[purple] retry: remote listing alias={alias} trust={trust_new_host_key}");
-            let mut ctx = app.ssh_context_for(alias, askpass);
+            let mut ctx = app.file_browser_ssh_context(alias, askpass);
             ctx.trust_new_host_key = trust_new_host_key;
             crate::file_browser::spawn_remote_open(
                 ctx,
@@ -266,6 +349,22 @@ pub(crate) fn execute_retry(
                 sort,
                 super::file_browser::fb_send(events_tx.clone()),
             );
+            true
+        }
+        PendingRetry::Tunnel { alias } => {
+            // Started again meanwhile, or demo mode where tunnels never run.
+            if app.demo_mode || app.tunnels.active_contains(&alias) {
+                log::debug!("[purple] retry: tunnel alias={alias} already running or demo");
+                return false;
+            }
+            log::debug!("[purple] retry: tunnel alias={alias}");
+            let (started, effects) = {
+                let mut ctx = super::tunnel::ctx_from_app(app);
+                let started = ctx.spawn_active_tunnel(&alias);
+                (started, ctx.effects)
+            };
+            effects.apply(app);
+            started
         }
     }
 }
@@ -527,6 +626,230 @@ mod tests {
                 .iter()
                 .any(|e| e.askpass.is_some())
         );
+    }
+
+    /// A PIN prompt for a tunnel retry. Demo mode keeps the retry from
+    /// starting a real ssh.
+    fn open_pin_prompt(app: &mut App, alias: &str) {
+        app.demo_mode = true;
+        app.open_security_key_pin_prompt(
+            alias,
+            "/home/u/.ssh/id_sk",
+            PendingRetry::Tunnel {
+                alias: alias.to_string(),
+            },
+            None,
+            None,
+        );
+    }
+
+    #[test]
+    fn a_pin_prompt_has_one_field_and_takes_spaces_literally() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_pin_prompt(&mut app, "h");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.password_prompt.as_ref().unwrap().focus,
+            PasswordPromptField::Password
+        );
+        press(&mut app, KeyCode::Char('a'));
+        press(&mut app, KeyCode::Char(' '));
+        press(&mut app, KeyCode::Char('b'));
+        assert_eq!(app.password_prompt.as_ref().unwrap().input, "a b");
+    }
+
+    #[test]
+    fn a_pin_stops_at_the_ctap2_limit() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_pin_prompt(&mut app, "h");
+        for _ in 0..crate::security_key::PIN_MAX_BYTES + 10 {
+            press(&mut app, KeyCode::Char('7'));
+        }
+        assert_eq!(
+            app.password_prompt.as_ref().unwrap().input.len(),
+            crate::security_key::PIN_MAX_BYTES
+        );
+    }
+
+    #[test]
+    fn a_pin_too_short_to_be_right_stays_in_the_field() {
+        // Sending it would still cost the key an attempt.
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_pin_prompt(&mut app, "h");
+        for c in "123".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.screen, Screen::PasswordPrompt);
+        assert!(app.security_key_pins.trial().is_none());
+        let toast = app.status_center.toast().expect("toast");
+        assert!(toast.text.contains('4'), "got: {}", toast.text);
+    }
+
+    /// A PIN prompt for a listing retry in an open file browser. The config
+    /// file is never written, so the retry's ssh exits at once.
+    fn open_listing_pin_prompt(app: &mut App, alias: &str) {
+        app.file_browser_session = Some(crate::file_browser::FileBrowserSession {
+            alias: alias.into(),
+            askpass: None,
+            active_pane: crate::file_browser::BrowserPane::Remote,
+            local_path: std::path::PathBuf::from("/tmp"),
+            local_entries: Vec::new(),
+            local_list_state: ratatui::widgets::ListState::default(),
+            local_selected: std::collections::HashSet::new(),
+            local_error: None,
+            remote_path: String::new(),
+            remote_entries: Vec::new(),
+            remote_list_state: ratatui::widgets::ListState::default(),
+            remote_selected: std::collections::HashSet::new(),
+            remote_error: None,
+            remote_loading: false,
+            show_hidden: false,
+            sort: crate::file_browser::BrowserSort::Name,
+            confirm_copy: None,
+            transferring: None,
+            transfer_error: None,
+            connection_recorded: false,
+        });
+        app.screen = Screen::FileBrowser {
+            alias: alias.into(),
+        };
+        app.open_security_key_pin_prompt(
+            alias,
+            "/home/u/.ssh/id_sk",
+            PendingRetry::FileBrowserListing {
+                alias: alias.to_string(),
+                path: String::new(),
+            },
+            None,
+            None,
+        );
+    }
+
+    #[test]
+    fn submitting_a_pin_puts_it_on_trial_with_a_clean_slate() {
+        let mut app = app_with("Host h\n  HostName 127.0.0.1\n  Port 1\n");
+        let paths = app.env().paths().cloned();
+        crate::security_key::note_refusal(
+            paths.as_ref(),
+            &crate::security_key::SignFailure {
+                key_path: "/home/u/.ssh/id_sk".into(),
+                reason: crate::security_key::RefusalReason::WrongPin,
+            },
+        );
+        crate::security_key::record_hand_out(paths.as_ref(), "h", 1, "/home/u/.ssh/id_sk");
+        open_listing_pin_prompt(&mut app, "h");
+        for c in "4242".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        press(&mut app, KeyCode::Enter);
+
+        assert!(app.password_prompt.is_none());
+        assert_eq!(app.screen, Screen::FileBrowser { alias: "h".into() });
+        assert!(app.file_browser_session.as_ref().unwrap().remote_loading);
+        let trial = app.security_key_pins.trial().expect("trial");
+        assert_eq!(trial.alias, "h");
+        assert_eq!(trial.key_path, "/home/u/.ssh/id_sk");
+        assert_eq!(trial.pin, "4242");
+        assert_eq!(trial.flow, crate::security_key::PinFlow::FileBrowser);
+        assert_eq!(
+            crate::security_key::refusal_for(paths.as_ref(), "/home/u/.ssh/id_sk"),
+            None,
+            "the old refusal must not decide the new PIN"
+        );
+        assert!(
+            crate::security_key::take_handed_out_keys(paths.as_ref(), "h").is_empty(),
+            "an old hand-out must not prove the new PIN"
+        );
+        let toast = app.status_center.toast().expect("toast");
+        assert_eq!(toast.text, crate::messages::askpass::PIN_TOUCH_KEY);
+    }
+
+    #[test]
+    fn a_pin_whose_retry_cannot_start_is_not_kept_for_a_later_run() {
+        // Demo mode keeps the tunnel retry from starting. Nothing carried the
+        // PIN, so the next tunnel start asks for it again.
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_pin_prompt(&mut app, "h");
+        for c in "4242".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        press(&mut app, KeyCode::Enter);
+        assert!(app.password_prompt.is_none());
+        assert!(app.security_key_pins.trial().is_none());
+        assert_ne!(
+            app.status_center.toast().map(|t| t.text.as_str()),
+            Some(crate::messages::askpass::PIN_TOUCH_KEY),
+            "no key will blink"
+        );
+    }
+
+    #[test]
+    fn a_pin_for_a_key_that_left_the_list_is_not_kept() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        app.open_security_key_pin_prompt(
+            "h",
+            "/home/u/.ssh/id_sk",
+            PendingRetry::KeyPush {
+                key_path: "~/.ssh/gone.pub".into(),
+                alias: "h".into(),
+            },
+            None,
+            None,
+        );
+        for c in "4242".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        press(&mut app, KeyCode::Enter);
+        assert!(app.security_key_pins.trial().is_none());
+    }
+
+    #[test]
+    fn a_pin_for_a_closed_file_browser_is_not_kept() {
+        let mut app = app_with("Host h\n  HostName 127.0.0.1\n  Port 1\n");
+        open_listing_pin_prompt(&mut app, "h");
+        app.file_browser_session = None;
+        for c in "4242".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        press(&mut app, KeyCode::Enter);
+        assert!(app.security_key_pins.trial().is_none());
+    }
+
+    #[test]
+    fn esc_on_a_pin_prompt_says_no_pin_was_given() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_pin_prompt(&mut app, "h");
+        press(&mut app, KeyCode::Esc);
+        assert!(app.password_prompt.is_none());
+        let toast = app.status_center.toast().expect("toast");
+        assert_eq!(
+            toast.text,
+            crate::messages::askpass::pin_prompt_canceled("h")
+        );
+    }
+
+    #[test]
+    fn a_pin_prompt_over_a_tunnel_list_returns_to_it() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        app.screen = Screen::TunnelList { alias: "h".into() };
+        open_pin_prompt(&mut app, "h");
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.screen, Screen::TunnelList { alias: "h".into() });
+    }
+
+    #[test]
+    fn a_tunnel_retry_in_demo_mode_starts_nothing() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        app.demo_mode = true;
+        let (tx, _rx) = mpsc::channel();
+        assert!(!execute_retry(
+            &mut app,
+            PendingRetry::Tunnel { alias: "h".into() },
+            false,
+            &tx,
+        ));
+        assert!(!app.tunnels.active_contains("h"));
     }
 
     #[test]

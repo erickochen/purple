@@ -32,6 +32,8 @@ struct ContainersCtx<'a> {
     /// Passwords typed in the TUI this session, read so a container call
     /// reuses the one the user already gave for that host.
     session_passwords: &'a crate::app::SessionPasswords,
+    /// Proven security key PINs a container call may hand out.
+    security_key: crate::security_key::SecurityKeyRun,
     config_path: &'a Path,
     env: std::sync::Arc<crate::runtime::env::Env>,
 }
@@ -50,6 +52,7 @@ impl Notify for ContainersCtx<'_> {
 
 impl ContainersCtx<'_> {
     fn ctx_from_app<'a>(app: &'a mut App) -> ContainersCtx<'a> {
+        let security_key = app.security_key_confirmed_run();
         ContainersCtx {
             session: &mut app.container_session,
             container_state: &mut app.container_state,
@@ -60,6 +63,7 @@ impl ContainersCtx<'_> {
             demo_mode: app.demo_mode,
             bw_session: app.bw_session.as_deref(),
             session_passwords: &app.session_passwords,
+            security_key,
             config_path: app.reload.config_path(),
             env: std::sync::Arc::clone(&app.env),
         }
@@ -81,6 +85,7 @@ impl ContainersCtx<'_> {
             bw_session: self.bw_session.map(|s| s.to_string()),
             has_tunnel: self.tunnels.active_contains(alias),
             trust_new_host_key: false,
+            security_key: self.security_key.clone(),
             env: std::sync::Arc::clone(&self.env),
         }
     }
@@ -173,6 +178,7 @@ impl ContainersCtx<'_> {
             bw_session: self.bw_session.map(|s| s.to_string()),
             has_tunnel: self.tunnels.active_contains(&alias),
             trust_new_host_key: false,
+            security_key: self.security_key.clone(),
             env: std::sync::Arc::clone(&self.env),
         };
         let tx = events_tx.clone();

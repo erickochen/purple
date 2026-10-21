@@ -56,6 +56,7 @@ mod provider_state;
 mod reload_state;
 mod screen;
 mod search;
+mod security_key_pins;
 mod selection;
 mod snippet_state;
 mod status_state;
@@ -101,13 +102,14 @@ pub(crate) use reload_state::config_changed;
 pub use reload_state::{ConflictState, ReloadState};
 pub use screen::{ContainerLogsSearch, Screen, StackMember, TopPage, WhatsNewState};
 pub use search::SearchState;
+pub use security_key_pins::{PinOutcome, PinTrial, RunEnd, SecurityKeyPins};
 pub use snippet_state::{SnippetHostPick, SnippetHostPickPurpose, SnippetState};
 pub use status_state::{MessageClass, StatusCenter, StatusMessage};
 pub use tag_state::{
     BulkTagAction, BulkTagApplyResult, BulkTagEditorState, BulkTagRow, TagState,
     select_display_tags,
 };
-pub use tunnel_state::{TunnelSortMode, TunnelState};
+pub use tunnel_state::{TunnelExit, TunnelSortMode, TunnelState};
 pub use ui_state::UiSelection;
 pub use update::UpdateState;
 pub use vault::VaultState;
@@ -195,6 +197,11 @@ pub struct App {
     /// Passwords typed in the TUI with "remember" off, per alias, for the
     /// lifetime of the process. Never written to disk.
     pub(crate) session_passwords: SessionPasswords,
+    /// Security key PINs typed in the TUI, for the lifetime of the process.
+    /// Never written to disk.
+    pub(crate) security_key_pins: SecurityKeyPins,
+    /// Whether the installed OpenSSH may receive PINs, asked once.
+    pub(crate) ssh_allows_security_key_pins: std::cell::OnceCell<bool>,
     /// Payload of `Screen::PasswordPrompt`; Some while the prompt is open.
     pub(crate) password_prompt: Option<PasswordPromptState>,
 
@@ -222,6 +229,15 @@ pub struct App {
 
     /// Jump state. Some when the jump bar is open.
     pub(crate) jump: Option<JumpState>,
+}
+
+/// The OpenSSH version gate for security key PINs. Test builds start it open
+/// so no test runs the real `ssh -V`.
+fn ssh_version_gate_for_build() -> std::cell::OnceCell<bool> {
+    let gate = std::cell::OnceCell::new();
+    #[cfg(test)]
+    let _ = gate.set(true);
+    gate
 }
 
 impl App {
@@ -281,6 +297,8 @@ impl App {
             update: UpdateState::with_current_hint(&env),
             bw_session: None,
             session_passwords: SessionPasswords::new(),
+            security_key_pins: SecurityKeyPins::default(),
+            ssh_allows_security_key_pins: ssh_version_gate_for_build(),
             password_prompt: None,
             file_browser_state: FileBrowserState::default(),
             file_browser_session: None,
@@ -461,6 +479,11 @@ impl App {
                 log::debug!(
                     "[purple] reload_hosts: dropped {} session password(s) for hosts that are gone",
                     before - self.session_passwords.len()
+                );
+            }
+            if self.security_key_pins.prune_aliases(&valid_aliases) {
+                log::debug!(
+                    "[purple] reload_hosts: dropped a security key PIN trial for a host that is gone"
                 );
             }
         }
@@ -940,6 +963,10 @@ impl App {
     /// drops the session, and returns to the host list.
     pub(crate) fn close_file_browser(&mut self) {
         if let Some(fb) = self.file_browser_session.take() {
+            self.abandon_security_key_trial(
+                crate::security_key::PinFlow::FileBrowser,
+                Some(&fb.alias),
+            );
             self.file_browser_state
                 .host_paths
                 .insert(fb.alias, (fb.local_path, fb.remote_path));
@@ -1267,8 +1294,8 @@ impl App {
         false
     }
 
-    /// Poll active tunnels for exit. Returns (alias, message, is_error) tuples.
-    pub fn poll_tunnels(&mut self) -> Vec<(String, String, bool)> {
+    /// Poll active tunnels for exit. Returns one `TunnelExit` per ended tunnel.
+    pub fn poll_tunnels(&mut self) -> Vec<TunnelExit> {
         self.tunnels.poll()
     }
 

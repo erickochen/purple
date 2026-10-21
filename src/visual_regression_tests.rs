@@ -1980,6 +1980,24 @@ fn visual_password_prompt() {
 }
 
 #[test]
+fn visual_security_key_pin_prompt() {
+    let _g = setup();
+    let mut app = demo::build_demo_app();
+    let mut state = crate::app::PasswordPromptState::security_key_pin(
+        "bastion-ams".to_string(),
+        "/home/ops/.ssh/id_ed25519_sk".to_string(),
+        crate::app::PendingRetry::Tunnel {
+            alias: "bastion-ams".to_string(),
+        },
+    );
+    state.input = "4242".to_string();
+    app.password_prompt = Some(state);
+    app.screen = Screen::PasswordPrompt;
+    let actual = render_screen(&mut app);
+    assert_golden("security_key_pin_prompt", &actual);
+}
+
+#[test]
 fn visual_confirm_import() {
     let _g = setup();
     let mut app = demo::build_demo_app();

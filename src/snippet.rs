@@ -797,6 +797,7 @@ fn base_ssh_command(
     has_active_tunnel: bool,
     non_interactive: bool,
     trust_new_host_key: bool,
+    security_key: &crate::security_key::SecurityKeyRun,
 ) -> Command {
     let mut cmd = Command::new("ssh");
     cmd.arg("-F")
@@ -838,6 +839,7 @@ fn base_ssh_command(
         bw_session,
         non_interactive,
     );
+    crate::security_key::configure(&mut cmd, security_key);
 
     cmd
 }
@@ -854,6 +856,7 @@ fn build_snippet_command(ctx: &crate::ssh_context::SshContext<'_>, command: &str
         ctx.has_tunnel,
         true,
         ctx.trust_new_host_key,
+        ctx.security_key,
     );
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -898,7 +901,10 @@ fn execute_host(
             let stderr_pipe = {
                 let mut lock = guard.inner.lock().unwrap_or_else(|e| e.into_inner());
                 lock.as_mut().and_then(|c| c.stderr.take())
-            };
+            }
+            .map(|pipe| {
+                crate::security_key::RefusalScan::new(pipe, ctx.env.paths(), ctx.security_key)
+            });
 
             // Spawn reader threads
             let alias_out = alias.to_string();
@@ -984,6 +990,7 @@ pub fn spawn_snippet_execution(
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     tx: std::sync::mpsc::Sender<crate::event::AppEvent>,
     parallel: bool,
+    security_key: crate::security_key::SecurityKeyRun,
 ) {
     let total = askpass_map.len();
     let max_concurrent: usize = 20;
@@ -1030,6 +1037,7 @@ pub fn spawn_snippet_execution(
                     let env = std::sync::Arc::clone(&env);
                     let command = command.clone();
                     let bw_session = bw_session.clone();
+                    let security_key = security_key.clone();
                     let has_tunnel = tunnel_aliases.contains(&alias);
                     let tx = tx.clone();
                     let slot_tx = slot_tx.clone();
@@ -1057,6 +1065,7 @@ pub fn spawn_snippet_execution(
                             bw_session: bw_session.as_deref(),
                             has_tunnel,
                             trust_new_host_key: false,
+                            security_key: &security_key,
                             env: &env,
                         };
                         let guard = execute_host(run_id, &host_ctx, &command, &tx);
@@ -1097,6 +1106,7 @@ pub fn spawn_snippet_execution(
                         bw_session: bw_session.as_deref(),
                         has_tunnel,
                         trust_new_host_key: false,
+                        security_key: &security_key,
                         env: &env,
                     };
                     let guard = execute_host(run_id, &host_ctx, &command, &tx);
@@ -1142,6 +1152,7 @@ pub fn run_snippet(
         bw_session,
         has_tunnel: has_active_tunnel,
         trust_new_host_key: false,
+        security_key: &crate::security_key::NO_SECURITY_KEY,
         env,
     };
     run_snippet_ctx(&ctx, command, capture)
@@ -1172,6 +1183,7 @@ pub fn run_snippet_ctx(
         ctx.has_tunnel,
         capture,
         ctx.trust_new_host_key,
+        ctx.security_key,
     );
 
     if capture {
@@ -1185,7 +1197,8 @@ pub fn run_snippet_ctx(
     }
 
     if capture {
-        let (status, stdout, stderr) = run_with_bounded_output(&mut cmd, alias)?;
+        let (status, stdout, stderr) =
+            run_with_bounded_output(&mut cmd, alias, ctx.env.paths(), ctx.security_key)?;
         Ok(SnippetResult {
             status,
             stdout,
@@ -1220,12 +1233,17 @@ pub const SSH_OUTPUT_MAX_BYTES: usize = 16 * 1024 * 1024;
 fn run_with_bounded_output(
     cmd: &mut Command,
     alias: &str,
+    paths: Option<&crate::runtime::env::Paths>,
+    security_key: &crate::security_key::SecurityKeyRun,
 ) -> anyhow::Result<(ExitStatus, String, String)> {
     let mut child = cmd
         .spawn()
         .map_err(|e| anyhow::anyhow!("Failed to spawn ssh for '{}': {}", alias, e))?;
     let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
+    let stderr = child
+        .stderr
+        .take()
+        .map(|pipe| crate::security_key::RefusalScan::new(pipe, paths, security_key));
 
     let alias_for_stdout = alias.to_string();
     let stdout_handle = std::thread::spawn(move || match stdout {

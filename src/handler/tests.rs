@@ -5980,6 +5980,37 @@ fn file_browser_enter_on_local_file_stages_copy() {
     assert!(!req.has_dirs);
 }
 
+#[test]
+fn file_browser_starts_no_second_remote_run_while_a_listing_loads() {
+    // A security key PIN on trial must reach the key from one ssh only, so
+    // an upload, `.` and `R` wait until the listing is back.
+    let mut app = make_app("Host web\n  HostName 1.2.3.4\n");
+    app.screen = Screen::FileBrowser {
+        alias: "web".to_string(),
+    };
+    let mut fb = make_file_browser_session_with_entries();
+    fb.remote_loading = true;
+    app.file_browser_session = Some(fb);
+    let (tx, rx) = mpsc::channel();
+    let _ = handle_key_event(&mut app, key(KeyCode::Enter), &tx);
+    assert!(
+        app.file_browser_session
+            .as_ref()
+            .unwrap()
+            .confirm_copy
+            .is_none(),
+        "no upload while the listing loads"
+    );
+    let _ = handle_key_event(&mut app, key(KeyCode::Char('.')), &tx);
+    assert!(
+        !app.file_browser_session.as_ref().unwrap().show_hidden,
+        "`.` waits for the listing"
+    );
+    let _ = handle_key_event(&mut app, key(KeyCode::Char('R')), &tx);
+    drop(tx);
+    assert!(rx.recv().is_err(), "no listing was started");
+}
+
 fn make_file_browser_session_with_entries() -> crate::file_browser::FileBrowserSession {
     let mut local_list_state = ratatui::widgets::ListState::default();
     local_list_state.select(Some(1));
@@ -14156,5 +14187,44 @@ fn test_aws_form_warns_when_session_manager_has_no_profile() {
     assert_eq!(
         app.status_center.toast().map(|t| t.text.as_str()),
         Some(crate::messages::AWS_SSM_WITHOUT_PROFILE)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn stopping_a_tunnel_drops_the_pin_on_trial_for_it() {
+    // The stopped ssh never settles, so a restart must ask for the PIN again
+    // instead of sending the unproven one out a second time.
+    let mut app = make_app("Host web\n  HostName 1.2.3.4\n  LocalForward 18080 localhost:80\n");
+    let child = std::process::Command::new("sleep")
+        .arg("30")
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn sleep");
+    let (parser_tx, _parser_rx) = mpsc::channel();
+    let tunnel = crate::tunnel::ActiveTunnel::spawn(
+        child,
+        "web",
+        parser_tx,
+        crate::tunnel_live::AuthWatch::default(),
+    );
+    app.tunnels.active_insert("web".into(), tunnel);
+    app.security_key_pins.start_trial(crate::app::PinTrial {
+        alias: "web".into(),
+        key_path: "/k".into(),
+        pin: "4242".into(),
+        flow: crate::security_key::PinFlow::Tunnel,
+    });
+    let effects = {
+        let mut ctx = super::tunnel::ctx_from_app(&mut app);
+        assert!(ctx.stop_active_tunnel("web"));
+        ctx.effects
+    };
+    effects.apply(&mut app);
+    assert!(app.security_key_pins.trial().is_none());
+    assert!(
+        app.security_key_run_for("web", crate::security_key::PinFlow::Tunnel)
+            .pins
+            .is_empty()
     );
 }

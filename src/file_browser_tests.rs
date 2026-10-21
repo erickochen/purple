@@ -810,6 +810,7 @@ fn scp_ctx<'a>(
         bw_session: None,
         has_tunnel: false,
         trust_new_host_key,
+        security_key: &crate::security_key::NO_SECURITY_KEY,
         env,
     }
 }

@@ -251,18 +251,58 @@ impl Paths {
     /// percent-encoded rather than flattened, so `web.prod` and `web_prod`
     /// keep their own file and neither can walk out of the state directory.
     pub fn askpass_withheld_marker(&self, alias: &str) -> PathBuf {
-        let mut safe = String::with_capacity(alias.len());
-        for c in alias.chars() {
-            match c {
-                '%' => safe.push_str("%25"),
-                '/' => safe.push_str("%2f"),
-                '\\' => safe.push_str("%5c"),
-                '.' => safe.push_str("%2e"),
-                other => safe.push(other),
-            }
-        }
-        self.state_dir
-            .join(format!("{}{safe}", crate::askpass::WITHHELD_MARKER_PREFIX))
+        self.state_dir.join(format!(
+            "{}{}",
+            crate::askpass::WITHHELD_MARKER_PREFIX,
+            encode_marker_alias(alias)
+        ))
+    }
+
+    /// Marker recording that a background run met a security key PIN prompt
+    /// it had no PIN for. Keyed on the flow that ran it, so a container
+    /// refresh never answers for a tunnel. Holds the key path.
+    pub fn askpass_pin_request_marker(&self, flow: &str, alias: &str) -> PathBuf {
+        self.state_dir.join(format!(
+            "{}request.{flow}.{}",
+            crate::security_key::PIN_MARKER_PREFIX,
+            encode_marker_alias(alias)
+        ))
+    }
+
+    /// Marker listing which ssh process received which security key PIN for
+    /// `alias`, one `<pid>\t<key path>` line each.
+    pub fn askpass_pin_used_marker(&self, alias: &str) -> PathBuf {
+        self.state_dir.join(format!(
+            "{}used.{}",
+            crate::security_key::PIN_MARKER_PREFIX,
+            encode_marker_alias(alias)
+        ))
+    }
+
+    /// Marker recording that a security key refused the PIN purple handed
+    /// out. Keyed on a digest of the key path, which is free to be long.
+    pub fn askpass_pin_refused_marker(&self, key_digest: &str) -> PathBuf {
+        self.state_dir.join(format!(
+            "{}refused.{key_digest}",
+            crate::security_key::PIN_MARKER_PREFIX
+        ))
+    }
+
+    /// Marker whose mtime is the last time askpass handed out the PIN of one
+    /// security key, in any run. Keyed on the key path digest.
+    pub fn askpass_pin_last_marker(&self, key_digest: &str) -> PathBuf {
+        self.state_dir.join(format!(
+            "{}last.{key_digest}",
+            crate::security_key::PIN_MARKER_PREFIX
+        ))
+    }
+
+    /// Lock file that queues the hand-outs of one security key's PIN.
+    pub fn askpass_pin_lock_marker(&self, key_digest: &str) -> PathBuf {
+        self.state_dir.join(format!(
+            "{}lock.{key_digest}",
+            crate::security_key::PIN_MARKER_PREFIX
+        ))
     }
 
     /// `<cache>/container_cache.jsonl`.
@@ -299,6 +339,23 @@ impl Paths {
             _ => path.display().to_string(),
         }
     }
+}
+
+/// Percent-encode an alias for a marker filename rather than flattening it,
+/// so `web.prod` and `web_prod` keep their own file and neither can walk out
+/// of the state directory.
+fn encode_marker_alias(alias: &str) -> String {
+    let mut safe = String::with_capacity(alias.len());
+    for c in alias.chars() {
+        match c {
+            '%' => safe.push_str("%25"),
+            '/' => safe.push_str("%2f"),
+            '\\' => safe.push_str("%5c"),
+            '.' => safe.push_str("%2e"),
+            other => safe.push(other),
+        }
+    }
+    safe
 }
 
 /// One category's directory per the precedence documented on
@@ -810,6 +867,42 @@ mod tests {
         assert_ne!(
             p.askpass_marker("withheld.x"),
             p.askpass_withheld_marker("x")
+        );
+    }
+
+    #[test]
+    fn askpass_pin_markers_cannot_walk_out_of_the_state_dir() {
+        let p = Paths::new("/home/u");
+        assert_eq!(
+            p.askpass_pin_request_marker("tunnel", "../x"),
+            PathBuf::from("/home/u/.purple/.askpass_pin.request.tunnel.%2e%2e%2fx")
+        );
+        assert_eq!(
+            p.askpass_pin_used_marker("web.prod"),
+            PathBuf::from("/home/u/.purple/.askpass_pin.used.web%2eprod")
+        );
+        assert_eq!(
+            p.askpass_pin_refused_marker("abc123"),
+            PathBuf::from("/home/u/.purple/.askpass_pin.refused.abc123")
+        );
+        assert_eq!(
+            p.askpass_pin_last_marker("abc123"),
+            PathBuf::from("/home/u/.purple/.askpass_pin.last.abc123")
+        );
+        assert_eq!(
+            p.askpass_pin_lock_marker("abc123"),
+            PathBuf::from("/home/u/.purple/.askpass_pin.lock.abc123")
+        );
+    }
+
+    #[test]
+    fn askpass_pin_markers_never_collide_with_a_retry_marker() {
+        // A retry marker turns every dot into an underscore, so a host named
+        // `pin.used.x` cannot land on the PIN marker of `x`.
+        let p = Paths::new("/home/u");
+        assert_ne!(
+            p.askpass_marker("pin.used.x"),
+            p.askpass_pin_used_marker("x")
         );
     }
 

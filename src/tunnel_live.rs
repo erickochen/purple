@@ -181,6 +181,15 @@ pub struct TunnelLiveState {
     /// promptly even if stderr is still readable. The pipe close from
     /// `child.kill()` is the primary signal; this is a belt-and-braces.
     pub parser_stop: Arc<AtomicBool>,
+    /// Set by the parser thread once ssh says the target let it in.
+    pub authenticated: Arc<AtomicBool>,
+    /// Set by the parser thread when ssh gave up on authentication.
+    pub auth_refused: Arc<AtomicBool>,
+    /// Set by the parser thread once it read stderr to the end, so an exit
+    /// is judged on every line ssh wrote.
+    pub drained: Arc<AtomicBool>,
+    /// When `poll` first saw the child gone.
+    pub exited_at: Option<Instant>,
 
     /// Rolling history of bytes per second received (downstream from
     /// remote to laptop). Same bucket layout as `opens_history`.
@@ -218,6 +227,10 @@ impl TunnelLiveState {
             stderr_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_BUFFER_LINES))),
             parser_thread: None,
             parser_stop: Arc::new(AtomicBool::new(false)),
+            authenticated: Arc::new(AtomicBool::new(false)),
+            auth_refused: Arc::new(AtomicBool::new(false)),
+            drained: Arc::new(AtomicBool::new(false)),
+            exited_at: None,
             rx_history: [0u64; HISTORY_BUCKETS],
             tx_history: [0u64; HISTORY_BUCKETS],
             current_rx_bps: 0,
@@ -360,22 +373,66 @@ impl LsofPollerHandle {
     }
 }
 
+/// What the parser thread watches for while ssh authenticates.
+#[derive(Debug, Clone, Default)]
+pub struct AuthWatch {
+    /// Host ssh names on the target's `Authenticated to` line. `None` takes
+    /// any such line, which only fits a tunnel without a jump host: there a
+    /// bastion authenticates first.
+    pub target_host: Option<String>,
+    /// PINs the run carries, so a refusal of one can be recorded.
+    pub security_key: crate::security_key::SecurityKeyRun,
+    pub paths: Option<crate::runtime::env::Paths>,
+}
+
+impl AuthWatch {
+    /// True when `line` says the target let the tunnel in.
+    pub fn is_target_authenticated(&self, line: &str) -> bool {
+        let Some(host) = parse_authenticated_host(line) else {
+            return false;
+        };
+        self.target_host
+            .as_deref()
+            .is_none_or(|target| target.eq_ignore_ascii_case(host))
+    }
+}
+
+/// The host on an `Authenticated to <host> (...) using "<method>".` line,
+/// which ssh prints with `-v` once a host accepted it.
+pub fn parse_authenticated_host(line: &str) -> Option<&str> {
+    let rest = line.trim_start().strip_prefix("Authenticated to ")?;
+    let (host, _) = rest.split_once(" (")?;
+    (!host.is_empty()).then_some(host)
+}
+
+/// Shared flags the parser thread raises.
+#[derive(Clone)]
+pub struct ParserFlags {
+    pub stop: Arc<AtomicBool>,
+    pub authenticated: Arc<AtomicBool>,
+    pub auth_refused: Arc<AtomicBool>,
+    pub drained: Arc<AtomicBool>,
+}
+
 /// Spawn the per-tunnel stderr parser thread. Reads the child's stderr
 /// line-by-line, captures channel events into `tx` and stores the last
-/// few raw lines in `stderr_buffer` for exit-reason display.
+/// few raw lines in `stderr_buffer` for exit-reason display. It also
+/// raises `authenticated` once the target let ssh in and records a
+/// security key refusing a PIN the run carried.
 pub fn spawn_parser_thread(
     stderr: ChildStderr,
     alias: String,
     tx: Sender<ParserMessage>,
     stderr_buffer: Arc<Mutex<VecDeque<String>>>,
-    stop: Arc<AtomicBool>,
+    flags: ParserFlags,
+    watch: AuthWatch,
 ) -> JoinHandle<()> {
     thread::Builder::new()
         .name(format!("purple-tunnel-parser-{alias}"))
         .spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
-                if stop.load(Ordering::Relaxed) {
+                if flags.stop.load(Ordering::Relaxed) {
                     break;
                 }
                 let Ok(line) = line else { break };
@@ -384,6 +441,18 @@ pub fn spawn_parser_thread(
                         buf.pop_front();
                     }
                     buf.push_back(line.clone());
+                }
+                if watch.is_target_authenticated(&line) {
+                    flags.authenticated.store(true, Ordering::Relaxed);
+                    log::debug!("[purple] Tunnel authenticated: alias={alias}");
+                }
+                if crate::connection::auth_refused(&line) {
+                    flags.auth_refused.store(true, Ordering::Relaxed);
+                }
+                if let Some(failure) = crate::security_key::parse_sign_failure(&line)
+                    && watch.security_key.carries(&failure.key_path)
+                {
+                    crate::security_key::note_refusal(watch.paths.as_ref(), &failure);
                 }
                 if let Some(event) = parse_channel_line(&line) {
                     let msg = ParserMessage {
@@ -395,6 +464,7 @@ pub fn spawn_parser_thread(
                     }
                 }
             }
+            flags.drained.store(true, Ordering::Relaxed);
             log::debug!("[purple] Tunnel parser thread exit: alias={alias}");
         })
         .expect("spawn purple-tunnel-parser thread")
@@ -1264,6 +1334,98 @@ mod tests {
         assert!(parse_channel_line("not even ssh output").is_none());
         assert!(parse_channel_line("debug1: channel abc: new").is_none());
         assert!(parse_channel_line("debug1: channel 1: confirm").is_none());
+    }
+
+    #[test]
+    fn reads_the_host_from_an_authenticated_line() {
+        assert_eq!(
+            parse_authenticated_host(
+                "Authenticated to db.example.com ([10.0.0.5]:22) using \"publickey\"."
+            ),
+            Some("db.example.com")
+        );
+        assert_eq!(
+            parse_authenticated_host("Authenticated to db (via proxy) using \"publickey\"."),
+            Some("db")
+        );
+        assert_eq!(
+            parse_authenticated_host("debug1: Authentication succeeded"),
+            None
+        );
+    }
+
+    #[test]
+    fn behind_a_jump_host_only_the_target_counts_as_in() {
+        // ssh passes `-v` to the hop, which authenticates first on the
+        // same pipe.
+        let watch = AuthWatch {
+            target_host: Some("db.example.com".into()),
+            ..AuthWatch::default()
+        };
+        assert!(!watch.is_target_authenticated(
+            "Authenticated to bastion ([10.0.0.1]:22) using \"publickey\"."
+        ));
+        assert!(watch.is_target_authenticated(
+            "Authenticated to DB.example.com (via proxy) using \"publickey\"."
+        ));
+        let direct = AuthWatch::default();
+        assert!(direct.is_target_authenticated(
+            "Authenticated to anything ([1.2.3.4]:22) using \"publickey\"."
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_parser_flags_authentication_and_records_a_refused_pin() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = crate::runtime::env::Paths::new(dir.path());
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(
+                "printf '%s\\n' \
+                 'sign_and_send_pubkey: signing failed for ED25519-SK \"/k\": incorrect passphrase supplied to decrypt private key' \
+                 'Authenticated to web ([1.2.3.4]:22) using \"password\".' \
+                 'ops@bastion: Permission denied (publickey).' >&2",
+            )
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn sh");
+        let stderr = child.stderr.take().expect("stderr");
+        let flags = ParserFlags {
+            stop: Arc::new(AtomicBool::new(false)),
+            authenticated: Arc::new(AtomicBool::new(false)),
+            auth_refused: Arc::new(AtomicBool::new(false)),
+            drained: Arc::new(AtomicBool::new(false)),
+        };
+        let watch = AuthWatch {
+            target_host: None,
+            security_key: crate::security_key::SecurityKeyRun {
+                pins: vec![crate::security_key::SecurityKeyPin {
+                    key_path: "/k".into(),
+                    pin: "0000".into(),
+                }],
+                flow: None,
+            },
+            paths: Some(paths.clone()),
+        };
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let handle = spawn_parser_thread(
+            stderr,
+            "web".into(),
+            tx,
+            Arc::new(Mutex::new(VecDeque::new())),
+            flags.clone(),
+            watch,
+        );
+        handle.join().expect("parser thread");
+        let _ = child.wait();
+        assert!(flags.drained.load(Ordering::Relaxed));
+        assert!(flags.authenticated.load(Ordering::Relaxed));
+        assert!(flags.auth_refused.load(Ordering::Relaxed));
+        assert_eq!(
+            crate::security_key::refusal_for(Some(&paths), "/k"),
+            Some(crate::security_key::RefusalReason::WrongPin)
+        );
     }
 
     #[test]

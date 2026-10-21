@@ -74,12 +74,79 @@ pub(crate) fn handle_tick(
 
     // Poll active tunnels for exit
     let exited = app.poll_tunnels();
-    for (_alias, msg, is_error) in exited {
-        if is_error {
-            app.notify_background_error(msg);
-        } else {
-            app.notify_background(msg);
-        }
+    for exit in exited {
+        handle_tunnel_exit(app, exit);
+    }
+    // A tunnel that came up on a trial PIN proves it right away; it does not
+    // wait for an exit that may never come.
+    if let Some((alias, outcome)) = app.settle_authenticated_tunnel_trial() {
+        report_refused_but_connected(app, &alias, &outcome);
+    }
+}
+
+/// Settle what an exited tunnel says about PINs, then report the exit.
+fn handle_tunnel_exit(app: &mut App, exit: app::TunnelExit) {
+    // A tunnel that got in and then failed still proved its PIN.
+    let end = if !exit.is_error || exit.authenticated {
+        app::RunEnd::Connected
+    } else if exit.auth_refused {
+        app::RunEnd::AuthRefused
+    } else {
+        app::RunEnd::OtherFailure
+    };
+    let outcome =
+        app.settle_security_key_run(&exit.alias, crate::security_key::PinFlow::Tunnel, end);
+    if end != app::RunEnd::Connected && ask_tunnel_pin(app, &exit.alias, outcome.clone()) {
+        return;
+    }
+    report_refused_but_connected(app, &exit.alias, &outcome);
+    if exit.is_error {
+        app.notify_background_error(exit.message);
+    } else {
+        app.notify_background(exit.message);
+    }
+}
+
+/// Ask for the PIN a failed tunnel wanted and start it again with the answer.
+/// Returns true when the PIN outcome replaced the plain exit message.
+fn ask_tunnel_pin(app: &mut App, alias: &str, outcome: crate::app::PinOutcome) -> bool {
+    let (key_path, refused) = match outcome {
+        crate::app::PinOutcome::Needed { key_path } => (key_path, None),
+        crate::app::PinOutcome::Rejected {
+            key_path, reason, ..
+        } => (key_path, Some(reason)),
+        crate::app::PinOutcome::NotInvolved => return false,
+    };
+    if !app.can_open_tunnel_dialog() {
+        log::debug!("[purple] tunnel: PIN needed but no dialog may open alias={alias}");
+        let label = app.security_key_label(&key_path);
+        let message = match refused {
+            Some(reason) => crate::messages::askpass::pin_refused(&label, reason),
+            None => crate::messages::askpass::pin_needed_tunnel(alias, &label),
+        };
+        app.notify_background_error(message);
+        return true;
+    }
+    let retry = crate::app::PendingRetry::Tunnel {
+        alias: alias.to_string(),
+    };
+    app.open_security_key_pin_prompt(alias, &key_path, retry, refused, None);
+    true
+}
+
+/// Toast when the key refused the PIN although the host let ssh in another
+/// way. The PIN is already forgotten.
+fn report_refused_but_connected(app: &mut App, alias: &str, outcome: &crate::app::PinOutcome) {
+    if let crate::app::PinOutcome::Rejected {
+        key_path,
+        connected: true,
+        ..
+    } = outcome
+    {
+        let label = app.security_key_label(key_path);
+        app.notify_warning(crate::messages::askpass::pin_refused_but_connected(
+            alias, &label,
+        ));
     }
 }
 
@@ -146,4 +213,136 @@ pub(crate) fn handle_ping_result(
 /// Handle `AppEvent::UpdateAvailable`.
 pub(crate) fn handle_update_available(app: &mut App, version: String, headline: Option<String>) {
     app.update.announce(version, headline);
+}
+
+#[cfg(test)]
+mod pin_tests {
+    use super::*;
+    use crate::app::{PendingRetry, PinOutcome, Screen};
+    use crate::ssh_config::model::SshConfigFile;
+
+    fn app_with(config: &str) -> App {
+        let scratch = tempfile::tempdir().expect("tempdir").keep();
+        let cfg = SshConfigFile {
+            elements: SshConfigFile::parse_content(config),
+            path: scratch.join("config"),
+            crlf: false,
+            bom: false,
+        };
+        App::new(cfg)
+    }
+
+    #[test]
+    fn a_tunnel_that_wanted_a_pin_asks_for_it_and_queues_a_restart() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        let asked = ask_tunnel_pin(
+            &mut app,
+            "h",
+            PinOutcome::Needed {
+                key_path: "/k".into(),
+            },
+        );
+        assert!(asked);
+        assert_eq!(app.screen, Screen::PasswordPrompt);
+        let state = app.password_prompt.as_ref().expect("prompt");
+        assert_eq!(state.retry, PendingRetry::Tunnel { alias: "h".into() });
+        assert_eq!(state.security_key.as_deref(), Some("/k"));
+    }
+
+    #[test]
+    fn a_tunnel_pin_waits_as_a_toast_while_the_user_is_busy() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        app.search.set_query(Some("x".to_string()));
+        let asked = ask_tunnel_pin(
+            &mut app,
+            "h",
+            PinOutcome::Rejected {
+                key_path: "/k".into(),
+                reason: crate::security_key::RefusalReason::WrongPin,
+                connected: false,
+            },
+        );
+        assert!(asked);
+        assert!(app.password_prompt.is_none());
+        let toast = app.status_center.toast().expect("toast");
+        assert_eq!(
+            toast.text,
+            crate::messages::askpass::pin_refused(
+                "/k",
+                crate::security_key::RefusalReason::WrongPin
+            ),
+            "the reason is not lost"
+        );
+    }
+
+    #[test]
+    fn a_tunnel_that_wants_a_pin_while_the_user_is_busy_says_how_to_give_it() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        app.search.set_query(Some("x".to_string()));
+        assert!(ask_tunnel_pin(
+            &mut app,
+            "h",
+            PinOutcome::Needed {
+                key_path: "/k".into(),
+            },
+        ));
+        let toast = app.status_center.toast().expect("toast");
+        assert_eq!(
+            toast.text,
+            crate::messages::askpass::pin_needed_tunnel("h", "/k")
+        );
+    }
+
+    fn exit(alias: &str, authenticated: bool, auth_refused: bool) -> app::TunnelExit {
+        app::TunnelExit {
+            alias: alias.into(),
+            message: format!("Tunnel for {alias}: forward failed"),
+            is_error: true,
+            auth_refused,
+            authenticated,
+        }
+    }
+
+    #[test]
+    fn a_tunnel_that_got_in_and_then_failed_still_proves_its_pin() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        app.security_key_pins.start_trial(crate::app::PinTrial {
+            alias: "h".into(),
+            key_path: "/k".into(),
+            pin: "4242".into(),
+            flow: crate::security_key::PinFlow::Tunnel,
+        });
+        crate::security_key::record_hand_out(app.env().paths(), "h", 1, "/k");
+        handle_tunnel_exit(&mut app, exit("h", true, false));
+        assert_eq!(app.security_key_pins.confirmed_pin("/k"), Some("4242"));
+        assert!(app.password_prompt.is_none());
+        let toast = app.status_center.toast().expect("toast");
+        assert_eq!(toast.text, "Tunnel for h: forward failed");
+    }
+
+    #[test]
+    fn a_tunnel_refused_at_login_asks_for_the_pin_it_wanted() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        crate::security_key::arm_pin_request(
+            app.env().paths(),
+            crate::security_key::PinFlow::Tunnel,
+            "h",
+            "/k",
+        );
+        handle_tunnel_exit(&mut app, exit("h", false, true));
+        assert_eq!(app.screen, Screen::PasswordPrompt);
+        assert_eq!(
+            app.password_prompt
+                .as_ref()
+                .and_then(|s| s.security_key.as_deref()),
+            Some("/k")
+        );
+    }
+
+    #[test]
+    fn a_tunnel_failure_without_a_pin_keeps_its_own_message() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        assert!(!ask_tunnel_pin(&mut app, "h", PinOutcome::NotInvolved));
+        assert!(app.password_prompt.is_none());
+    }
 }

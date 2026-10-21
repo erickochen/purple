@@ -75,6 +75,23 @@ pub fn handle(env: &crate::runtime::env::Env) -> Result<()> {
 
     // Check the prompt (argv[1]) to skip passphrase and host key verification prompts
     let prompt = std::env::args().nth(1).unwrap_or_default();
+
+    // A notice that a security key wants a touch. ssh expects no answer and
+    // stops this helper once the key responded.
+    if env.var("SSH_ASKPASS_PROMPT") == Some("none") {
+        if !crate::askpass_env::runs_in_background(env) {
+            crate::security_key::show_on_tty(&prompt);
+        }
+        debug!("[purple] Askpass passed on a notice for {alias}");
+        return Ok(());
+    }
+
+    // A security key PIN is never a password: no source and no typed
+    // password may answer it.
+    if let Some(pin_prompt) = crate::security_key::parse_pin_prompt(&prompt) {
+        return handle_pin_prompt(env, &alias, &prompt, pin_prompt);
+    }
+
     let prompt_lower = prompt.to_ascii_lowercase();
     if prompt_lower.contains("passphrase")
         || prompt_lower.contains("yes/no")
@@ -219,6 +236,67 @@ pub fn handle(env: &crate::runtime::env::Env) -> Result<()> {
             }
             std::process::exit(1);
         }
+    }
+}
+
+/// Answer ssh's security key PIN prompt. A background run hands out the PIN
+/// the TUI put in its environment, at most once per ssh process and never
+/// after the key refused it. Without one it tells the TUI and answers
+/// nothing, which costs the key no attempt. A terminal run asks on the tty.
+fn handle_pin_prompt(
+    env: &crate::runtime::env::Env,
+    alias: &str,
+    prompt: &str,
+    pin_prompt: crate::security_key::PinPrompt<'_>,
+) -> Result<()> {
+    use crate::security_key as sk;
+    let key_path = pin_prompt.key_path;
+    if !crate::askpass_env::runs_in_background(env) {
+        match sk::read_pin_from_tty(prompt) {
+            Ok(Some(pin)) => {
+                debug!("[purple] Askpass read the security key PIN on the terminal for {key_path}");
+                print!("{}", pin);
+                return Ok(());
+            }
+            Ok(None) => debug!("[purple] Askpass security key PIN canceled for {key_path}"),
+            Err(e) => debug!("[purple] Askpass could not ask for the security key PIN: {e}"),
+        }
+        std::process::exit(1);
+    }
+    let paths = env.paths();
+    let ssh_pid = parent_pid();
+    if let Some(pin) = sk::pin_from_env(env, key_path) {
+        if let Some(reason) = sk::refusal_for(paths, key_path) {
+            debug!("[purple] Askpass withheld the PIN for {key_path}: refused before ({reason:?})");
+        } else if sk::handed_out(paths, alias, ssh_pid, key_path) {
+            // The same ssh asking twice means its first try failed. A second
+            // hand-out would cost the key one more attempt.
+            debug!("[purple] Askpass withheld the PIN for {key_path}: this ssh already had it");
+            std::process::exit(1);
+        } else if sk::claim_hand_out(paths, alias, ssh_pid, key_path) {
+            print!("{}", pin);
+            return Ok(());
+        } else {
+            debug!("[purple] Askpass withheld the PIN for {key_path}: refused while it waited");
+        }
+    }
+    if let Some(flow) = sk::flow_from_env(env)
+        && !alias.is_empty()
+    {
+        sk::arm_pin_request(paths, flow, alias, key_path);
+    }
+    std::process::exit(1);
+}
+
+/// The ssh process that started this helper.
+fn parent_pid() -> u32 {
+    #[cfg(unix)]
+    {
+        std::os::unix::process::parent_id()
+    }
+    #[cfg(not(unix))]
+    {
+        0
     }
 }
 
@@ -819,14 +897,14 @@ pub fn cleanup_marker(paths: Option<&crate::runtime::env::Paths>, _alias: &str) 
         return;
     };
     for entry in read.flatten() {
-        // Retry markers only. A withheld marker belongs to the alias it was
-        // armed for and is taken by whoever reads it, so a sweep running for
-        // another host has no business removing it.
-        if entry
-            .file_name()
-            .to_str()
-            .is_some_and(|s| s.starts_with(".askpass_") && !s.starts_with(WITHHELD_MARKER_PREFIX))
-        {
+        // Retry markers only. A withheld or PIN marker belongs to the run it
+        // was armed for and is taken by whoever reads it, so a sweep running
+        // for another host has no business removing it.
+        if entry.file_name().to_str().is_some_and(|s| {
+            s.starts_with(".askpass_")
+                && !s.starts_with(WITHHELD_MARKER_PREFIX)
+                && !s.starts_with(crate::security_key::PIN_MARKER_PREFIX)
+        }) {
             let _ = std::fs::remove_file(entry.path());
         }
     }

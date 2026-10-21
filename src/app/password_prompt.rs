@@ -24,13 +24,34 @@ pub enum PendingRetry {
     /// List `path` on the open file browser again. An empty path means the
     /// remote home lookup itself failed and runs first.
     FileBrowserListing { alias: String, path: String },
+    /// Start this host's tunnel again.
+    Tunnel { alias: String },
 }
 
 impl PendingRetry {
     pub fn alias(&self) -> &str {
         match self {
             PendingRetry::KeyPush { alias, .. }
-            | PendingRetry::FileBrowserListing { alias, .. } => alias,
+            | PendingRetry::FileBrowserListing { alias, .. }
+            | PendingRetry::Tunnel { alias } => alias,
+        }
+    }
+
+    /// Short name for the log.
+    pub fn kind_label(&self) -> &'static str {
+        match self {
+            PendingRetry::KeyPush { .. } => "key_push",
+            PendingRetry::FileBrowserListing { .. } => "file_browser",
+            PendingRetry::Tunnel { .. } => "tunnel",
+        }
+    }
+
+    /// The flow a security key PIN typed for this retry belongs to.
+    pub fn pin_flow(&self) -> crate::security_key::PinFlow {
+        match self {
+            PendingRetry::KeyPush { .. } => crate::security_key::PinFlow::KeyPush,
+            PendingRetry::FileBrowserListing { .. } => crate::security_key::PinFlow::FileBrowser,
+            PendingRetry::Tunnel { .. } => crate::security_key::PinFlow::Tunnel,
         }
     }
 }
@@ -64,6 +85,12 @@ pub struct PasswordPromptState {
     pub remember: bool,
     pub focus: PasswordPromptField,
     pub retry: PendingRetry,
+    /// Set when the prompt asks for a security key PIN instead: the key file
+    /// it belongs to. A PIN is never stored in the keychain.
+    pub security_key: Option<String>,
+    /// Alias of the per-host tunnel list the prompt opened over, which it
+    /// returns to.
+    pub return_to_tunnel_list: Option<String>,
 }
 
 // Hand-written so a stray `{:?}` can never print the typed password. Shows
@@ -77,6 +104,8 @@ impl std::fmt::Debug for PasswordPromptState {
             .field("remember", &self.remember)
             .field("focus", &self.focus)
             .field("retry", &self.retry)
+            .field("security_key", &self.security_key)
+            .field("return_to_tunnel_list", &self.return_to_tunnel_list)
             .finish()
     }
 }
@@ -90,6 +119,17 @@ impl PasswordPromptState {
             remember: true,
             focus: PasswordPromptField::Password,
             retry,
+            security_key: None,
+            return_to_tunnel_list: None,
+        }
+    }
+
+    /// The prompt for the PIN of the security key at `key_path`.
+    pub fn security_key_pin(alias: String, key_path: String, retry: PendingRetry) -> Self {
+        Self {
+            remember: false,
+            security_key: Some(key_path),
+            ..Self::new(alias, false, retry)
         }
     }
 }
@@ -238,10 +278,7 @@ impl App {
             alias,
             source_is_keychain,
             supplied_before,
-            match &retry {
-                PendingRetry::KeyPush { .. } => "key_push",
-                PendingRetry::FileBrowserListing { .. } => "file_browser",
-            }
+            retry.kind_label()
         );
         self.password_prompt = Some(PasswordPromptState::new(
             alias.to_string(),
@@ -281,8 +318,22 @@ impl App {
             askpass,
             bw_session: self.bw_session.clone(),
             trust_new_host_key: false,
+            security_key: self.security_key_confirmed_run(),
             env: std::sync::Arc::clone(&self.env),
         }
+    }
+
+    /// `ssh_context_for` for a file browser listing, which may ask for a
+    /// missing security key PIN and carries the trial PIN typed for it.
+    pub(crate) fn file_browser_ssh_context(
+        &self,
+        alias: impl Into<String>,
+        askpass: Option<String>,
+    ) -> crate::ssh_context::OwnedSshContext {
+        let mut ctx = self.ssh_context_for(alias, askpass);
+        ctx.security_key =
+            self.security_key_run_for(&ctx.alias, crate::security_key::PinFlow::FileBrowser);
+        ctx
     }
 
     /// Open the trust dialog for `alias` with `retry` queued behind it. The

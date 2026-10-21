@@ -33,6 +33,11 @@ pub(super) struct TunnelCtx<'a> {
     /// Passwords typed in the TUI this session, read so a tunnel start
     /// reuses the one the user already gave for that host.
     session_passwords: &'a crate::app::SessionPasswords,
+    /// Security key PINs typed this session. Only read when
+    /// `security_key_allowed` says the installed OpenSSH may receive them.
+    security_key_pins: &'a crate::app::SecurityKeyPins,
+    security_key_allowed: bool,
+    paths: Option<&'a crate::runtime::env::Paths>,
     config_path: &'a std::path::Path,
     pub(super) effects: Effects,
 }
@@ -110,6 +115,10 @@ impl TunnelCtx<'_> {
         let _ = tunnel.child.wait();
         drop(tunnel);
         debug!("[purple] tunnel stopped: alias={alias}");
+        let stopped = alias.to_string();
+        self.defer(move |app| {
+            app.abandon_security_key_trial(crate::security_key::PinFlow::Tunnel, Some(&stopped));
+        });
         self.defer(|app| app.refresh_tunnel_bind_ports());
         self.notify(crate::messages::tunnel_stopped(alias));
         true
@@ -119,20 +128,34 @@ impl TunnelCtx<'_> {
     /// No demo or empty-list guard; the caller decides those (their order
     /// differs between the overlay and the tab). Returns true on success.
     pub(super) fn spawn_active_tunnel(&mut self, alias: &str) -> bool {
-        let askpass = self
-            .hosts
-            .list()
-            .iter()
-            .find(|h| h.alias == alias)
-            .and_then(|h| h.askpass.clone());
+        let host = self.hosts.list().iter().find(|h| h.alias == alias);
+        let askpass = host.and_then(|h| h.askpass.clone());
+        // Behind a jump host the bastion authenticates first, so only the
+        // line naming the target counts. ssh prints the host lowercased.
+        let target_host = host
+            .filter(|h| !h.proxy_jump.trim().is_empty() || h.has_proxy_command)
+            .map(|h| {
+                let name = match h.hostname.trim() {
+                    "" => alias,
+                    hostname => hostname,
+                };
+                name.to_ascii_lowercase()
+            });
         let rules = self.hosts.ssh_config().find_tunnel_directives(alias);
         let session_password = self.session_passwords.get(alias).map(String::as_str);
+        let security_key = if self.security_key_allowed {
+            self.security_key_pins
+                .run_for(self.paths, alias, crate::security_key::PinFlow::Tunnel)
+        } else {
+            crate::security_key::SecurityKeyRun::default()
+        };
         match crate::tunnel::start_tunnel(
             alias,
             self.config_path,
             askpass.as_deref(),
             session_password,
             self.bw_session,
+            &security_key,
         ) {
             Ok(child) => {
                 for rule in &rules {
@@ -146,7 +169,12 @@ impl TunnelCtx<'_> {
                 }
                 self.tunnels.ensure_lsof_poller();
                 let parser_tx = self.tunnels.parser_tx();
-                let active = crate::tunnel::ActiveTunnel::spawn(child, alias, parser_tx);
+                let watch = crate::tunnel_live::AuthWatch {
+                    target_host,
+                    security_key,
+                    paths: self.paths.cloned(),
+                };
+                let active = crate::tunnel::ActiveTunnel::spawn(child, alias, parser_tx, watch);
                 self.tunnels.active_insert(alias.to_string(), active);
                 self.defer(|app| app.refresh_tunnel_bind_ports());
                 // Tunnel start spawns a real ssh session, same as a shell
@@ -232,6 +260,7 @@ pub(super) fn handle_tunnel_form_key(app: &mut App, key: KeyEvent) {
 
 /// Borrow the disjoint App fields the tunnel handlers need into one slice.
 pub(super) fn ctx_from_app(app: &mut App) -> TunnelCtx<'_> {
+    let security_key_allowed = app.security_key_pins_allowed();
     TunnelCtx {
         tunnels: &mut app.tunnels,
         hosts: &mut app.hosts_state,
@@ -245,6 +274,9 @@ pub(super) fn ctx_from_app(app: &mut App) -> TunnelCtx<'_> {
         top_page: app.top_page,
         bw_session: app.bw_session.as_deref(),
         session_passwords: &app.session_passwords,
+        security_key_pins: &app.security_key_pins,
+        security_key_allowed,
+        paths: app.env.paths(),
         config_path: app.reload.config_path(),
         effects: Effects::default(),
     }

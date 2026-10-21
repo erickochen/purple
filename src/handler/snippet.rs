@@ -34,6 +34,8 @@ struct SnippetCtx<'a> {
     env: &'a Env,
     config_path: &'a std::path::Path,
     bw_session: Option<&'a str>,
+    /// Proven security key PINs a snippet run may hand out.
+    security_key: crate::security_key::SecurityKeyRun,
 }
 
 impl Nav for SnippetCtx<'_> {
@@ -183,6 +185,7 @@ impl SnippetCtx<'_> {
 
 /// Borrow the disjoint App fields the snippet handlers need into one slice.
 fn ctx_from_app(app: &mut App) -> SnippetCtx<'_> {
+    let security_key = app.security_key_confirmed_run();
     SnippetCtx {
         snippets: &mut app.snippets,
         ui: &mut app.ui,
@@ -195,6 +198,7 @@ fn ctx_from_app(app: &mut App) -> SnippetCtx<'_> {
         env: app.env.as_ref(),
         config_path: app.reload.config_path(),
         bw_session: app.bw_session.as_deref(),
+        security_key,
     }
 }
 
@@ -497,6 +501,7 @@ fn start_snippet_output(
         cancel,
         events_tx.clone(),
         target_aliases.len() > 1,
+        ctx.security_key.clone(),
     );
 }
 

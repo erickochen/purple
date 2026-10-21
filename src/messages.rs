@@ -561,6 +561,85 @@ pub mod askpass {
             alias
         )
     }
+
+    // ── Security key PIN prompt ─────────────────────────────────────
+
+    /// Overlay title of the PIN prompt.
+    pub const PIN_PROMPT_TITLE: &str = "Security Key";
+
+    /// Muted text after the bold alias on the identity line.
+    pub const PIN_PROMPT_NEEDS_PIN: &str = "needs a security key PIN";
+
+    /// Field labels of the PIN prompt.
+    pub const PIN_FIELD_KEY: &str = "key";
+    pub const PIN_FIELD_PIN: &str = "PIN";
+
+    /// Muted line under the PIN field.
+    pub const PIN_TOUCH_HINT: &str = "Touch the key when it blinks.";
+
+    /// Toast once the PIN went out with the operation that asked for it.
+    pub const PIN_TOUCH_KEY: &str = "Touch your security key when it blinks.";
+
+    /// Shown in the TUI and on the terminal when the typed PIN is too short
+    /// to ever be right.
+    pub fn pin_too_short() -> String {
+        format!(
+            "A security key PIN has at least {} characters. Some keys require more.",
+            crate::security_key::PIN_MIN_CHARS
+        )
+    }
+
+    /// Toast when the PIN prompt reopens because the key refused.
+    pub fn pin_refused(key: &str, reason: crate::security_key::RefusalReason) -> String {
+        use crate::security_key::RefusalReason;
+        match reason {
+            RefusalReason::WrongPin => format!(
+                "Wrong PIN for {}. After three in a row the key needs a replug.",
+                key
+            ),
+            RefusalReason::NoAnswer => format!(
+                "The key for {} did not answer. Touch it sooner or replug it.",
+                key
+            ),
+            RefusalReason::NotFound => format!("No security key found for {}. Plug it in.", key),
+            RefusalReason::Other => format!("The security key for {} could not sign.", key),
+        }
+    }
+
+    /// Toast when the key refused the PIN but the host let the user in with
+    /// another method.
+    pub fn pin_refused_but_connected(alias: &str, key: &str) -> String {
+        format!("Wrong PIN for {}. {} let you in another way.", key, alias)
+    }
+
+    /// Toast when the user closes the PIN prompt without a PIN.
+    pub fn pin_prompt_canceled(alias: &str) -> String {
+        format!("No security key PIN given for {}. Skipped.", alias)
+    }
+
+    /// File browser pane when the PIN prompt cannot open right now.
+    pub fn pin_needed_listing(alias: &str, key: &str) -> String {
+        format!(
+            "{} needs the PIN of security key {}. Press R to enter it.",
+            alias, key
+        )
+    }
+
+    /// Transfer error when the host wants a PIN nobody gave yet.
+    pub fn pin_needed_transfer(alias: &str, key: &str) -> String {
+        format!(
+            "{} needs the PIN of security key {}. Refresh the listing with R to enter it.",
+            alias, key
+        )
+    }
+
+    /// Toast when a tunnel wants a PIN and no dialog may open right now.
+    pub fn pin_needed_tunnel(alias: &str, key: &str) -> String {
+        format!(
+            "Tunnel for {} needs the PIN of security key {}. Start it again to enter it.",
+            alias, key
+        )
+    }
 }
 
 /// Host key trust dialog, shown when a background ssh met a host that is

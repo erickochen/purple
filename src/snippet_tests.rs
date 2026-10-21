@@ -1216,6 +1216,7 @@ fn base_ssh_args_with(
         false,
         non_interactive,
         trust_new_host_key,
+        &crate::security_key::NO_SECURITY_KEY,
     );
     cmd.get_args()
         .map(|a| a.to_string_lossy().into_owned())

@@ -150,6 +150,7 @@ pub(crate) fn drive_refresh_batch(app: &mut App, alias: &str, events_tx: &mpsc::
             bw_session,
             has_tunnel: item.has_tunnel,
             trust_new_host_key: false,
+            security_key: app.security_key_confirmed_run(),
             env: std::sync::Arc::clone(&app.env),
         };
         let tx = events_tx.clone();

@@ -131,7 +131,7 @@ pub fn run(cli: Cli, env: std::sync::Arc<crate::runtime::env::Env>) -> Result<()
     let repaired_groups = config.repair_absorbed_group_comments();
     let orphaned_headers = config.remove_all_orphaned_group_headers();
 
-    write_startup_banner(&config, &config_path, cli.verbose, &env);
+    let ssh_version = write_startup_banner(&config, &config_path, cli.verbose, &env);
 
     // Handle subcommands that need SSH config
     match cli.command {
@@ -205,11 +205,13 @@ pub fn run(cli: Cli, env: std::sync::Arc<crate::runtime::env::Env>) -> Result<()
             repaired_groups,
             orphaned_headers,
             env,
+            &ssh_version,
         );
     }
 
     // Interactive TUI mode
     let mut app = App::with_env(config, std::sync::Arc::clone(&env));
+    app.seed_ssh_version(&ssh_version);
     app.post_init();
     apply_saved_sort(&mut app);
     if repaired_groups > 0 || orphaned_headers > 0 {
@@ -265,7 +267,7 @@ fn write_startup_banner(
     config_path: &Path,
     verbose: bool,
     env: &crate::runtime::env::Env,
-) {
+) -> String {
     let level_str = logging::level_name(verbose, env);
     let provider_config = providers::config::ProviderConfig::load(env.paths());
 
@@ -338,6 +340,7 @@ fn write_startup_banner(
         },
         env.paths(),
     );
+    ssh_version
 }
 
 /// Build a compact string describing the proxy-related env vars in effect.
@@ -404,6 +407,7 @@ fn run_positional_alias(
     repaired_groups: usize,
     orphaned_headers: usize,
     env: std::sync::Arc<crate::runtime::env::Env>,
+    ssh_version: &str,
 ) -> Result<()> {
     let host_opt = config
         .host_entries()
@@ -454,6 +458,7 @@ fn run_positional_alias(
 
     // No exact match. Open TUI with search pre-filled.
     let mut app = App::with_env(config, env);
+    app.seed_ssh_version(ssh_version);
     app.post_init();
     apply_saved_sort(&mut app);
     if repaired_groups > 0 || orphaned_headers > 0 {

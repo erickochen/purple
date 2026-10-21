@@ -963,7 +963,9 @@ pub(super) fn handle_key_push_key(
                 // after the screen transition. its first observable action is
                 // the guard/progress toast, with no intervening toast.
                 let tx = events_tx.clone();
-                ctx.defer(move |app| start_key_push(app, key_index, aliases, false, &tx));
+                ctx.defer(move |app| {
+                    start_key_push(app, key_index, aliases, false, &tx);
+                });
             }
             ConfirmAction::No => {
                 // Return to the picker with the selection still intact so the
@@ -1015,6 +1017,8 @@ pub(crate) fn push_auth_for(
         session_password: app.session_password_for(alias),
         bw_session: app.bw_session.clone(),
         trust_new_host_key,
+        security_key: app.security_key_run_for(alias, crate::security_key::PinFlow::KeyPush),
+        paths: app.env().paths().cloned(),
     }
 }
 
@@ -1026,14 +1030,15 @@ pub(crate) fn push_auth_for(
 /// before triggering another run.
 ///
 /// `trust_new_host_key` is set only by the retry that follows the trust
-/// dialog, so ssh records the host key on that one run.
+/// dialog, so ssh records the host key on that one run. Returns true when
+/// the worker started.
 pub(crate) fn start_key_push(
     app: &mut App,
     key_index: usize,
     aliases: Vec<String>,
     trust_new_host_key: bool,
     events_tx: &mpsc::Sender<AppEvent>,
-) {
+) -> bool {
     // Refuse second push while a previous run still has live state OR a
     // worker handle that has not been observed to finish. Belt-and-braces:
     // expected_count protects the in-flight branch, worker.is_finished()
@@ -1053,19 +1058,19 @@ pub(crate) fn start_key_push(
             app.keys.push().expected_count
         );
         app.notify_warning(crate::messages::KEY_PUSH_ALREADY_IN_PROGRESS);
-        return;
+        return false;
     }
     if aliases.is_empty() {
         log::debug!("[purple] key_push: rejected, no aliases committed");
         app.notify_error(crate::messages::KEY_PUSH_NO_HOSTS_SELECTED);
-        return;
+        return false;
     }
     let Some(key_info) = app.keys.list().get(key_index).cloned() else {
-        return;
+        return false;
     };
     if key_info.is_certificate {
         app.notify_error(crate::messages::KEY_PUSH_CERT_NOT_PUSHABLE);
-        return;
+        return false;
     }
     let pub_path = crate::key_push::pubkey_path_for(app.env.paths(), &key_info.display_path);
     let raw = match crate::key_push::read_pubkey_file(&pub_path) {
@@ -1080,7 +1085,7 @@ pub(crate) fn start_key_push(
                 &key_info.name,
                 n,
             ));
-            return;
+            return false;
         }
         Err(crate::key_push::PubkeyValidationError::NotARegularFile) => {
             log::warn!(
@@ -1088,14 +1093,14 @@ pub(crate) fn start_key_push(
                 pub_path.display()
             );
             app.notify_error(crate::messages::key_push_pubkey_not_regular(&key_info.name));
-            return;
+            return false;
         }
         Err(_) => {
             // Other validation variants are unreachable here (read_pubkey_file
             // only returns TooLarge / NotARegularFile / IO collapsed into
             // NotARegularFile). Defensive fallthrough.
             app.notify_error(crate::messages::key_push_no_pubkey(&key_info.name));
-            return;
+            return false;
         }
     };
     let pubkey = match crate::key_push::validate_pubkey(&raw) {
@@ -1123,7 +1128,7 @@ pub(crate) fn start_key_push(
                 &key_info.name,
                 detail,
             ));
-            return;
+            return false;
         }
     };
 
@@ -1178,6 +1183,7 @@ pub(crate) fn start_key_push(
     match handle {
         Ok(h) => {
             app.keys.push_mut().worker = Some(h);
+            true
         }
         Err(e) => {
             log::error!("[purple] key_push: failed to spawn worker: {}", e);
@@ -1187,6 +1193,7 @@ pub(crate) fn start_key_push(
             app.status_center.clear_sticky_status();
             app.notify_error(crate::messages::key_push_thread_spawn_failed());
             app.keys.push_mut().clear_inflight_state();
+            false
         }
     }
 }

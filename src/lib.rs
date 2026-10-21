@@ -37,6 +37,7 @@ pub mod preferences;
 pub mod providers;
 pub mod quick_add;
 pub mod runtime;
+pub mod security_key;
 pub mod snippet;
 pub mod snippet_impact;
 pub mod snippet_runs;

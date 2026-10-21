@@ -33,6 +33,10 @@ pub enum KeyPushOutcome {
     /// stripped, length-capped) so the user sees what went wrong without
     /// leaking the full ssh-vvv firehose into the UI.
     Failed(String),
+    /// ssh ended with `Permission denied` and the server takes no password.
+    /// Reported like `Failed`; kept apart so a missing security key PIN can
+    /// be told from a remote command that failed.
+    AuthRefused(String),
     /// ssh ended with `Permission denied` and the server still takes a
     /// password. The TUI asks for one and pushes again. `host` is the hop
     /// ssh named as refusing, which on a ProxyJump chain may be a bastion
@@ -59,6 +63,9 @@ pub struct PushAuth {
     pub session_password: Option<String>,
     pub bw_session: Option<String>,
     pub trust_new_host_key: bool,
+    pub security_key: crate::security_key::SecurityKeyRun,
+    /// Where a security key refusal is recorded.
+    pub paths: Option<crate::runtime::env::Paths>,
 }
 
 // Hand-written so a stray `{:?}` can never print the password or the
@@ -70,7 +77,8 @@ impl std::fmt::Debug for PushAuth {
             .field("session_password", &self.session_password.is_some())
             .field("bw_session", &self.bw_session.is_some())
             .field("trust_new_host_key", &self.trust_new_host_key)
-            .finish()
+            .field("security_key", &self.security_key)
+            .finish_non_exhaustive()
     }
 }
 
@@ -274,6 +282,7 @@ pub(crate) fn build_push_command(alias: &str, config_path: &Path, auth: &PushAut
         auth.bw_session.as_deref(),
         true,
     );
+    crate::security_key::configure(&mut cmd, &auth.security_key);
 
     // Own process group: cancel and shutdown signal ssh together with any
     // ProxyCommand it spawned. A Ctrl+C aimed at purple never reaches them.
@@ -322,7 +331,9 @@ pub fn push_to_host(
 
     let stdin = child.stdin.take();
     let stdout_pipe = child.stdout.take();
-    let stderr_pipe = child.stderr.take();
+    let stderr_pipe = child.stderr.take().map(|pipe| {
+        crate::security_key::RefusalScan::new(pipe, auth.paths.as_ref(), &auth.security_key)
+    });
     let guard = Arc::new(ChildGuard::new(child));
     inflight.set(Arc::clone(&guard));
 
@@ -413,6 +424,13 @@ pub fn push_to_host(
                 alias, host, status
             );
             return KeyPushOutcome::NeedsPassword { detail: msg, host };
+        }
+        if crate::connection::auth_refused(&stderr) {
+            debug!(
+                "[purple] key_push: authentication refused alias={} status={}",
+                alias, status
+            );
+            return KeyPushOutcome::AuthRefused(msg);
         }
         debug!(
             "[purple] key_push: failed alias={} status={} stderr={}",

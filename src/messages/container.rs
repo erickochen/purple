@@ -66,6 +66,8 @@ pub const HOST_KEY_CHANGED: &str =
 pub const CONTAINER_RUNTIME_NOT_FOUND: &str = "Docker or Podman not found on remote host.";
 pub const CONTAINER_PERMISSION_DENIED: &str =
     "Permission denied. Is your user in the docker group?";
+/// The login needs a security key PIN, which a container call cannot ask for.
+pub const CONTAINER_SECURITY_KEY_PIN: &str = "This host signs in with a security key PIN. Enter it once from the file browser or a tunnel, then refresh.";
 pub const CONTAINER_DAEMON_NOT_RUNNING: &str = "Container daemon is not running.";
 pub const CONTAINER_CONNECTION_REFUSED: &str = "Connection refused.";
 pub const CONTAINER_HOST_UNREACHABLE: &str = "Host unreachable.";

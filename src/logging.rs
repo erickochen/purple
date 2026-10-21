@@ -235,26 +235,33 @@ pub fn level_name(verbose: bool, env: &crate::runtime::env::Env) -> String {
 /// `ssh -V` exits naturally. This is acceptable because `ssh -V` is
 /// near-instant and this only runs once at startup.
 pub fn detect_ssh_version() -> String {
+    query_ssh_version().unwrap_or_else(|| {
+        eprintln!("{}", crate::messages::logging::SSH_VERSION_FAILED);
+        "unknown".to_string()
+    })
+}
+
+/// `ssh -V` output, or "unknown" when ssh gave no usable answer in time.
+/// `None` when ssh could not be started. Prints nothing, so the TUI can call
+/// it while it owns the terminal.
+pub(crate) fn query_ssh_version() -> Option<String> {
     use std::sync::mpsc;
     use std::time::Duration;
 
     let child = std::process::Command::new("ssh")
         .arg("-V")
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn();
-
-    let Ok(child) = child else {
-        eprintln!("{}", crate::messages::logging::SSH_VERSION_FAILED);
-        return "unknown".to_string();
-    };
+        .spawn()
+        .ok()?;
 
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(child.wait_with_output());
     });
 
-    match rx.recv_timeout(Duration::from_secs(2)) {
+    Some(match rx.recv_timeout(Duration::from_secs(2)) {
         Ok(Ok(output)) => {
             let out = if output.stderr.is_empty() {
                 output.stdout
@@ -266,7 +273,7 @@ pub fn detect_ssh_version() -> String {
                 .unwrap_or_else(|_| "unknown".to_string())
         }
         _ => "unknown".to_string(),
-    }
+    })
 }
 
 /// Thread-local log capture for tests. The global logger writes records into a

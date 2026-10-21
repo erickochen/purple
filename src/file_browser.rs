@@ -521,6 +521,7 @@ pub(crate) fn build_scp_command(ctx: &SshContext<'_>, scp_args: &[String]) -> Co
         ctx.bw_session,
         true,
     );
+    crate::security_key::configure(&mut cmd, ctx.security_key);
 
     // Own process group so a cancel or shutdown can signal scp and the ssh
     // it spawns together, and a Ctrl+C aimed at purple never reaches them.
@@ -553,19 +554,30 @@ pub fn run_scp(ctx: &SshContext<'_>, scp_args: &[String]) -> anyhow::Result<ScpR
 
     let mut cmd = build_scp_command(ctx, scp_args);
 
-    let output = cmd.output().map_err(|e| {
+    let mut child = cmd.spawn().map_err(|e| {
         log::error!("[external] scp spawn failed: alias={alias}: {e}");
         anyhow::anyhow!("Failed to run scp: {}", e)
     })?;
+    // stdin and stdout are null, so reading stderr here cannot deadlock.
+    let mut stderr_bytes = Vec::new();
+    if let Some(pipe) = child.stderr.take() {
+        let mut scan =
+            crate::security_key::RefusalScan::new(pipe, ctx.env.paths(), ctx.security_key);
+        let _ = std::io::Read::read_to_end(&mut scan, &mut stderr_bytes);
+    }
+    let status = child.wait().map_err(|e| {
+        log::error!("[external] scp wait failed: alias={alias}: {e}");
+        anyhow::anyhow!("Failed to run scp: {}", e)
+    })?;
 
-    let stderr_output = String::from_utf8_lossy(&output.stderr).to_string();
+    let stderr_output = String::from_utf8_lossy(&stderr_bytes).to_string();
 
-    if !output.status.success() {
+    if !status.success() {
         let scrubbed = filter_ssh_warnings(stderr_output.trim());
         log::warn!(
             "[external] scp transfer failed: alias={} exit={} stderr={}",
             alias,
-            output.status.code().unwrap_or(-1),
+            status.code().unwrap_or(-1),
             if scrubbed.is_empty() {
                 "<empty>"
             } else {
@@ -575,7 +587,7 @@ pub fn run_scp(ctx: &SshContext<'_>, scp_args: &[String]) -> anyhow::Result<ScpR
     }
 
     Ok(ScpResult {
-        status: output.status,
+        status,
         stderr_output,
     })
 }

@@ -222,6 +222,9 @@ fn cancel_push_if_running(ctx: &mut KeysCtx) {
     // the accumulators and bump run_id so any KeyPushResult event still in
     // flight from the aborted worker is dropped on arrival.
     ctx.keys.push_mut().cancel_run();
+    ctx.defer(|app| {
+        app.abandon_security_key_trial(crate::security_key::PinFlow::KeyPush, None);
+    });
     // Drop the progress toast through the status-center invariant so the
     // cancel message is unambiguously the latest status.
     ctx.status.clear_sticky_status();
@@ -543,6 +546,24 @@ mod tests {
         assert!(app.keys.push().selected.is_empty());
         // Cancel toast surfaced.
         assert!(app.status_center.toast().is_some());
+    }
+
+    #[test]
+    fn esc_cancel_drops_the_pin_on_trial_for_the_push() {
+        let mut app = make_app();
+        app.keys.push_mut().cancel = Some(Arc::new(AtomicBool::new(false)));
+        app.keys.push_mut().expected_count = 1;
+        app.security_key_pins.start_trial(crate::app::PinTrial {
+            alias: "h1".into(),
+            key_path: "/k".into(),
+            pin: "4242".into(),
+            flow: crate::security_key::PinFlow::KeyPush,
+        });
+        handle_key(&mut app, k(KeyCode::Esc));
+        assert!(
+            app.security_key_pins.trial().is_none(),
+            "a new push asks for the PIN again"
+        );
     }
 
     // --- Arrow-key navigation (j/k aliases via Left/Right) ---

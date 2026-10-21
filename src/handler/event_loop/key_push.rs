@@ -37,11 +37,33 @@ pub(crate) fn handle_key_push_result(
         // No run is in flight (cancel just zeroed expected_count); drop.
         return;
     }
+    // Settle now: a long batch can outlast the PIN markers this host left.
+    let pin = app.settle_security_key_run(
+        &result.alias,
+        crate::security_key::PinFlow::KeyPush,
+        run_end(&result.outcome),
+    );
+    app.keys
+        .push_mut()
+        .pin_outcomes
+        .insert(result.alias.clone(), pin);
     app.keys.push_mut().results.push(result);
     if app.keys.push().results.len() < expected {
         return;
     }
     finalize_key_push(app);
+}
+
+/// How a host's push ended, as far as its security key PIN is concerned.
+fn run_end(outcome: &crate::key_push::KeyPushOutcome) -> crate::app::RunEnd {
+    use crate::key_push::KeyPushOutcome;
+    match outcome {
+        KeyPushOutcome::Appended | KeyPushOutcome::AlreadyPresent => crate::app::RunEnd::Connected,
+        KeyPushOutcome::NeedsPassword { .. } | KeyPushOutcome::AuthRefused(_) => {
+            crate::app::RunEnd::AuthRefused
+        }
+        _ => crate::app::RunEnd::OtherFailure,
+    }
 }
 
 /// Compute the summary toast / sticky overlay from the accumulated
@@ -59,11 +81,52 @@ fn finalize_key_push(app: &mut App) {
     // Stamped onto every question this run leaves behind, so a later run
     // pushing a different key cannot answer for the wrong one.
     let run_key_path = app.keys.push().key_path.clone();
+    let mut refused_but_connected: Vec<(String, String)> = Vec::new();
     for r in &results {
+        // A security key PIN outranks whatever ssh printed last: the key
+        // signs the login, so without the PIN nothing else can be answered.
+        let pin = app
+            .keys
+            .push_mut()
+            .pin_outcomes
+            .remove(&r.alias)
+            .unwrap_or(crate::app::PinOutcome::NotInvolved);
+        match pin {
+            crate::app::PinOutcome::Needed { key_path } => {
+                prompts.push(KeyPushPrompt::SecurityKeyPin {
+                    alias: r.alias.clone(),
+                    key_path: run_key_path.clone(),
+                    security_key: key_path,
+                    refused: None,
+                });
+                continue;
+            }
+            crate::app::PinOutcome::Rejected {
+                key_path,
+                reason,
+                connected: false,
+            } => {
+                prompts.push(KeyPushPrompt::SecurityKeyPin {
+                    alias: r.alias.clone(),
+                    key_path: run_key_path.clone(),
+                    security_key: key_path,
+                    refused: Some(reason),
+                });
+                continue;
+            }
+            crate::app::PinOutcome::Rejected {
+                key_path,
+                connected: true,
+                ..
+            } => refused_but_connected.push((r.alias.clone(), key_path)),
+            _ => {}
+        }
         match &r.outcome {
             KeyPushOutcome::Appended => appended += 1,
             KeyPushOutcome::AlreadyPresent => already += 1,
-            KeyPushOutcome::Failed(msg) => failed.push((r.alias.clone(), msg.clone())),
+            KeyPushOutcome::Failed(msg) | KeyPushOutcome::AuthRefused(msg) => {
+                failed.push((r.alias.clone(), msg.clone()))
+            }
             KeyPushOutcome::UnknownHostKey { detail, host } => {
                 if app.refusal_is_this_host(&r.alias, host.as_deref()) {
                     prompts.push(KeyPushPrompt::Trust {
@@ -198,9 +261,16 @@ fn finalize_key_push(app: &mut App) {
             match p {
                 KeyPushPrompt::Trust { .. } => "trust",
                 KeyPushPrompt::Password { .. } => "password",
+                KeyPushPrompt::SecurityKeyPin { .. } => "security key PIN",
             },
             p.alias()
         );
+    }
+    for (alias, key_path) in &refused_but_connected {
+        let label = app.security_key_label(key_path);
+        app.notify_warning(crate::messages::askpass::pin_refused_but_connected(
+            alias, &label,
+        ));
     }
 
     // Refresh keys so linked_hosts picks up the newly-authorized aliases.
@@ -280,6 +350,19 @@ pub(crate) fn drain_next_key_push_prompt(app: &mut App) -> bool {
             KeyPushPrompt::Password { .. } => {
                 let supplied = app.password_was_supplied_for(&alias);
                 app.open_password_prompt(&alias, retry, supplied);
+            }
+            KeyPushPrompt::SecurityKeyPin {
+                security_key,
+                refused,
+                ..
+            } => {
+                // An earlier host of this batch may have proven the PIN
+                // meanwhile, so Enter alone runs this one again.
+                let prefill = app
+                    .security_key_pins
+                    .confirmed_pin(&security_key)
+                    .map(str::to_string);
+                app.open_security_key_pin_prompt(&alias, &security_key, retry, refused, prefill);
             }
         }
         return true;
@@ -479,14 +562,129 @@ mod tests {
     fn run_with(app: &mut App, results: Vec<KeyPushResult>) {
         app.keys.push_mut().expected_count = results.len();
         app.keys.push_mut().key_path = "~/.ssh/id_test".to_string();
-        let last = results.len().saturating_sub(1);
-        for (i, r) in results.into_iter().enumerate() {
-            if i < last {
-                app.keys.push_mut().results.push(r);
-            } else {
-                handle_key_push_result(app, 1, r);
-            }
+        for r in results {
+            handle_key_push_result(app, 1, r);
         }
+    }
+
+    const SK: &str = "/home/u/.ssh/id_sk";
+
+    fn arm_pin(app: &App, alias: &str) {
+        crate::security_key::arm_pin_request(
+            app.env().paths(),
+            crate::security_key::PinFlow::KeyPush,
+            alias,
+            SK,
+        );
+    }
+
+    #[test]
+    fn a_host_that_wanted_a_pin_gets_the_pin_prompt_not_the_password_prompt() {
+        let mut app = app_with_hosts("Host h1\n  HostName 1.1.1.1\n");
+        arm_pin(&app, "h1");
+        run_with(&mut app, vec![result("h1", needs_password_from(None))]);
+        assert_eq!(app.screen, crate::app::Screen::PasswordPrompt);
+        let state = app.password_prompt.as_ref().expect("prompt");
+        assert_eq!(state.security_key.as_deref(), Some(SK));
+        assert_eq!(
+            state.retry,
+            crate::app::PendingRetry::KeyPush {
+                key_path: "~/.ssh/id_test".into(),
+                alias: "h1".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_pin_request_is_settled_when_its_host_lands_not_at_the_end_of_the_batch() {
+        // The request marker ages out, and a batch with slow hosts behind
+        // this one can take longer than that.
+        let mut app = app_with_hosts("Host h1\n  HostName 1.1.1.1\nHost h2\n  HostName 2.2.2.2\n");
+        app.keys.push_mut().expected_count = 2;
+        app.keys.push_mut().key_path = "~/.ssh/id_test".to_string();
+        arm_pin(&app, "h1");
+        handle_key_push_result(&mut app, 1, result("h1", needs_password_from(None)));
+        assert_eq!(
+            app.keys.push().pin_outcomes.get("h1"),
+            Some(&crate::app::PinOutcome::Needed {
+                key_path: SK.into()
+            })
+        );
+        assert_eq!(
+            crate::security_key::take_pin_request(
+                app.env().paths(),
+                crate::security_key::PinFlow::KeyPush,
+                "h1"
+            ),
+            None,
+            "the marker was read on arrival"
+        );
+        handle_key_push_result(&mut app, 1, result("h2", KeyPushOutcome::AlreadyPresent));
+        let state = app.password_prompt.as_ref().expect("prompt for h1");
+        assert_eq!(state.alias, "h1");
+        assert_eq!(state.security_key.as_deref(), Some(SK));
+        assert!(app.keys.push().pin_outcomes.is_empty());
+    }
+
+    #[test]
+    fn a_pin_proven_earlier_in_the_batch_is_offered_in_the_next_prompt() {
+        let mut app = app_with_hosts("Host h1\n  HostName 1.1.1.1\nHost h2\n  HostName 2.2.2.2\n");
+        arm_pin(&app, "h2");
+        // h1 proves the PIN on its retry while h2 still waits in the queue.
+        app.security_key_pins.start_trial(crate::app::PinTrial {
+            alias: "h1".into(),
+            key_path: SK.into(),
+            pin: "4242".into(),
+            flow: crate::security_key::PinFlow::KeyPush,
+        });
+        crate::security_key::record_hand_out(app.env().paths(), "h1", 1, SK);
+        // AlreadyPresent rather than Appended: an append rebuilds the key
+        // list from the empty sandbox and the queued question would go.
+        run_with(
+            &mut app,
+            vec![
+                result("h1", KeyPushOutcome::AlreadyPresent),
+                result(
+                    "h2",
+                    KeyPushOutcome::AuthRefused("u@h: Permission denied (publickey).".into()),
+                ),
+            ],
+        );
+        assert_eq!(app.security_key_pins.confirmed_pin(SK), Some("4242"));
+        let state = app.password_prompt.as_ref().expect("prompt for h2");
+        assert_eq!(state.alias, "h2");
+        assert_eq!(state.input, "4242", "Enter alone runs h2 again");
+    }
+
+    #[test]
+    fn a_pin_the_key_refused_reopens_the_prompt_with_the_reason() {
+        let mut app = app_with_hosts("Host h1\n  HostName 1.1.1.1\n");
+        app.security_key_pins.start_trial(crate::app::PinTrial {
+            alias: "h1".into(),
+            key_path: SK.into(),
+            pin: "0000".into(),
+            flow: crate::security_key::PinFlow::KeyPush,
+        });
+        crate::security_key::note_refusal(
+            app.env().paths(),
+            &crate::security_key::SignFailure {
+                key_path: SK.into(),
+                reason: crate::security_key::RefusalReason::WrongPin,
+            },
+        );
+        run_with(
+            &mut app,
+            vec![result(
+                "h1",
+                KeyPushOutcome::AuthRefused("u@h: Permission denied (publickey).".into()),
+            )],
+        );
+        let state = app.password_prompt.as_ref().expect("prompt");
+        assert_eq!(state.security_key.as_deref(), Some(SK));
+        assert!(
+            state.input.is_empty(),
+            "a refused PIN is never offered again"
+        );
     }
 
     #[test]
