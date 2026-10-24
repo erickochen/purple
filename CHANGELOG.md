@@ -1,3 +1,9 @@
+## 3.31.1 - 2026-10-24
+
+- feat: Containers show up on fish and tcsh hosts.
+- feat: Listing and refresh work just like on bash and zsh.
+- Thanks to @Parsifa1 for fixing this in #165
+
 ## 3.31.0 - 2026-10-21
 
 - feat: Use your YubiKey with a PIN everywhere in purple.
