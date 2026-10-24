@@ -427,9 +427,39 @@ fn test_wrap_interactive_quotes_the_command_as_its_own_argument() {
     assert!(wrapped.contains(" sh 'echo '\\''hi'\\''' "), "{wrapped}");
 }
 
+#[test]
+fn test_wrap_posix_quotes_the_script_as_one_argument() {
+    assert_eq!(
+        wrap_posix("echo 'hi'"),
+        "exec /bin/sh -c 'echo '\\''hi'\\'''"
+    );
+}
+
+#[test]
+fn test_wrap_posix_runs_posix_syntax_in_every_login_shell() {
+    let script = "if true; then echo 'ok'; fi; { echo grouped; } 2>/dev/null; exit 3";
+    for shell in local_shells().into_iter().chain(other_local_shells()) {
+        let out = run_in_sandbox(shell, &wrap_posix(script), "");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "ok\ngrouped\n",
+            "{shell}"
+        );
+        assert_eq!(out.status.code(), Some(3), "{shell}");
+    }
+}
+
+#[test]
+fn test_wrap_posix_keeps_not_found_exit_code() {
+    for shell in local_shells().into_iter().chain(other_local_shells()) {
+        let out = run_in_sandbox(shell, &wrap_posix("purple_no_such_command_xyz"), "");
+        assert_eq!(out.status.code(), Some(EXIT_COMMAND_NOT_FOUND), "{shell}");
+    }
+}
+
 /// POSIX login shells the wrapper is run through, as far as they exist on this
 /// machine. bash and zsh take the interactive route, sh and dash the plain one.
-fn local_shells() -> Vec<&'static str> {
+pub(crate) fn local_shells() -> Vec<&'static str> {
     existing(&[
         "/bin/sh",
         "/bin/bash",
@@ -440,7 +470,7 @@ fn local_shells() -> Vec<&'static str> {
 }
 
 /// Non-POSIX login shells, which run the command in their own syntax.
-fn other_local_shells() -> Vec<&'static str> {
+pub(crate) fn other_local_shells() -> Vec<&'static str> {
     existing(&[
         "/bin/tcsh",
         "/usr/bin/tcsh",
