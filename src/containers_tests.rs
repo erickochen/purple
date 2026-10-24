@@ -616,7 +616,7 @@ fn id_colon_rejected() {
 
 #[test]
 fn list_cmd_docker_includes_engine_sentinel() {
-    let cmd = container_list_command(Some(ContainerRuntime::Docker));
+    let cmd = container_list_script(Some(ContainerRuntime::Docker));
     assert!(cmd.contains("docker ps -a --format '{{json .}}'"));
     assert!(cmd.contains("##purple:engine##"));
     assert!(cmd.contains("docker version --format '{{.Server.Version}}'"));
@@ -624,10 +624,110 @@ fn list_cmd_docker_includes_engine_sentinel() {
 
 #[test]
 fn list_cmd_podman_includes_engine_sentinel() {
-    let cmd = container_list_command(Some(ContainerRuntime::Podman));
+    let cmd = container_list_script(Some(ContainerRuntime::Podman));
     assert!(cmd.contains("podman ps -a --format '{{json .}}'"));
     assert!(cmd.contains("##purple:engine##"));
     assert!(cmd.contains("podman version --format '{{.Server.Version}}'"));
+}
+
+#[test]
+fn list_cmd_runs_through_posix_sh() {
+    // fish and tcsh parse the ssh command line themselves, so the POSIX
+    // script travels as one quoted argument to /bin/sh.
+    for runtime in [
+        None,
+        Some(ContainerRuntime::Docker),
+        Some(ContainerRuntime::Podman),
+    ] {
+        let cmd = container_list_command(runtime);
+        assert!(cmd.starts_with("exec /bin/sh -c '"), "{runtime:?}: {cmd}");
+        assert!(cmd.ends_with('\''), "{runtime:?}: {cmd}");
+    }
+}
+
+/// POSIX and non-POSIX login shells on this machine, as far as they exist.
+fn local_login_shells() -> Vec<&'static str> {
+    let mut shells = crate::snippet::tests::local_shells();
+    shells.extend(crate::snippet::tests::other_local_shells());
+    shells
+}
+
+/// Stand-in for the docker CLI: one container row for `ps`, a version for
+/// `version`.
+const FAKE_DOCKER: &str = concat!(
+    "#!/bin/sh\n",
+    "case \"$1\" in\n",
+    "  ps) echo '{\"ID\":\"abc123\",\"Names\":\"web\",\"Image\":\"nginx:1.27\",",
+    "\"State\":\"running\",\"Status\":\"Up 2 hours\",\"Ports\":\"\"}' ;;\n",
+    "  version) echo 25.0.3 ;;\n",
+    "  *) exit 1 ;;\n",
+    "esac\n"
+);
+
+/// Run `command` the way sshd does (`$SHELL -c <command>`, short name as
+/// argv[0]) inside an empty HOME, with PATH holding only a directory that
+/// carries the fake `docker` when asked for.
+fn run_list_command(shell: &str, command: &str, with_docker: bool) -> std::process::Output {
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::process::CommandExt;
+    let home = tempfile::tempdir().expect("create tempdir");
+    let bin = home.path().join("bin");
+    std::fs::create_dir(&bin).expect("create bin");
+    if with_docker {
+        let docker = bin.join("docker");
+        std::fs::write(&docker, FAKE_DOCKER).expect("write fake docker");
+        std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod fake docker");
+    }
+    let name = shell.rsplit('/').next().unwrap_or(shell);
+    std::process::Command::new(shell)
+        .arg0(name)
+        .arg("-c")
+        .arg(command)
+        .env("PATH", &bin)
+        .env("SHELL", shell)
+        .env("HOME", home.path())
+        .env_remove("ENV")
+        .current_dir(home.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("run shell")
+}
+
+#[test]
+fn list_cmd_lists_containers_in_every_local_login_shell() {
+    for shell in local_login_shells() {
+        for runtime in [None, Some(ContainerRuntime::Docker)] {
+            let out = run_list_command(shell, &container_list_command(runtime), true);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert_eq!(
+                out.status.code(),
+                Some(0),
+                "{shell} {runtime:?}: {stdout}{stderr}"
+            );
+            let listing = parse_container_output(&stdout, runtime)
+                .unwrap_or_else(|e| panic!("{shell} {runtime:?}: {e}"));
+            assert_eq!(listing.runtime, ContainerRuntime::Docker, "{shell}");
+            assert_eq!(listing.engine_version.as_deref(), Some("25.0.3"), "{shell}");
+            assert_eq!(listing.containers.len(), 1, "{shell}");
+            assert_eq!(listing.containers[0].id, "abc123", "{shell}");
+        }
+    }
+}
+
+#[test]
+fn list_cmd_reports_a_missing_runtime_in_every_local_login_shell() {
+    for shell in local_login_shells() {
+        let out = run_list_command(shell, &container_list_command(None), false);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(0), "{shell}: {stderr}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "##purple:none##\n",
+            "{shell}"
+        );
+    }
 }
 
 #[test]
@@ -1024,18 +1124,11 @@ fn id_slash_rejected() {
 
 #[test]
 fn list_cmd_none_valid_shell_syntax() {
-    let cmd = container_list_command(None);
-    assert!(cmd.contains("if "), "should start with if");
-    assert!(cmd.contains("fi"), "should end with fi");
+    let cmd = container_list_script(None);
+    assert!(cmd.starts_with("if "), "should start with if");
+    assert!(cmd.ends_with("fi"), "should end with fi");
     assert!(cmd.contains("elif "), "should have elif fallback");
     assert!(cmd.contains("else "), "should have else branch");
-}
-
-#[test]
-fn list_cmd_none_wrapped_in_sh() {
-    let cmd = container_list_command(None);
-    assert!(cmd.starts_with("sh -c \""), "command must be wrapped in sh -c for fish/csh compatibility");
-    assert!(cmd.ends_with('\"'), "command must end with closing quote");
 }
 
 #[test]
@@ -1308,7 +1401,7 @@ fn list_cmd_known_runtime_chains_with_and_so_ps_failure_propagates() {
     // failure cannot be masked by a successful `version` subcall on the
     // remote shell. The trailing version step is wrapped in `|| true`
     // so its own failure stays best-effort.
-    let docker = container_list_command(Some(ContainerRuntime::Docker));
+    let docker = container_list_script(Some(ContainerRuntime::Docker));
     assert!(
         docker.contains(" && echo '##purple:engine##' && "),
         "docker command must use `&&` between ps and engine sentinel: {docker}"
@@ -1317,7 +1410,7 @@ fn list_cmd_known_runtime_chains_with_and_so_ps_failure_propagates() {
         docker.contains("|| true"),
         "version subcall must be wrapped so its failure does not surface: {docker}"
     );
-    let podman = container_list_command(Some(ContainerRuntime::Podman));
+    let podman = container_list_script(Some(ContainerRuntime::Podman));
     assert!(podman.contains(" && echo '##purple:engine##' && "));
     assert!(podman.contains("|| true"));
 }

@@ -55,6 +55,13 @@ pub fn wrap_interactive(command: &str) -> String {
     )
 }
 
+/// Wrap a POSIX `script` so `/bin/sh` runs it whatever the remote login
+/// shell is. fish and tcsh hand the single-quoted script over verbatim
+/// instead of parsing `if` or `{ }` themselves.
+pub fn wrap_posix(script: &str) -> String {
+    format!("exec /bin/sh -c {}", portable_escape(script))
+}
+
 /// Single-quote `s` so POSIX shells, fish and tcsh all read it back verbatim.
 /// fish treats a backslash inside single quotes as an escape and tcsh expands
 /// `!` there, so quotes, backslashes and `!` are written outside the quotes.
@@ -1345,4 +1352,4 @@ pub fn filtered_indices(store: &SnippetStore, query: Option<&str>) -> Vec<usize>
 
 #[cfg(test)]
 #[path = "snippet_tests.rs"]
-mod tests;
+pub(crate) mod tests;

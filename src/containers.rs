@@ -296,24 +296,30 @@ pub fn validate_container_id(id: &str) -> Result<(), String> {
 /// surfaces ps's exit code, while a missing version line just yields
 /// `engine_version: None` downstream.
 ///
+/// The script runs through `/bin/sh` via [`crate::snippet::wrap_posix`], so
+/// a fish or tcsh login shell hands it over instead of parsing it.
+///
 /// - `Some(Docker)` / `Some(Podman)`: direct listing for the known runtime.
 /// - `None`: combined detection + listing with sentinel markers in one SSH call.
 pub fn container_list_command(runtime: Option<ContainerRuntime>) -> String {
+    crate::snippet::wrap_posix(container_list_script(runtime))
+}
+
+/// The POSIX script behind [`container_list_command`], before wrapping.
+fn container_list_script(runtime: Option<ContainerRuntime>) -> &'static str {
     match runtime {
         Some(ContainerRuntime::Docker) => concat!(
             "docker ps -a --format '{{json .}}' && ",
             "echo '##purple:engine##' && ",
             "{ docker version --format '{{.Server.Version}}' 2>/dev/null || true; }"
-        )
-        .to_string(),
+        ),
         Some(ContainerRuntime::Podman) => concat!(
             "podman ps -a --format '{{json .}}' && ",
             "echo '##purple:engine##' && ",
             "{ podman version --format '{{.Server.Version}}' 2>/dev/null || true; }"
-        )
-        .to_string(),
+        ),
         None => concat!(
-            "sh -c \"if command -v docker >/dev/null 2>&1; then ",
+            "if command -v docker >/dev/null 2>&1; then ",
             "echo '##purple:docker##' && docker ps -a --format '{{json .}}' && ",
             "echo '##purple:engine##' && ",
             "{ docker version --format '{{.Server.Version}}' 2>/dev/null || true; }; ",
@@ -321,9 +327,8 @@ pub fn container_list_command(runtime: Option<ContainerRuntime>) -> String {
             "echo '##purple:podman##' && podman ps -a --format '{{json .}}' && ",
             "echo '##purple:engine##' && ",
             "{ podman version --format '{{.Server.Version}}' 2>/dev/null || true; }; ",
-            "else echo '##purple:none##'; fi\""
-        )
-        .to_string(),
+            "else echo '##purple:none##'; fi"
+        ),
     }
 }
 
