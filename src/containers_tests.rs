@@ -1032,6 +1032,13 @@ fn list_cmd_none_valid_shell_syntax() {
 }
 
 #[test]
+fn list_cmd_none_wrapped_in_sh() {
+    let cmd = container_list_command(None);
+    assert!(cmd.starts_with("sh -c \""), "command must be wrapped in sh -c for fish/csh compatibility");
+    assert!(cmd.ends_with('\"'), "command must end with closing quote");
+}
+
+#[test]
 fn output_sentinel_on_last_line() {
     let r = parse_container_output("some MOTD\n##purple:docker##", None);
     let listing = r.unwrap();

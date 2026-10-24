@@ -313,7 +313,7 @@ pub fn container_list_command(runtime: Option<ContainerRuntime>) -> String {
         )
         .to_string(),
         None => concat!(
-            "if command -v docker >/dev/null 2>&1; then ",
+            "sh -c \"if command -v docker >/dev/null 2>&1; then ",
             "echo '##purple:docker##' && docker ps -a --format '{{json .}}' && ",
             "echo '##purple:engine##' && ",
             "{ docker version --format '{{.Server.Version}}' 2>/dev/null || true; }; ",
@@ -321,7 +321,7 @@ pub fn container_list_command(runtime: Option<ContainerRuntime>) -> String {
             "echo '##purple:podman##' && podman ps -a --format '{{json .}}' && ",
             "echo '##purple:engine##' && ",
             "{ podman version --format '{{.Server.Version}}' 2>/dev/null || true; }; ",
-            "else echo '##purple:none##'; fi"
+            "else echo '##purple:none##'; fi\""
         )
         .to_string(),
     }
