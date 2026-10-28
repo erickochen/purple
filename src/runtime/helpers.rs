@@ -8,11 +8,73 @@ use log::{debug, warn};
 use crate::app::{self, App};
 use crate::{askpass, cli, providers, ssh_config, vault_ssh};
 
-pub fn resolve_config_path(
-    paths: Option<&crate::runtime::env::Paths>,
-    path: &str,
-) -> Result<PathBuf> {
-    expand_user_path(paths, path)
+/// Environment override for the SSH config path.
+pub const SSH_CONFIG_ENV_VAR: &str = "PURPLE_SSH_CONFIG";
+/// Preference key in `~/.purple/preferences`.
+pub const SSH_CONFIG_PREF_KEY: &str = "ssh_config";
+/// The default SSH config path as shown to the user.
+pub const SSH_CONFIG_DEFAULT_DISPLAY: &str = "~/.ssh/config";
+
+/// Where the SSH config path came from. Named in logs and in the
+/// missing-file notice so a typo is found in the right place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigSource {
+    Flag,
+    EnvVar,
+    Preference,
+    Default,
+}
+
+impl std::fmt::Display for ConfigSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigSource::Flag => write!(f, "--config"),
+            ConfigSource::EnvVar => write!(f, "{SSH_CONFIG_ENV_VAR}"),
+            ConfigSource::Preference => write!(f, "preference {SSH_CONFIG_PREF_KEY}"),
+            ConfigSource::Default => write!(f, "default"),
+        }
+    }
+}
+
+/// The SSH config path plus the source it came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedConfigPath {
+    pub path: PathBuf,
+    pub source: ConfigSource,
+}
+
+/// Flag, then `PURPLE_SSH_CONFIG`, then the `ssh_config` preference, then
+/// `~/.ssh/config`. Blank values read as unset.
+pub fn resolve_ssh_config_path(
+    env: &crate::runtime::env::Env,
+    flag: Option<&str>,
+) -> Result<ResolvedConfigPath> {
+    let paths = env.paths();
+    let flag = flag.map(str::trim).filter(|s| !s.is_empty());
+    let env_value = env
+        .var(SSH_CONFIG_ENV_VAR)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let chosen = match (flag, env_value) {
+        (Some(v), _) => Some((v.to_string(), ConfigSource::Flag)),
+        (None, Some(v)) => Some((v.to_string(), ConfigSource::EnvVar)),
+        (None, None) => {
+            crate::preferences::load_ssh_config_path(paths).map(|v| (v, ConfigSource::Preference))
+        }
+    };
+    let Some((value, source)) = chosen else {
+        // `ssh_dir()` keeps this identical to the default `-F` comparison.
+        let path = paths
+            .map(|p| p.ssh_dir().join("config"))
+            .context("Could not determine home directory")?;
+        return Ok(ResolvedConfigPath {
+            path,
+            source: ConfigSource::Default,
+        });
+    };
+    let path = expand_user_path(paths, &value)?;
+    debug!("[purple] ssh config from {source}: {}", path.display());
+    Ok(ResolvedConfigPath { path, source })
 }
 
 /// Expand `~/`, `${HOME}/` and `$HOME/` prefixes against the user's home

@@ -502,19 +502,26 @@ pub fn render_welcome(
         .map(|p| p.abbreviate_home(&p.config_original()))
         .unwrap_or_default();
     let backup_line = crate::messages::welcome_backup_location(&backup_location);
+    let hosts_line = crate::messages::hosts_loaded_from(host_count, &app.config_path_display());
 
     // border(2) + blank(3) + logo(5) + blank(3) + subtitle(1) + hint(1) + blank(1) + footer(1) + blank(3) = 22 base
     let content_height = 22 + extra;
-    // Minimum width: fits the longest text line (the backup notice or the
-    // backup path) with comfortable padding. Logo width plus padding, at
-    // least 56 chars.
-    let longest_line = if has_backup {
+    // Minimum width: fits the longest text line (the hosts line, the backup
+    // notice or the backup path) with comfortable padding. Logo width plus
+    // padding, at least 56 chars.
+    let hosts_width = if has_hosts {
+        UnicodeWidthStr::width(hosts_line.as_str())
+    } else {
+        0
+    };
+    let backup_width = if has_backup {
         UnicodeWidthStr::width(backup_line.as_str()).max(UnicodeWidthStr::width(
             crate::messages::WELCOME_BACKUP_TAKEN,
         ))
     } else {
         0
     };
+    let longest_line = hosts_width.max(backup_width);
     let dialog_width = ((logo_max_w as u16) + 24)
         .max(56)
         .max(u16::try_from(longest_line + 8).unwrap_or(u16::MAX));
@@ -575,12 +582,7 @@ pub fn render_welcome(
     if has_hosts {
         text.push(Line::from(""));
         text.push(Line::from(""));
-        let info = format!(
-            "{} host{} loaded from ~/.ssh/config.",
-            host_count,
-            if host_count == 1 { "" } else { "s" },
-        );
-        let spans = vec![Span::styled(info, theme::muted())];
+        let spans = vec![Span::styled(hosts_line, theme::muted())];
         text.push(
             Line::from(typewriter_spans(spans, &mut char_budget)).alignment(Alignment::Center),
         );
@@ -667,6 +669,27 @@ fn welcome_height_and_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The welcome line names the config file and the dialog widens to fit
+    // a long path in full.
+    #[test]
+    fn welcome_names_a_long_config_path_in_full() {
+        let long = "/srv/shared/ssh/configs/managed-by-purple/team-infrastructure/config";
+        let config = crate::ssh_config::model::SshConfigFile::from_content(
+            "Host a\n  HostName 10.0.0.1\n",
+            std::path::PathBuf::from(long),
+        );
+        let app = App::with_env(
+            config,
+            std::sync::Arc::new(crate::runtime::env::Env::sandboxed()),
+        );
+        let text =
+            crate::ui::render_to_text(160, 50, |frame| render_welcome(frame, &app, false, 1, 0));
+        assert!(
+            text.contains(&format!("1 host loaded from {long}.")),
+            "{text}"
+        );
+    }
 
     // =========================================================================
     // Welcome dialog height calculation — all 8 permutations

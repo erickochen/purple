@@ -29,9 +29,9 @@ pub struct Cli {
     #[arg(short, long)]
     pub list: bool,
 
-    /// Path to SSH config file
-    #[arg(long, default_value = "~/.ssh/config")]
-    pub config: String,
+    /// Path to SSH config file [default: PURPLE_SSH_CONFIG, then ssh_config in preferences, then ~/.ssh/config]
+    #[arg(long, global = true, value_name = "PATH")]
+    pub config: Option<String>,
 
     /// Launch with demo data (no real config needed)
     #[arg(long)]

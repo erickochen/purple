@@ -1015,6 +1015,12 @@ mod top_bar {
 
     #[test]
     fn active_page_uses_nav_active_inactive_is_muted() {
+        // Same lock order as the mutators below, so the style cannot change
+        // between the render and the assertion.
+        let _global_test_lock = crate::demo_flag::GLOBAL_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _guard = THEME_CAPS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let app = make_test_app("Host web1\n  HostName 1.1.1.1\n");
         assert_eq!(app.top_page, TopPage::Hosts);
         let spans = top_bar_spans(&app);
@@ -1034,6 +1040,10 @@ mod top_bar {
 
     #[test]
     fn switching_to_tunnels_swaps_active_style() {
+        let _global_test_lock = crate::demo_flag::GLOBAL_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _guard = THEME_CAPS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let mut app = make_test_app("Host web1\n  HostName 1.1.1.1\n");
         app.top_page = TopPage::Tunnels;
         let spans = top_bar_spans(&app);
@@ -1178,4 +1188,22 @@ Host do-db
             );
         }
     }
+}
+
+// The empty Hosts tab names the config file purple reads.
+#[test]
+fn empty_hosts_tab_names_the_config_file() {
+    let mut app = crate::ui::app_with_own_config("");
+    let mut anim = crate::animation::AnimationState::default();
+    let text = crate::ui::render_to_text(120, 40, |frame| {
+        crate::ui::render(frame, &mut app, &mut anim)
+    });
+    assert!(
+        text.contains("~/.ssh/purple_config"),
+        "empty state must name the config file: {text}"
+    );
+    assert!(
+        !text.contains("~/.ssh/config"),
+        "empty state must not name the default: {text}"
+    );
 }

@@ -1061,8 +1061,10 @@ fn import_write_failure_rolls_back_config() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
-    let config_path = dir.join("nonexistent_dir").join("config");
-    // config_path parent doesn't exist, so write() will fail
+    // The parent is a regular file, so write() fails.
+    let not_a_dir = dir.join("not_a_dir");
+    std::fs::write(&not_a_dir, "").unwrap();
+    let config_path = not_a_dir.join("config");
     let config = crate::ssh_config::model::SshConfigFile {
         elements: Vec::new(),
         path: config_path,
@@ -1079,7 +1081,7 @@ fn import_write_failure_rolls_back_config() {
         import::import_from_file(app.hosts_state.ssh_config_mut(), &hosts_file, None).unwrap();
     assert_eq!(imported, 1);
 
-    // Write should fail because parent dir doesn't exist
+    // Write should fail because the parent is a regular file
     let write_result = app.hosts_state.ssh_config().write();
     assert!(write_result.is_err());
 
@@ -1335,6 +1337,27 @@ fn cli_gen_assets_hero_out_parsing() {
         }
         _ => panic!("expected GenAssets"),
     }
+}
+
+// `--config` is optional so the resolver can tell "not given" apart. It is
+// global so it parses on either side of a subcommand.
+#[test]
+fn cli_config_flag_is_optional_and_global() {
+    use clap::Parser;
+    let absent = Cli::try_parse_from(["purple", "--list"]).unwrap();
+    assert_eq!(absent.config, None);
+
+    let before = Cli::try_parse_from(["purple", "--config", "/x", "tunnel", "list"]).unwrap();
+    assert_eq!(before.config.as_deref(), Some("/x"));
+
+    let after = Cli::try_parse_from(["purple", "tunnel", "list", "--config", "/x"]).unwrap();
+    assert_eq!(after.config.as_deref(), Some("/x"));
+    assert!(matches!(
+        after.command,
+        Some(Commands::Tunnel {
+            command: crate::cli_args::TunnelCommands::List { alias: None }
+        })
+    ));
 }
 
 // CLI refactor regression: `purple vault-sign` was renamed to a nested
@@ -1915,6 +1938,134 @@ fn expand_user_path_tilde_other_user_not_expanded() {
     )
     .unwrap();
     assert_eq!(result, std::path::PathBuf::from("~root"));
+}
+
+// SSH config path precedence: --config, then PURPLE_SSH_CONFIG, then the
+// ssh_config preference, then ~/.ssh/config. Each test owns a sandbox Env.
+
+fn write_ssh_config_pref(env: &crate::runtime::env::Env, value: &str) {
+    let prefs = env.paths().expect("sandbox paths").preferences();
+    std::fs::create_dir_all(prefs.parent().expect("prefs parent")).expect("prefs dir");
+    std::fs::write(&prefs, format!("ssh_config={value}\n")).expect("write prefs");
+}
+
+fn sandbox_home(env: &crate::runtime::env::Env) -> std::path::PathBuf {
+    env.paths().expect("sandbox paths").home().to_path_buf()
+}
+
+#[test]
+fn resolve_ssh_config_path_flag_wins_over_env_and_preference() {
+    let env = crate::runtime::env::Env::sandboxed().with_var(SSH_CONFIG_ENV_VAR, "/from/env");
+    write_ssh_config_pref(&env, "/from/pref");
+    let resolved = resolve_ssh_config_path(&env, Some("/from/flag")).unwrap();
+    assert_eq!(resolved.path, std::path::PathBuf::from("/from/flag"));
+    assert_eq!(resolved.source, ConfigSource::Flag);
+}
+
+#[test]
+fn resolve_ssh_config_path_env_wins_over_preference() {
+    let env = crate::runtime::env::Env::sandboxed().with_var(SSH_CONFIG_ENV_VAR, "/from/env");
+    write_ssh_config_pref(&env, "/from/pref");
+    let resolved = resolve_ssh_config_path(&env, None).unwrap();
+    assert_eq!(resolved.path, std::path::PathBuf::from("/from/env"));
+    assert_eq!(resolved.source, ConfigSource::EnvVar);
+}
+
+#[test]
+fn resolve_ssh_config_path_reads_the_preference() {
+    let env = crate::runtime::env::Env::sandboxed();
+    write_ssh_config_pref(&env, "/from/pref");
+    let resolved = resolve_ssh_config_path(&env, None).unwrap();
+    assert_eq!(resolved.path, std::path::PathBuf::from("/from/pref"));
+    assert_eq!(resolved.source, ConfigSource::Preference);
+}
+
+#[test]
+fn resolve_ssh_config_path_defaults_to_home_ssh_config() {
+    let env = crate::runtime::env::Env::sandboxed();
+    let resolved = resolve_ssh_config_path(&env, None).unwrap();
+    assert_eq!(
+        resolved.path,
+        sandbox_home(&env).join(".ssh").join("config")
+    );
+    assert_eq!(resolved.source, ConfigSource::Default);
+}
+
+#[test]
+fn resolve_ssh_config_path_blank_values_fall_through() {
+    let env = crate::runtime::env::Env::sandboxed().with_var(SSH_CONFIG_ENV_VAR, "   ");
+    write_ssh_config_pref(&env, "   ");
+    let resolved = resolve_ssh_config_path(&env, Some("  ")).unwrap();
+    assert_eq!(
+        resolved.path,
+        sandbox_home(&env).join(".ssh").join("config")
+    );
+    assert_eq!(resolved.source, ConfigSource::Default);
+}
+
+#[test]
+fn resolve_ssh_config_path_expands_tilde_in_env_and_preference() {
+    let env = crate::runtime::env::Env::sandboxed().with_var(SSH_CONFIG_ENV_VAR, "~/env_alt");
+    let home = sandbox_home(&env);
+    assert_eq!(
+        resolve_ssh_config_path(&env, None).unwrap().path,
+        home.join("env_alt")
+    );
+
+    let env = crate::runtime::env::Env::sandboxed();
+    write_ssh_config_pref(&env, "~/pref_alt");
+    assert_eq!(
+        resolve_ssh_config_path(&env, None).unwrap().path,
+        sandbox_home(&env).join("pref_alt")
+    );
+}
+
+#[test]
+fn resolve_ssh_config_path_without_home_fails_for_the_default() {
+    let env = crate::runtime::env::Env::empty();
+    let err = resolve_ssh_config_path(&env, None).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Could not determine home directory"),
+        "{err}"
+    );
+    // An absolute flag needs no home directory.
+    let resolved = resolve_ssh_config_path(&env, Some("/abs/config")).unwrap();
+    assert_eq!(resolved.path, std::path::PathBuf::from("/abs/config"));
+}
+
+// The resolved default must equal the path `ssh_command` treats as default,
+// so ssh gets no `-F` unless the user chose another file.
+#[test]
+fn resolved_default_config_gets_no_f_flag() {
+    let env = crate::runtime::env::Env::sandboxed();
+    let host = crate::ssh_config::model::HostEntry {
+        alias: "web".to_string(),
+        ..Default::default()
+    };
+    let default = resolve_ssh_config_path(&env, None).unwrap();
+    assert_eq!(host.ssh_command(env.paths(), &default.path), "ssh -- 'web'");
+    let explicit = resolve_ssh_config_path(&env, Some("~/.ssh/config")).unwrap();
+    assert_eq!(
+        host.ssh_command(env.paths(), &explicit.path),
+        "ssh -- 'web'"
+    );
+    let own = resolve_ssh_config_path(&env, Some("~/.ssh/purple_config")).unwrap();
+    assert!(
+        host.ssh_command(env.paths(), &own.path).contains(" -F '"),
+        "a chosen file must reach ssh through -F"
+    );
+}
+
+#[test]
+fn config_source_labels_match_the_docs() {
+    assert_eq!(ConfigSource::Flag.to_string(), "--config");
+    assert_eq!(ConfigSource::EnvVar.to_string(), "PURPLE_SSH_CONFIG");
+    assert_eq!(
+        ConfigSource::Preference.to_string(),
+        "preference ssh_config"
+    );
+    assert_eq!(ConfigSource::Default.to_string(), "default");
 }
 
 #[test]

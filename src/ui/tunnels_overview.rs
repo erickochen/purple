@@ -595,10 +595,11 @@ pub fn render(frame: &mut Frame, app: &mut App, anim: &mut crate::animation::Ani
 
     if rows.is_empty() {
         let hints = [("a", crate::messages::TAB_EMPTY_TUNNELS_HINT_ADD)];
+        let explainer = crate::messages::tab_empty_tunnels_explainer(&app.config_path_display());
         let empty = design::TabEmpty {
             card_title: "Tunnels",
             headline: crate::messages::TAB_EMPTY_TUNNELS_HEADLINE,
-            explainer: crate::messages::TAB_EMPTY_TUNNELS_EXPLAINER,
+            explainer: &explainer,
             hints: &hints,
         };
         design::render_tab_empty(frame, list_block_area, &empty);
@@ -790,11 +791,12 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &mut App, rows: &[TunnelRow
         // Destructive: render the centred popup so the affordance
         // matches host delete and the other danger confirms instead of
         // a footer prompt under the overview.
+        let detail = crate::messages::confirm_tunnel_delete_detail(&app.config_path_display());
         design::render_destructive_popup(
             frame,
             crate::messages::CONFIRM_TUNNEL_DELETE_TITLE,
             crate::messages::CONFIRM_TUNNEL_DELETE_QUESTION,
-            crate::messages::CONFIRM_TUNNEL_DELETE_DETAIL,
+            &detail,
             "delete",
             "keep",
             app,
@@ -857,6 +859,29 @@ mod tests {
 
     /// On terminals shorter than `DASHBOARD_MIN_BODY_HEIGHT`, the
     /// dashboard is suppressed and the list keeps the full body area.
+    // The tunnel delete confirm names the config file it rewrites.
+    #[test]
+    fn delete_confirm_names_the_config_file() {
+        let mut app = crate::ui::app_with_own_config(
+            "Host fwd\n  HostName 10.0.0.1\n  LocalForward 8080 localhost:80\n",
+        );
+        app.top_page = crate::app::TopPage::Tunnels;
+        app.ui.tunnels_overview_state_mut().select(Some(0));
+        app.tunnels.request_delete(0);
+        let mut anim = crate::animation::AnimationState::default();
+        let text = crate::ui::render_to_text(120, 40, |frame| {
+            crate::ui::render(frame, &mut app, &mut anim)
+        });
+        assert!(
+            text.contains("~/.ssh/purple_config"),
+            "delete confirm must name the config file: {text}"
+        );
+        assert!(
+            !text.contains("~/.ssh/config"),
+            "delete confirm must not name the default: {text}"
+        );
+    }
+
     #[test]
     fn partition_skips_dashboard_when_body_short() {
         let body = area(120, DASHBOARD_MIN_BODY_HEIGHT - 1);

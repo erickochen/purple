@@ -42,6 +42,11 @@ pub const WELCOME_BACKUP_TAKEN: &str = "Your original config has been backed up"
 pub fn welcome_backup_location(path: &str) -> String {
     format!("to {path}")
 }
+/// Welcome line naming how many hosts came from the config purple reads.
+pub fn hosts_loaded_from(count: usize, config: &str) -> String {
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} host{plural} loaded from {config}.")
+}
 
 // ── Demo mode ───────────────────────────────────────────────────────
 
@@ -308,6 +313,19 @@ pub fn mcp_audit_write_failed(e: &impl std::fmt::Display) -> String {
 /// missing-file silently yields an empty host list.
 pub fn mcp_config_file_not_found(path: &impl std::fmt::Display) -> String {
     format!("SSH config file not found: {}", path)
+}
+
+/// Startup notice when `--config`, `PURPLE_SSH_CONFIG` or the `ssh_config`
+/// preference names a file that does not exist. purple creates it on the
+/// first save, so this is a hint for typos. Distinct from the MCP variant
+/// above, which is a per-call tool error.
+pub fn ssh_config_not_found(
+    path: &impl std::fmt::Display,
+    source: &impl std::fmt::Display,
+) -> String {
+    format!(
+        "SSH config not found at {path} (from {source}). purple creates it when you add a host."
+    )
 }
 
 /// Logged when `dirs::home_dir()` cannot resolve a home for the audit log
@@ -859,5 +877,30 @@ mod relative_age_tests {
         assert_eq!(relative_age(Duration::from_secs(86399)), "23h ago");
         assert_eq!(relative_age(Duration::from_secs(86400)), "1d ago");
         assert_eq!(relative_age(Duration::from_secs(86400 * 7)), "7d ago");
+    }
+}
+
+#[cfg(test)]
+mod ssh_config_path_tests {
+    use super::{hosts_loaded_from, ssh_config_not_found};
+
+    #[test]
+    fn hosts_loaded_from_names_the_config_and_pluralizes() {
+        assert_eq!(
+            hosts_loaded_from(22, "~/.ssh/config"),
+            "22 hosts loaded from ~/.ssh/config."
+        );
+        assert_eq!(
+            hosts_loaded_from(1, "~/.ssh/purple_config"),
+            "1 host loaded from ~/.ssh/purple_config."
+        );
+    }
+
+    #[test]
+    fn ssh_config_not_found_names_path_and_source() {
+        assert_eq!(
+            ssh_config_not_found(&"/tmp/nope", &"preference ssh_config"),
+            "SSH config not found at /tmp/nope (from preference ssh_config). purple creates it when you add a host."
+        );
     }
 }

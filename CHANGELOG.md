@@ -1,3 +1,11 @@
+## 3.32.0 - 2026-10-28
+
+- feat: Give purple its own SSH config file.
+- feat: Pick it once in your preferences. No flag needed.
+- change: Nothing changes until you pick one.
+- change: Relative `Include` lines now read the same files as ssh.
+- How to set it up: see the wiki or run `purple --help`.
+
 ## 3.31.1 - 2026-10-24
 
 - feat: Containers show up on fish and tcsh hosts.

@@ -65,11 +65,7 @@ impl SshConfigFile {
         };
 
         let crlf = detect_crlf_majority(content);
-        // Relative Include paths resolve against this directory for the
-        // entire include tree, matching OpenSSH's readconf.c which fixes the
-        // base to the user's ~/.ssh (or /etc/ssh for the system file) once
-        // at entry and reuses it for every nested Include.
-        let config_dir = path.parent().map(|p| p.to_path_buf());
+        let config_dir = Self::include_base_dir(path, lookup);
         let elements = Self::parse_content_with_includes(
             content,
             config_dir.as_deref(),
@@ -95,6 +91,20 @@ impl SshConfigFile {
             crlf,
             bom,
         })
+    }
+
+    /// Base directory for relative Include paths across the whole include
+    /// tree. OpenSSH uses `~/.ssh` for a user config, whichever file holds
+    /// the Include, so a config kept elsewhere reads the same files ssh does.
+    /// Without a home directory the config file's own directory is used.
+    pub(crate) fn include_base_dir(
+        config_path: &Path,
+        lookup: &dyn Fn(&str) -> Option<String>,
+    ) -> Option<PathBuf> {
+        lookup("HOME")
+            .filter(|home| !home.is_empty())
+            .map(|home| PathBuf::from(home).join(".ssh"))
+            .or_else(|| config_path.parent().map(Path::to_path_buf))
     }
 
     /// Create an SshConfigFile from raw content string (for demo/test use).
@@ -1228,5 +1238,129 @@ Host myserver
     fn test_split_include_patterns_multiple_unquoted() {
         let result = SshConfigFile::split_include_patterns("~/.ssh/conf.d/* /etc/ssh/config.d/*");
         assert_eq!(result, vec!["~/.ssh/conf.d/*", "/etc/ssh/config.d/*"]);
+    }
+
+    // Relative Include paths resolve against `~/.ssh` the way ssh does,
+    // also for a config kept outside it.
+
+    struct IncludeFixture {
+        _dir: tempfile::TempDir,
+        home: PathBuf,
+        elsewhere: PathBuf,
+    }
+
+    impl IncludeFixture {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let home = dir.path().join("home");
+            let elsewhere = dir.path().join("elsewhere");
+            std::fs::create_dir_all(home.join(".ssh")).expect("ssh dir");
+            std::fs::create_dir_all(&elsewhere).expect("elsewhere dir");
+            Self {
+                _dir: dir,
+                home,
+                elsewhere,
+            }
+        }
+
+        fn write(&self, path: &std::path::Path, content: &str) {
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("parent dir");
+            std::fs::write(path, content).expect("write fixture");
+        }
+
+        fn env(&self) -> crate::runtime::env::Env {
+            crate::runtime::env::Env::for_test(&self.home)
+                .with_var("HOME", self.home.to_string_lossy().to_string())
+        }
+
+        fn aliases(config: &SshConfigFile) -> Vec<String> {
+            config.host_entries().into_iter().map(|h| h.alias).collect()
+        }
+    }
+
+    #[test]
+    fn relative_include_resolves_from_home_ssh_for_a_config_elsewhere() {
+        let f = IncludeFixture::new();
+        f.write(
+            &f.home.join(".ssh/extra"),
+            "Host from-ssh-dir\n  HostName 10.0.0.1\n",
+        );
+        f.write(
+            &f.elsewhere.join("extra"),
+            "Host from-config-dir\n  HostName 10.0.0.2\n",
+        );
+        let config_path = f.elsewhere.join("config");
+        f.write(&config_path, "Include extra\n");
+
+        let config = SshConfigFile::parse_with_env(&config_path, &f.env()).expect("parse");
+        assert_eq!(IncludeFixture::aliases(&config), vec!["from-ssh-dir"]);
+    }
+
+    #[test]
+    fn nested_relative_include_keeps_the_home_ssh_base() {
+        let f = IncludeFixture::new();
+        f.write(&f.home.join(".ssh/conf.d/first"), "Include second\n");
+        f.write(
+            &f.home.join(".ssh/second"),
+            "Host nested-base\n  HostName 10.0.0.3\n",
+        );
+        f.write(
+            &f.home.join(".ssh/conf.d/second"),
+            "Host nested-includer-dir\n  HostName 10.0.0.4\n",
+        );
+        let config_path = f.elsewhere.join("config");
+        f.write(&config_path, "Include conf.d/first\n");
+
+        let config = SshConfigFile::parse_with_env(&config_path, &f.env()).expect("parse");
+        assert_eq!(IncludeFixture::aliases(&config), vec!["nested-base"]);
+    }
+
+    // For the default ~/.ssh/config the base stays its own directory, also
+    // with a trailing slash on HOME.
+    #[test]
+    fn default_config_include_base_is_its_own_directory() {
+        let f = IncludeFixture::new();
+        let default = f.home.join(".ssh").join("config");
+        let expected = default.parent().map(std::path::Path::to_path_buf);
+        let env = f.env();
+        let lookup = |n: &str| env.var(n).map(str::to_string);
+        assert_eq!(SshConfigFile::include_base_dir(&default, &lookup), expected);
+        let with_slash = format!("{}/", f.home.display());
+        let lookup_slash = |n: &str| (n == "HOME").then(|| with_slash.clone());
+        assert_eq!(
+            SshConfigFile::include_base_dir(&default, &lookup_slash),
+            expected
+        );
+    }
+
+    #[test]
+    fn relative_include_without_home_uses_the_config_directory() {
+        let f = IncludeFixture::new();
+        f.write(
+            &f.elsewhere.join("extra"),
+            "Host from-config-dir\n  HostName 10.0.0.2\n",
+        );
+        let config_path = f.elsewhere.join("config");
+        f.write(&config_path, "Include extra\n");
+        let no_home = crate::runtime::env::Env::for_test(&f.home);
+
+        let config = SshConfigFile::parse_with_env(&config_path, &no_home).expect("parse");
+        assert_eq!(IncludeFixture::aliases(&config), vec!["from-config-dir"]);
+    }
+
+    #[test]
+    fn include_glob_dirs_follow_the_home_ssh_base() {
+        let f = IncludeFixture::new();
+        f.write(&f.home.join(".ssh/conf.d/a"), "Include more/*\n");
+        let config_path = f.elsewhere.join("config");
+        f.write(&config_path, "Include conf.d/*\n");
+        let env = f.env();
+
+        let config = SshConfigFile::parse_with_env(&config_path, &env).expect("parse");
+        let dirs = config.include_glob_dirs_with(&|n| env.var(n).map(str::to_string));
+        assert_eq!(
+            dirs,
+            vec![f.home.join(".ssh/conf.d"), f.home.join(".ssh/more")]
+        );
     }
 }

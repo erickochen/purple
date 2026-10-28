@@ -3378,16 +3378,16 @@ fn add_host_from_form_logs_what_changed() {
 #[test]
 fn add_host_from_form_logs_save_failure() {
     let mut app = make_app("");
-    // Point the config at a missing parent dir so the atomic write fails.
-    let bad = app
+    // Point the config below a regular file so the write fails.
+    let not_a_dir = app
         .hosts_state
         .ssh_config
         .path
         .parent()
         .unwrap()
-        .join("missing_dir")
-        .join("config");
-    app.hosts_state.ssh_config.path = bad;
+        .join("not_a_dir");
+    std::fs::write(&not_a_dir, "").expect("write blocker file");
+    app.hosts_state.ssh_config.path = not_a_dir.join("config");
     app.forms.host = HostForm::new();
     app.forms.host.alias = "loghost".to_string();
     app.forms.host.hostname = "10.0.0.9".to_string();
@@ -9977,4 +9977,33 @@ fn pop_help_overlay_is_noop_when_not_in_help() {
     app.set_screen(Screen::HostList);
     app.pop_help_overlay();
     assert!(matches!(app.screen, Screen::HostList));
+}
+
+#[test]
+fn config_path_display_collapses_home_and_keeps_demo_default() {
+    let env = Arc::new(crate::runtime::env::Env::sandboxed());
+    let home = env.paths().expect("sandbox paths").home().to_path_buf();
+    let app_at =
+        |path: PathBuf| App::with_env(SshConfigFile::from_content("", path), Arc::clone(&env));
+
+    let default = app_at(home.join(".ssh").join("config"));
+    assert_eq!(default.config_path_display(), "~/.ssh/config");
+
+    let own = app_at(home.join(".ssh").join("purple_config"));
+    assert_eq!(own.config_path_display(), "~/.ssh/purple_config");
+
+    let outside = app_at(PathBuf::from("/etc/purple/ssh_config"));
+    assert_eq!(outside.config_path_display(), "/etc/purple/ssh_config");
+
+    // Demo mode names the default, never its safety-net path.
+    let mut demo = app_at(home.join(".ssh").join("purple_config"));
+    demo.demo_mode = true;
+    assert_eq!(demo.config_path_display(), "~/.ssh/config");
+
+    // Without a home directory the path is shown as is.
+    let no_home = App::with_env(
+        SshConfigFile::from_content("", PathBuf::from("/srv/ssh_config")),
+        Arc::new(crate::runtime::env::Env::empty()),
+    );
+    assert_eq!(no_home.config_path_display(), "/srv/ssh_config");
 }

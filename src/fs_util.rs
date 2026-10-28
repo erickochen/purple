@@ -19,6 +19,7 @@ impl FileLock {
     /// Creates a `.purple_lock` file alongside the target and holds an `flock` on it.
     /// Blocks until the lock is acquired (or returns an error on failure).
     pub fn acquire(path: &Path) -> io::Result<Self> {
+        create_private_parent(path)?;
         let mut lock_name = path.file_name().unwrap_or_default().to_os_string();
         lock_name.push(".purple_lock");
         let lock_path = path.with_file_name(lock_name);
@@ -70,6 +71,27 @@ impl FileLock {
             })
         }
     }
+}
+
+/// Create the missing parent directories of `path`, private to the user
+/// (0700 on unix). Existing directories keep their mode.
+fn create_private_parent(path: &Path) -> io::Result<()> {
+    let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) else {
+        return Ok(());
+    };
+    if parent.exists() {
+        return Ok(());
+    }
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(parent)?;
+    debug!("[purple] Created directory {}", parent.display());
+    Ok(())
 }
 
 impl Drop for FileLock {
@@ -304,6 +326,30 @@ mod tests {
             lockfile.exists(),
             "lockfile must remain after drop (not unlinked)"
         );
+    }
+
+    // A config path in a directory that does not exist yet still locks, so
+    // the first save can create both.
+    #[test]
+    fn file_lock_creates_missing_parent_directories_privately() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let target = dir.path().join("new").join("sub").join("config");
+        {
+            let _lock = FileLock::acquire(&target).expect("acquire");
+        }
+        assert!(dir.path().join("new/sub/config.purple_lock").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for created in ["new", "new/sub"] {
+                let mode = std::fs::metadata(dir.path().join(created))
+                    .expect("created dir")
+                    .permissions()
+                    .mode()
+                    & 0o777;
+                assert_eq!(mode, 0o700, "{created} must be private");
+            }
+        }
     }
 
     #[test]

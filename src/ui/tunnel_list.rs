@@ -86,11 +86,12 @@ pub fn render(frame: &mut Frame, app: &mut App, alias: &str) {
     // parent overlay.
     let footer_area = design::render_overlay_footer(frame, area);
     if app.tunnels.pending_delete().is_some() {
+        let detail = crate::messages::confirm_tunnel_delete_detail(&app.config_path_display());
         design::render_destructive_popup(
             frame,
             crate::messages::CONFIRM_TUNNEL_DELETE_TITLE,
             crate::messages::CONFIRM_TUNNEL_DELETE_QUESTION,
-            crate::messages::CONFIRM_TUNNEL_DELETE_DETAIL,
+            &detail,
             "delete",
             "keep",
             app,
@@ -119,6 +120,17 @@ mod tests {
     use ratatui::layout::Rect;
 
     use super::design;
+
+    // The per-host delete confirm names the config file it rewrites.
+    #[test]
+    fn delete_confirm_names_the_config_file() {
+        let mut app = crate::ui::app_with_own_config("Host fwd\n  HostName 10.0.0.1\n");
+        app.tunnels.request_delete(0);
+        let text =
+            crate::ui::render_to_text(120, 40, |frame| super::render(frame, &mut app, "fwd"));
+        assert!(text.contains("~/.ssh/purple_config"), "{text}");
+        assert!(!text.contains("~/.ssh/config"), "{text}");
+    }
 
     #[test]
     fn footer_sits_directly_below_block() {

@@ -575,10 +575,11 @@ fn render_display_list(
             ("a", crate::messages::TAB_EMPTY_HOSTS_HINT_ADD),
             ("S", crate::messages::TAB_EMPTY_HOSTS_HINT_SYNC),
         ];
+        let explainer = crate::messages::tab_empty_hosts_explainer(&app.config_path_display());
         let empty = design::TabEmpty {
             card_title: "Hosts",
             headline: crate::messages::TAB_EMPTY_HOSTS_HEADLINE,
-            explainer: crate::messages::TAB_EMPTY_HOSTS_EXPLAINER,
+            explainer: &explainer,
             hints: &hints,
         };
         design::render_tab_empty(frame, area, &empty);

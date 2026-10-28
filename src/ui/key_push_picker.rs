@@ -71,7 +71,8 @@ pub fn render(frame: &mut Frame, app: &mut App, key_index: usize) {
     frame.render_widget(block, area);
 
     if hosts.is_empty() {
-        design::render_empty(frame, inner, crate::messages::KEY_PUSH_NO_HOSTS);
+        let empty = crate::messages::key_push_no_hosts(&app.config_path_display());
+        design::render_empty(frame, inner, &empty);
     } else {
         let content_w = inner.width as usize;
         let items: Vec<ListItem> = hosts
@@ -191,6 +192,15 @@ mod tests {
 
     fn flatten(spans: &[Span<'_>]) -> String {
         spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    // With no hosts the picker names the config file it reads.
+    #[test]
+    fn empty_picker_names_the_config_file() {
+        let mut app = crate::ui::app_with_own_config("");
+        let text = crate::ui::render_to_text(120, 40, |frame| render(frame, &mut app, 0));
+        assert!(text.contains("~/.ssh/purple_config"), "{text}");
+        assert!(!text.contains("~/.ssh/config"), "{text}");
     }
 
     #[test]

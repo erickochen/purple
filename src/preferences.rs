@@ -383,6 +383,12 @@ pub fn load_ssh_command(paths: Option<&Paths>) -> Option<String> {
     load_value(paths, crate::ssh_launcher::PREF_KEY).filter(|v| !v.trim().is_empty())
 }
 
+/// Load the SSH config path (`ssh_config`). Returns None when missing or
+/// empty; the caller falls back to `~/.ssh/config`.
+pub fn load_ssh_config_path(paths: Option<&Paths>) -> Option<String> {
+    load_value(paths, crate::runtime::helpers::SSH_CONFIG_PREF_KEY).filter(|v| !v.trim().is_empty())
+}
+
 /// Save the interactive ssh command preference.
 #[allow(dead_code)]
 pub fn save_ssh_command(paths: Option<&Paths>, command: &str) -> io::Result<()> {
@@ -676,6 +682,21 @@ mod tests {
             assert_eq!(load_ssh_command(Some(paths)), None);
             std::fs::write(paths.preferences(), "ssh_command=   \ntheme=purple\n").unwrap();
             assert_eq!(load_ssh_command(Some(paths)), None);
+        });
+    }
+
+    #[test]
+    fn ssh_config_path_roundtrip_and_blank_means_unset() {
+        with_temp_prefs(|paths| {
+            assert_eq!(load_ssh_config_path(Some(paths)), None);
+            std::fs::write(paths.preferences(), "ssh_config=/tmp/x\n").unwrap();
+            assert_eq!(
+                load_ssh_config_path(Some(paths)),
+                Some("/tmp/x".to_string())
+            );
+            // A blank value reads as unset so the next source applies.
+            std::fs::write(paths.preferences(), "ssh_config=   \ntheme=purple\n").unwrap();
+            assert_eq!(load_ssh_config_path(Some(paths)), None);
         });
     }
 

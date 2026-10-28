@@ -319,6 +319,19 @@ impl App {
         &self.env
     }
 
+    /// The SSH config path for user-facing text, home collapsed to `~`.
+    /// Demo mode shows the default: its path is a safety net, not a location.
+    pub fn config_path_display(&self) -> String {
+        if self.demo_mode {
+            return crate::runtime::helpers::SSH_CONFIG_DEFAULT_DISPLAY.to_string();
+        }
+        let path = self.reload.config_path();
+        self.env()
+            .paths()
+            .map(|p| p.abbreviate_home(path))
+            .unwrap_or_else(|| path.display().to_string())
+    }
+
     /// Record an SSH session against `alias` in the activity log. Appends
     /// in memory and flushes to `~/.purple/key_activity.json`. Failures
     /// during flush are logged at debug level only; an activity-log write

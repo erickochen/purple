@@ -67,6 +67,34 @@ pub(crate) fn pkg_version() -> &'static str {
     "0.0.0-test"
 }
 
+/// Test app whose SSH config is `~/.ssh/purple_config` in a sandbox home,
+/// so rendered text names a file other than the default.
+#[cfg(test)]
+pub(crate) fn app_with_own_config(content: &str) -> App {
+    let env = std::sync::Arc::new(crate::runtime::env::Env::sandboxed());
+    let home = env.paths().expect("sandbox paths").home().to_path_buf();
+    let config = crate::ssh_config::model::SshConfigFile::from_content(
+        content,
+        home.join(".ssh").join("purple_config"),
+    );
+    App::with_env(config, env)
+}
+
+/// Draw into a test buffer and return every cell as one string.
+#[cfg(test)]
+pub(crate) fn render_to_text(width: u16, height: u16, draw: impl FnOnce(&mut Frame)) -> String {
+    let backend = ratatui::backend::TestBackend::new(width, height);
+    let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+    terminal.draw(draw).expect("render");
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect()
+}
+
 /// Top-level render dispatcher.
 pub fn render(frame: &mut Frame, app: &mut App, anim: &mut crate::animation::AnimationState) {
     anim.tick_overlay_anim();

@@ -117,7 +117,7 @@ pub fn handle_import(
     let result = if known_hosts {
         import::import_from_known_hosts(env.paths(), &mut config, group)
     } else if let Some(path) = file {
-        let resolved = super::resolve_config_path(env.paths(), path)?;
+        let resolved = super::expand_user_path(env.paths(), path)?;
         import::import_from_file(&mut config, &resolved, group)
     } else {
         eprintln!("{}", crate::messages::cli::IMPORT_NO_FILE);

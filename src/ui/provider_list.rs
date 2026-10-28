@@ -77,12 +77,13 @@ pub fn render_provider_list(frame: &mut Frame, app: &mut App) {
             }
             None => crate::messages::confirm_provider_remove_question(display),
         };
+        let detail = crate::messages::confirm_provider_remove_detail(&app.config_path_display());
         // Destructive confirm: centred popup, action verbs both sides.
         design::render_destructive_popup(
             frame,
             crate::messages::CONFIRM_PROVIDER_REMOVE_TITLE,
             &question,
-            crate::messages::CONFIRM_PROVIDER_REMOVE_DETAIL,
+            &detail,
             "remove",
             "keep",
             app,
@@ -1034,6 +1035,19 @@ mod tests {
                 .draw(|frame| render_field_content(frame, area, *variant, &form, "aws"))
                 .unwrap();
         }
+    }
+
+    // The provider remove confirm names the config file the hosts stay in.
+    #[test]
+    fn remove_confirm_names_the_config_file() {
+        let mut app = crate::ui::app_with_own_config("");
+        app.providers
+            .request_delete(crate::providers::config::ProviderConfigId::bare("hetzner"));
+        let text = crate::ui::render_to_text(120, 40, |frame| {
+            super::render_provider_list(frame, &mut app)
+        });
+        assert!(text.contains("~/.ssh/purple_config"), "{text}");
+        assert!(!text.contains("~/.ssh/config"), "{text}");
     }
 
     #[test]

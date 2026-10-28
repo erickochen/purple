@@ -483,10 +483,16 @@ impl SshConfigFile {
     /// Like `include_glob_dirs` but resolves `${VAR}` from an injected lookup
     /// instead of the process env, so tests control expansion deterministically.
     pub fn include_glob_dirs_with(&self, lookup: &dyn Fn(&str) -> Option<String>) -> Vec<PathBuf> {
-        let config_dir = self.path.parent();
+        let config_dir = Self::include_base_dir(&self.path, lookup);
         let mut seen = std::collections::HashSet::new();
         let mut dirs = Vec::new();
-        Self::collect_include_glob_dirs(&self.elements, config_dir, &mut seen, &mut dirs, lookup);
+        Self::collect_include_glob_dirs(
+            &self.elements,
+            config_dir.as_deref(),
+            &mut seen,
+            &mut dirs,
+            lookup,
+        );
         dirs
     }
 
@@ -517,15 +523,9 @@ impl SshConfigFile {
                         }
                     }
                 }
-                // Recurse into resolved files
+                // Nested Includes share the same base, like the parser.
                 for file in &include.resolved_files {
-                    Self::collect_include_glob_dirs(
-                        &file.elements,
-                        file.path.parent(),
-                        seen,
-                        dirs,
-                        lookup,
-                    );
+                    Self::collect_include_glob_dirs(&file.elements, config_dir, seen, dirs, lookup);
                 }
             }
         }

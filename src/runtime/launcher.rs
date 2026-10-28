@@ -12,8 +12,9 @@ use clap_complete::generate;
 use crate::app::App;
 use crate::cli_args::{Cli, Commands, VaultCommands};
 use crate::runtime::helpers::{
-    apply_saved_sort, ensure_bw_session, ensure_keychain_password, ensure_proton_login,
-    ensure_vault_ssh_chain_if_needed, expand_user_path, resolve_config_path,
+    ConfigSource, ResolvedConfigPath, apply_saved_sort, ensure_bw_session,
+    ensure_keychain_password, ensure_proton_login, ensure_vault_ssh_chain_if_needed,
+    expand_user_path, resolve_ssh_config_path,
 };
 use crate::ssh_config::model::SshConfigFile;
 use crate::tui_loop::run_tui;
@@ -100,7 +101,8 @@ pub fn run(cli: Cli, env: std::sync::Arc<crate::runtime::env::Env>) -> Result<()
         audit_log,
     }) = cli.command
     {
-        let config_path = resolve_config_path(env.paths(), &cli.config)?;
+        let resolved = resolve_ssh_config_path(&env, cli.config.as_deref())?;
+        missing_config_notice(&resolved);
         let audit_log_path = if no_audit {
             None
         } else if let Some(path) = audit_log {
@@ -112,7 +114,7 @@ pub fn run(cli: Cli, env: std::sync::Arc<crate::runtime::env::Env>) -> Result<()
             read_only,
             audit_log_path,
         };
-        return mcp::run(&config_path, options, std::sync::Arc::clone(&env));
+        return mcp::run(&resolved.path, options, std::sync::Arc::clone(&env));
     }
     if let Some(Commands::Logs { tail, clear }) = cli.command {
         return cli::handle_logs_command(tail, clear, &env);
@@ -126,10 +128,15 @@ pub fn run(cli: Cli, env: std::sync::Arc<crate::runtime::env::Env>) -> Result<()
         return Ok(());
     }
 
-    let config_path = resolve_config_path(env.paths(), &cli.config)?;
+    let resolved = resolve_ssh_config_path(&env, cli.config.as_deref())?;
+    let config_missing = missing_config_notice(&resolved);
+    let config_path = resolved.path;
     let mut config = SshConfigFile::parse_with_env(&config_path, &env)?;
-    let repaired_groups = config.repair_absorbed_group_comments();
-    let orphaned_headers = config.remove_all_orphaned_group_headers();
+    let notices = StartupNotices {
+        repaired_groups: config.repair_absorbed_group_comments(),
+        orphaned_headers: config.remove_all_orphaned_group_headers(),
+        config_missing,
+    };
 
     let ssh_version = write_startup_banner(&config, &config_path, cli.verbose, &env);
 
@@ -198,15 +205,7 @@ pub fn run(cli: Cli, env: std::sync::Arc<crate::runtime::env::Env>) -> Result<()
 
     // Positional argument: exact match → connect, otherwise → TUI with filter
     if let Some(ref alias) = cli.alias {
-        return run_positional_alias(
-            alias,
-            config,
-            &config_path,
-            repaired_groups,
-            orphaned_headers,
-            env,
-            &ssh_version,
-        );
+        return run_positional_alias(alias, config, &config_path, &notices, env, &ssh_version);
     }
 
     // Interactive TUI mode
@@ -214,10 +213,40 @@ pub fn run(cli: Cli, env: std::sync::Arc<crate::runtime::env::Env>) -> Result<()
     app.seed_ssh_version(&ssh_version);
     app.post_init();
     apply_saved_sort(&mut app);
-    if repaired_groups > 0 || orphaned_headers > 0 {
-        app.notify(messages::config_repaired(repaired_groups, orphaned_headers));
-    }
+    notify_startup(&mut app, &notices);
     run_tui(app)
+}
+
+/// Toasts shown once the TUI is up: config repairs and a config path that
+/// does not exist yet.
+struct StartupNotices {
+    repaired_groups: usize,
+    orphaned_headers: usize,
+    config_missing: Option<String>,
+}
+
+fn notify_startup(app: &mut App, notices: &StartupNotices) {
+    if notices.repaired_groups > 0 || notices.orphaned_headers > 0 {
+        app.notify(messages::config_repaired(
+            notices.repaired_groups,
+            notices.orphaned_headers,
+        ));
+    }
+    if let Some(notice) = &notices.config_missing {
+        app.notify_warning(notice.clone());
+    }
+}
+
+/// Log a notice when a config path the user chose does not exist yet and
+/// return it for the TUI. The default path stays silent: a fresh install
+/// gets the welcome screen instead.
+fn missing_config_notice(resolved: &ResolvedConfigPath) -> Option<String> {
+    if resolved.source == ConfigSource::Default || resolved.path.exists() {
+        return None;
+    }
+    let notice = messages::ssh_config_not_found(&resolved.path.display(), &resolved.source);
+    log::warn!("[config] {notice}");
+    Some(notice)
 }
 
 /// Seed split category directories from `~/.purple`, then load the theme.
@@ -404,8 +433,7 @@ fn run_positional_alias(
     alias: &str,
     mut config: SshConfigFile,
     config_path: &Path,
-    repaired_groups: usize,
-    orphaned_headers: usize,
+    notices: &StartupNotices,
     env: std::sync::Arc<crate::runtime::env::Env>,
     ssh_version: &str,
 ) -> Result<()> {
@@ -461,14 +489,18 @@ fn run_positional_alias(
     app.seed_ssh_version(ssh_version);
     app.post_init();
     apply_saved_sort(&mut app);
-    if repaired_groups > 0 || orphaned_headers > 0 {
-        app.notify(messages::config_repaired(repaired_groups, orphaned_headers));
-    }
+    notify_startup(&mut app, notices);
+    start_alias_search(&mut app, alias, notices);
+    run_tui(app)
+}
+
+/// Pre-fill the search with `alias` and say so when nothing matches. A
+/// missing config explains the empty result better than a no-match toast.
+fn start_alias_search(app: &mut App, alias: &str, notices: &StartupNotices) {
     app.start_search_with(alias);
-    if app.search.filtered_indices().is_empty() {
+    if app.search.filtered_indices().is_empty() && notices.config_missing.is_none() {
         app.notify(messages::no_exact_match(alias));
     }
-    run_tui(app)
 }
 
 /// Plain-text host listing for `purple --list`. Prints `alias user@host:port`
@@ -546,6 +578,88 @@ mod tests {
 
         ui::theme::set_theme(ui::theme::ThemeDef::purple());
         ui::theme::init_with_mode(1);
+    }
+
+    fn startup_app() -> App {
+        App::new(SshConfigFile::from_content(
+            "",
+            std::path::PathBuf::from("/nonexistent/config"),
+        ))
+    }
+
+    #[test]
+    fn notify_startup_queues_the_missing_config_warning() {
+        let mut app = startup_app();
+        let notice = messages::ssh_config_not_found(&"/nope", &ConfigSource::Preference);
+        notify_startup(
+            &mut app,
+            &StartupNotices {
+                repaired_groups: 0,
+                orphaned_headers: 0,
+                config_missing: Some(notice.clone()),
+            },
+        );
+        let toast = app.status_center.toast().expect("toast queued");
+        assert_eq!(toast.text, notice);
+        assert_eq!(toast.class, crate::app::MessageClass::Warning);
+    }
+
+    #[test]
+    fn alias_search_skips_the_no_match_toast_when_the_config_is_missing() {
+        let notice = messages::ssh_config_not_found(&"/nope", &ConfigSource::Preference);
+        let missing = StartupNotices {
+            repaired_groups: 0,
+            orphaned_headers: 0,
+            config_missing: Some(notice.clone()),
+        };
+        let mut app = startup_app();
+        notify_startup(&mut app, &missing);
+        start_alias_search(&mut app, "web", &missing);
+        let toast = app.status_center.toast().expect("toast queued");
+        assert_eq!(toast.text, notice);
+
+        let present = StartupNotices {
+            config_missing: None,
+            ..missing
+        };
+        let mut app = startup_app();
+        start_alias_search(&mut app, "web", &present);
+        let toast = app.status_center.toast().expect("toast queued");
+        assert_eq!(toast.text, messages::no_exact_match("web"));
+    }
+
+    #[test]
+    fn notify_startup_is_silent_without_notices() {
+        let mut app = startup_app();
+        notify_startup(
+            &mut app,
+            &StartupNotices {
+                repaired_groups: 0,
+                orphaned_headers: 0,
+                config_missing: None,
+            },
+        );
+        assert!(app.status_center.toast().is_none());
+    }
+
+    #[test]
+    fn missing_config_notice_only_for_a_chosen_missing_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("nope");
+        let present = dir.path().join("config");
+        std::fs::write(&present, "").expect("write config");
+        let at = |path: &std::path::Path, source| ResolvedConfigPath {
+            path: path.to_path_buf(),
+            source,
+        };
+
+        let notice = missing_config_notice(&at(&missing, ConfigSource::Preference))
+            .expect("chosen missing file gets a notice");
+        assert!(notice.contains("SSH config not found at"), "{notice}");
+        assert!(notice.contains("(from preference ssh_config)"), "{notice}");
+
+        assert!(missing_config_notice(&at(&missing, ConfigSource::Default)).is_none());
+        assert!(missing_config_notice(&at(&present, ConfigSource::Flag)).is_none());
     }
 
     // The release imagery pipeline drives `purple gen-assets`. Exercise the
