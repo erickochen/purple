@@ -275,7 +275,7 @@ pub fn container_action_command(
 /// Rejects empty, non-ASCII, shell metacharacters, colon.
 pub fn validate_container_id(id: &str) -> Result<(), String> {
     if id.is_empty() {
-        return Err(crate::messages::CONTAINER_ID_EMPTY.to_string());
+        return Err(crate::i18n::text(crate::messages::CONTAINER_ID_EMPTY).to_string());
     }
     for c in id.chars() {
         if !c.is_ascii_alphanumeric() && c != '-' && c != '_' && c != '.' {
@@ -359,7 +359,7 @@ pub fn parse_container_output(
         .find(|l| l.starts_with("##purple:") && (*l != "##purple:engine##"))
     {
         Some("##purple:none##") => {
-            return Err(crate::messages::CONTAINER_RUNTIME_MISSING.to_string());
+            return Err(crate::i18n::text(crate::messages::CONTAINER_RUNTIME_MISSING).to_string());
         }
         Some("##purple:docker##") => ContainerRuntime::Docker,
         Some("##purple:podman##") => ContainerRuntime::Podman,
@@ -472,7 +472,7 @@ fn friendly_container_error(stderr: &str, code: Option<i32>) -> String {
         || (lower.contains("host key for") && lower.contains("has changed"))
     {
         log::debug!("[external] Host key CHANGED detected; returning HOST_KEY_CHANGED toast");
-        crate::messages::HOST_KEY_CHANGED.to_string()
+        crate::i18n::text(crate::messages::HOST_KEY_CHANGED).to_string()
     } else if lower.contains("host key verification failed")
         || lower.contains("no matching host key")
         || lower.contains("no ed25519 host key is known")
@@ -481,26 +481,26 @@ fn friendly_container_error(stderr: &str, code: Option<i32>) -> String {
         || lower.contains("host key is not known")
     {
         log::debug!("[external] Host key UNKNOWN detected; returning HOST_KEY_UNKNOWN toast");
-        crate::messages::HOST_KEY_UNKNOWN.to_string()
+        crate::i18n::text(crate::messages::HOST_KEY_UNKNOWN).to_string()
     } else if lower.contains("command not found") {
-        crate::messages::CONTAINER_RUNTIME_NOT_FOUND.to_string()
+        crate::i18n::text(crate::messages::CONTAINER_RUNTIME_NOT_FOUND).to_string()
     } else if crate::connection::auth_refused(stderr)
         && !crate::security_key::sign_failures(stderr).is_empty()
     {
         // The login itself failed on the key. Checked before the generic
         // refusal, because the docker group is not the answer here.
         log::debug!("[external] Security key did not sign; returning the PIN hint");
-        crate::messages::CONTAINER_SECURITY_KEY_PIN.to_string()
+        crate::i18n::text(crate::messages::CONTAINER_SECURITY_KEY_PIN).to_string()
     } else if lower.contains("permission denied") || lower.contains("got permission denied") {
-        crate::messages::CONTAINER_PERMISSION_DENIED.to_string()
+        crate::i18n::text(crate::messages::CONTAINER_PERMISSION_DENIED).to_string()
     } else if lower.contains("cannot connect to the docker daemon")
         || lower.contains("cannot connect to podman")
     {
-        crate::messages::CONTAINER_DAEMON_NOT_RUNNING.to_string()
+        crate::i18n::text(crate::messages::CONTAINER_DAEMON_NOT_RUNNING).to_string()
     } else if lower.contains("connection refused") {
-        crate::messages::CONTAINER_CONNECTION_REFUSED.to_string()
+        crate::i18n::text(crate::messages::CONTAINER_CONNECTION_REFUSED).to_string()
     } else if lower.contains("no route to host") || lower.contains("network is unreachable") {
-        crate::messages::CONTAINER_HOST_UNREACHABLE.to_string()
+        crate::i18n::text(crate::messages::CONTAINER_HOST_UNREACHABLE).to_string()
     } else {
         crate::messages::container_command_failed(code.unwrap_or(1))
     }
@@ -726,14 +726,14 @@ pub fn exit_code_meaning(code: i32) -> Option<&'static str> {
 pub fn parse_container_inspect(output: &str) -> Result<ContainerInspect, String> {
     let trimmed = output.trim();
     if trimmed.is_empty() {
-        return Err(crate::messages::CONTAINER_INSPECT_EMPTY.to_string());
+        return Err(crate::i18n::text(crate::messages::CONTAINER_INSPECT_EMPTY).to_string());
     }
     let value: serde_json::Value = serde_json::from_str(trimmed)
         .map_err(|e| crate::messages::container_inspect_parse_failed(&e.to_string()))?;
     let entry = value
         .as_array()
         .and_then(|a| a.first())
-        .ok_or_else(|| crate::messages::CONTAINER_INSPECT_EMPTY.to_string())?;
+        .ok_or_else(|| crate::i18n::text(crate::messages::CONTAINER_INSPECT_EMPTY).to_string())?;
 
     let state = &entry["State"];
     let config = &entry["Config"];

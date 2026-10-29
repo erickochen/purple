@@ -80,7 +80,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) {
             if !app.ui.esc_quit_hint_shown()
                 && !app.status_center.toast().is_some_and(|t| t.sticky) =>
         {
-            app.notify(crate::messages::ESC_QUIT_HINT);
+            app.notify(crate::i18n::text(crate::messages::ESC_QUIT_HINT));
             app.ui.set_esc_quit_hint_shown(true);
         }
         _ => {}
@@ -154,7 +154,7 @@ fn request_delete(app: &mut App) {
 
 fn open_host_picker(app: &mut App, terminal: bool) {
     if app.hosts_state.list().is_empty() {
-        app.notify_warning(crate::messages::PICKER_NO_HOSTS);
+        app.notify_warning(crate::i18n::text(crate::messages::PICKER_NO_HOSTS));
         return;
     }
     let Some((_, snippet)) = selected_snippet(app) else {

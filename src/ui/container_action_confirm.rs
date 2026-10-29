@@ -29,12 +29,12 @@ pub fn render_restart(frame: &mut Frame, app: &mut App) {
     render_dialog(
         frame,
         app,
-        " Restart container? ",
+        crate::i18n::text(" Restart container? "),
         container_name,
         alias,
         project.as_deref(),
         uptime.as_deref(),
-        crate::messages::CONTAINER_RESTART_BODY,
+        crate::i18n::text(crate::messages::CONTAINER_RESTART_BODY),
         ("restart", "keep"),
     );
 }
@@ -64,10 +64,10 @@ pub fn render_stack(frame: &mut Frame, app: &mut App) {
     render_bulk_dialog(
         frame,
         app_ref,
-        " Restart stack? ",
+        crate::i18n::text(" Restart stack? "),
         identity,
         &payload.members,
-        crate::messages::CONTAINER_STACK_RESTART_BODY,
+        crate::i18n::text(crate::messages::CONTAINER_STACK_RESTART_BODY),
         ("restart", "keep"),
     );
 }
@@ -95,10 +95,10 @@ pub fn render_host_restart_all(frame: &mut Frame, app: &mut App) {
     render_bulk_dialog(
         frame,
         app_ref,
-        " Restart all containers on host? ",
+        crate::i18n::text(" Restart all containers on host? "),
         identity,
         &payload.members,
-        crate::messages::CONTAINER_HOST_RESTART_ALL_BODY,
+        crate::i18n::text(crate::messages::CONTAINER_HOST_RESTART_ALL_BODY),
         ("restart", "keep"),
     );
 }
@@ -124,10 +124,10 @@ pub fn render_host_stop_all(frame: &mut Frame, app: &mut App) {
     render_bulk_dialog(
         frame,
         app_ref,
-        " Stop all containers on host? ",
+        crate::i18n::text(" Stop all containers on host? "),
         identity,
         &payload.members,
-        crate::messages::CONTAINER_HOST_STOP_ALL_BODY,
+        crate::i18n::text(crate::messages::CONTAINER_HOST_STOP_ALL_BODY),
         ("stop", "keep"),
     );
 }
@@ -195,12 +195,12 @@ pub fn render_stop(frame: &mut Frame, app: &mut App) {
     render_dialog(
         frame,
         app,
-        " Stop container? ",
+        crate::i18n::text(" Stop container? "),
         container_name,
         alias,
         project.as_deref(),
         uptime.as_deref(),
-        crate::messages::CONTAINER_STOP_BODY,
+        crate::i18n::text(crate::messages::CONTAINER_STOP_BODY),
         ("stop", "keep"),
     );
 }

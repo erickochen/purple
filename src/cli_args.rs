@@ -17,6 +17,13 @@ use clap_complete::Shell;
     version
 )]
 pub struct Cli {
+    /// UI language for this invocation
+    #[arg(long, value_parser = ["en", "zh-CN"])]
+    pub lang: Option<String>,
+    /// Save the default UI language and exit
+    #[arg(long, value_parser = ["en", "zh-CN"])]
+    pub set_language: Option<String>,
+
     /// Connect to a host by alias, or filter the TUI
     #[arg(value_name = "ALIAS")]
     pub alias: Option<String>,

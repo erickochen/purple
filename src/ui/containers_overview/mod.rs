@@ -160,11 +160,14 @@ pub fn render(frame: &mut Frame, app: &mut App, spinner_tick: u64, detail_progre
         // two-pane composition still reads as the Containers tab, just
         // empty, instead of as a half-rendered screen.
         frame.render_widget(block, list_area);
-        let hints = [("a", crate::messages::TAB_EMPTY_CONTAINERS_HINT_ADD)];
+        let hints = [(
+            "a",
+            crate::i18n::text(crate::messages::TAB_EMPTY_CONTAINERS_HINT_ADD),
+        )];
         let empty = design::TabEmpty {
-            card_title: "Containers",
-            headline: crate::messages::TAB_EMPTY_CONTAINERS_HEADLINE,
-            explainer: crate::messages::TAB_EMPTY_CONTAINERS_EXPLAINER,
+            card_title: crate::i18n::text("Containers"),
+            headline: crate::i18n::text(crate::messages::TAB_EMPTY_CONTAINERS_HEADLINE),
+            explainer: crate::i18n::text(crate::messages::TAB_EMPTY_CONTAINERS_EXPLAINER),
             hints: &hints,
         };
         design::render_tab_empty(frame, list_area, &empty);
@@ -328,14 +331,14 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &mut App) {
     let view_label = if app.containers_overview.view_mode() == ViewMode::Detailed {
         " compact "
     } else {
-        fl::ACTION_DETAIL
+        crate::i18n::text(fl::ACTION_DETAIL)
     };
     let spans = design::Footer::new()
-        .primary("Enter", fl::ENTER_SHELL)
-        .action("/", fl::ACTION_SEARCH)
-        .action("l", fl::ACTION_LOGS)
+        .primary("Enter", crate::i18n::text(fl::ENTER_SHELL))
+        .action("/", crate::i18n::text(fl::ACTION_SEARCH))
+        .action("l", crate::i18n::text(fl::ACTION_LOGS))
         .action("v", view_label)
-        .action(":", fl::ACTION_JUMP)
+        .action(":", crate::i18n::text(fl::ACTION_JUMP))
         .into_spans();
     super::render_footer_with_help(frame, area, spans, app);
 }

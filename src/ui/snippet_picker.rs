@@ -21,9 +21,9 @@ pub(crate) fn render_delete_popup(frame: &mut Frame, app: &App) {
         .unwrap_or("");
     design::render_destructive_popup(
         frame,
-        crate::messages::CONFIRM_SNIPPET_DELETE_TITLE,
+        crate::i18n::text(crate::messages::CONFIRM_SNIPPET_DELETE_TITLE),
         &crate::messages::confirm_snippet_delete_question(&super::truncate(name, 32)),
-        crate::messages::CONFIRM_SNIPPET_DELETE_DETAIL,
+        crate::i18n::text(crate::messages::CONFIRM_SNIPPET_DELETE_DETAIL),
         "delete",
         "keep",
         app,
@@ -43,7 +43,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let title = if host_count > 1 {
         format!("Snippets ({} hosts)", host_count)
     } else {
-        "Snippets".to_string()
+        crate::i18n::text("Snippets").to_string()
     };
 
     let filtered = app.filtered_snippet_indices();
@@ -203,8 +203,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     use crate::messages::footer as fl;
     if searching {
         design::Footer::new()
-            .primary("Enter", fl::ENTER_SELECT)
-            .action("Esc", fl::ESC_CANCEL)
+            .primary("Enter", crate::i18n::text(fl::ENTER_SELECT))
+            .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
             .render_with_status(frame, footer_area, app);
     } else if app.snippets.pending_delete().is_some() {
         render_delete_popup(frame, app);
@@ -213,17 +213,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let mut f = design::Footer::new();
         if !app.snippets.store().snippets.is_empty() {
             f = f
-                .primary("Enter", fl::ENTER_RUN)
-                .action("!", fl::ACTION_TERMINAL);
+                .primary("Enter", crate::i18n::text(fl::ENTER_RUN))
+                .action("!", crate::i18n::text(fl::ACTION_TERMINAL));
         }
-        f = f.action("a", fl::ACTION_ADD);
+        f = f.action("a", crate::i18n::text(fl::ACTION_ADD));
         if !app.snippets.store().snippets.is_empty() {
             f = f
-                .action("e", fl::ACTION_EDIT)
-                .action("d", fl::ACTION_DEL)
-                .action("/", fl::ACTION_SEARCH);
+                .action("e", crate::i18n::text(fl::ACTION_EDIT))
+                .action("d", crate::i18n::text(fl::ACTION_DEL))
+                .action("/", crate::i18n::text(fl::ACTION_SEARCH));
         }
-        f = f.action("Esc", fl::ESC_BACK);
+        f = f.action("Esc", crate::i18n::text(fl::ESC_BACK));
         f.render_with_status(frame, footer_area, app);
     }
 }

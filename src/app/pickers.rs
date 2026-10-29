@@ -67,7 +67,7 @@ impl App {
             .map(|name| {
                 let note = match profiles.resolve_chain(name) {
                     Ok(chain) if !chain.roles.is_empty() => Some(AwsProfileNote {
-                        text: crate::messages::PROFILE_ASSUMES_ROLE,
+                        text: crate::i18n::text(crate::messages::PROFILE_ASSUMES_ROLE),
                         usable: true,
                     }),
                     Ok(_) => None,

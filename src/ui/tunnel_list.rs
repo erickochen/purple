@@ -89,8 +89,8 @@ pub fn render(frame: &mut Frame, app: &mut App, alias: &str) {
         let detail = crate::messages::confirm_tunnel_delete_detail(&app.config_path_display());
         design::render_destructive_popup(
             frame,
-            crate::messages::CONFIRM_TUNNEL_DELETE_TITLE,
-            crate::messages::CONFIRM_TUNNEL_DELETE_QUESTION,
+            crate::i18n::text(crate::messages::CONFIRM_TUNNEL_DELETE_TITLE),
+            crate::i18n::text(crate::messages::CONFIRM_TUNNEL_DELETE_QUESTION),
             &detail,
             "delete",
             "keep",
@@ -100,17 +100,19 @@ pub fn render(frame: &mut Frame, app: &mut App, alias: &str) {
         use crate::messages::footer as fl;
         let mut f = design::Footer::new();
         if is_active {
-            f = f.primary("Enter", fl::ENTER_STOP);
+            f = f.primary("Enter", crate::i18n::text(fl::ENTER_STOP));
         } else if !app.tunnels.list().is_empty() {
-            f = f.primary("Enter", fl::ENTER_START);
+            f = f.primary("Enter", crate::i18n::text(fl::ENTER_START));
         }
         if !is_readonly {
-            f = f.action("a", fl::ACTION_ADD);
+            f = f.action("a", crate::i18n::text(fl::ACTION_ADD));
             if !app.tunnels.list().is_empty() {
-                f = f.action("e", fl::ACTION_EDIT).action("d", fl::ACTION_DEL);
+                f = f
+                    .action("e", crate::i18n::text(fl::ACTION_EDIT))
+                    .action("d", crate::i18n::text(fl::ACTION_DEL));
             }
         }
-        f = f.action("Esc", fl::ESC_BACK);
+        f = f.action("Esc", crate::i18n::text(fl::ESC_BACK));
         f.render_with_status(frame, footer_area, app);
     }
 }

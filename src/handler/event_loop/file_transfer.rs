@@ -340,7 +340,7 @@ fn apply_scp_complete(
         false
     };
     if matched && success {
-        app.notify_background(crate::messages::TRANSFER_COMPLETE);
+        app.notify_background(crate::i18n::text(crate::messages::TRANSFER_COMPLETE));
         // Rebuild display list so frecency sort and LAST column reflect the transfer
         app.apply_sort();
     }

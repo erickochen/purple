@@ -108,7 +108,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
                 // still needs to see; the flag stays unset so the hint will
                 // surface on a later Esc once the sticky toast is dismissed.
                 log::debug!("[purple] esc on idle host list, showing quit hint toast");
-                app.notify(crate::messages::ESC_QUIT_HINT);
+                app.notify(crate::i18n::text(crate::messages::ESC_QUIT_HINT));
                 app.ui.set_esc_quit_hint_shown(true);
             }
         }
@@ -150,7 +150,9 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
                     app.notify_warning(crate::messages::stale_host(&hint));
                 }
                 if app.demo_mode {
-                    app.notify_warning(crate::messages::DEMO_CONNECTION_DISABLED);
+                    app.notify_warning(crate::i18n::text(
+                        crate::messages::DEMO_CONNECTION_DISABLED,
+                    ));
                     return;
                 }
                 app.ui.queue_connect(alias, askpass);
@@ -295,7 +297,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
             // scope changes.
             if !app.hosts_state.multi_select().is_empty() {
                 if !app.open_bulk_tag_editor() {
-                    app.notify_warning(crate::messages::NO_HOSTS_TO_TAG);
+                    app.notify_warning(crate::i18n::text(crate::messages::NO_HOSTS_TO_TAG));
                 }
                 return;
             }
@@ -327,6 +329,11 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
                 app.notify(crate::messages::sorted_by(
                     app.hosts_state.sort_mode().label(),
                 ));
+            }
+        }
+        KeyCode::Char('L') => {
+            if let Err(e) = crate::i18n::toggle() {
+                app.notify_error(crate::messages::language::error(&e));
             }
         }
         KeyCode::Char('g') => actions::cycle_group_by(app),
@@ -393,13 +400,13 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
             if count > 0 {
                 app.set_screen(Screen::ConfirmImport { count });
             } else {
-                app.notify_warning(crate::messages::NO_IMPORTABLE_HOSTS);
+                app.notify_warning(crate::i18n::text(crate::messages::NO_IMPORTABLE_HOSTS));
             }
         }
         KeyCode::Char('X') => {
             let stale = app.hosts_state.ssh_config().stale_hosts();
             if stale.is_empty() {
-                app.notify_warning(crate::messages::NO_STALE_HOSTS);
+                app.notify_warning(crate::i18n::text(crate::messages::NO_STALE_HOSTS));
             } else {
                 let aliases: Vec<String> = stale.into_iter().map(|(a, _)| a).collect();
                 app.providers.set_pending_purge(crate::app::PendingPurge {
@@ -449,7 +456,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
                 })
                 .collect();
             if aliases.is_empty() {
-                app.notify_warning(crate::messages::NO_HOSTS_TO_RUN);
+                app.notify_warning(crate::i18n::text(crate::messages::NO_HOSTS_TO_RUN));
             } else {
                 super::snippet::open_snippet_picker(app, aliases);
             }
@@ -487,7 +494,9 @@ pub(super) fn handle_search_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::
                     app.notify_warning(crate::messages::stale_host(&hint));
                 }
                 if app.demo_mode {
-                    app.notify_warning(crate::messages::DEMO_CONNECTION_DISABLED);
+                    app.notify_warning(crate::i18n::text(
+                        crate::messages::DEMO_CONNECTION_DISABLED,
+                    ));
                     return;
                 }
                 app.ui.queue_connect(alias, askpass);

@@ -21,7 +21,7 @@ pub fn global_default_set(label: &str) -> String {
 }
 
 pub fn password_source_set(label: &str) -> String {
-    format!("Password source set to {}.", label)
+    crate::tformat!("Password source set to {}.", label)
 }
 
 pub fn complete_path(label: &str) -> String {
@@ -52,8 +52,9 @@ pub fn keys_copy_read_failed(name: &str) -> String {
 
 pub const TAB_EMPTY_HOSTS_HEADLINE: &str = "It's quiet in here.";
 pub fn tab_empty_hosts_explainer(config: &str) -> String {
-    format!(
-        "purple reads hosts from {config} and from the cloud providers you connect. Add one by hand or sync a provider and the list fills up."
+    crate::tformat!(
+        "purple reads hosts from {} and from the cloud providers you connect. Add one by hand or sync a provider and the list fills up.",
+        config
     )
 }
 pub const TAB_EMPTY_HOSTS_HINT_ADD: &str = "add a host";
@@ -65,8 +66,9 @@ pub const TAB_EMPTY_CONTAINERS_HINT_ADD: &str = "pick a host to scan";
 
 pub const TAB_EMPTY_TUNNELS_HEADLINE: &str = "No tunnels yet.";
 pub fn tab_empty_tunnels_explainer(config: &str) -> String {
-    format!(
-        "Tunnels are SSH port forwards stored per host in {config}. This tab aggregates Local, Remote and Dynamic forwards across every alias."
+    crate::tformat!(
+        "Tunnels are SSH port forwards stored per host in {}. This tab aggregates Local, Remote and Dynamic forwards across every alias.",
+        config
     )
 }
 pub const TAB_EMPTY_TUNNELS_HINT_ADD: &str = "add a tunnel";
@@ -84,7 +86,7 @@ pub const TAB_EMPTY_KEYS_HINT_KEYGEN: &str = "ssh-keygen -t ed25519 -C \"$(whoam
 pub const CONFIRM_TUNNEL_DELETE_TITLE: &str = " Remove tunnel? ";
 pub const CONFIRM_TUNNEL_DELETE_QUESTION: &str = "Remove the selected tunnel rule from this host?";
 pub fn confirm_tunnel_delete_detail(config: &str) -> String {
-    format!("Rewrites {config}. The rule is gone after save.")
+    crate::tformat!("Rewrites {}. The rule is gone after save.", config)
 }
 
 pub const CONFIRM_SNIPPET_DELETE_TITLE: &str = " Remove snippet? ";
@@ -95,7 +97,10 @@ pub fn confirm_snippet_delete_question(name: &str) -> String {
 
 pub const CONFIRM_PROVIDER_REMOVE_TITLE: &str = " Remove provider? ";
 pub fn confirm_provider_remove_detail(config: &str) -> String {
-    format!("Synced hosts stay in {config}. The integration is gone after save.")
+    crate::tformat!(
+        "Synced hosts stay in {}. The integration is gone after save.",
+        config
+    )
 }
 pub fn confirm_provider_remove_question(display: &str) -> String {
     format!("Remove the \"{}\" provider config?", display)
@@ -107,7 +112,10 @@ pub fn confirm_provider_remove_labeled_question(display: &str, label: &str) -> S
 /// Empty-state message for the key-push picker when the config has no
 /// host entries to target.
 pub fn key_push_no_hosts(config: &str) -> String {
-    format!("No hosts in {config}. Add a host first, then come back here.")
+    crate::tformat!(
+        "No hosts in {}. Add a host first, then come back here.",
+        config
+    )
 }
 
 /// Header line for the Vault SSH strip when there is no Valid cached

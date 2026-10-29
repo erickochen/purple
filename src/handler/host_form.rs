@@ -207,7 +207,7 @@ fn smart_paste(forms: &mut FormState, status: &mut StatusCenter) {
                 .unwrap_or(&parsed.hostname)
                 .to_string();
             forms.host_mut().apply_smart_paste(parsed, clean_alias);
-            status.notify(crate::messages::SMART_PARSED);
+            status.notify(crate::i18n::text(crate::messages::SMART_PARSED));
             log::debug!(
                 "[purple] host_form: smart-paste parsed alias={} host={} user={} port={}",
                 forms.host().alias,
@@ -237,7 +237,7 @@ fn smart_paste(forms: &mut FormState, status: &mut StatusCenter) {
         // Copy the value to the Host field as a suggestion. The Name field
         // stays unchanged so the user keeps full control over the alias.
         forms.host_mut().hostname = trimmed.to_string();
-        status.notify(crate::messages::LOOKS_LIKE_ADDRESS);
+        status.notify(crate::i18n::text(crate::messages::LOOKS_LIKE_ADDRESS));
         log::debug!("[purple] host_form: auto-suggest hostname={trimmed}");
     }
 }
@@ -297,7 +297,9 @@ pub(super) fn submit_form(app: &mut App) {
     // Check for external config changes since form was opened
     if app.config_changed_since_form_open() {
         log::warn!("[purple] host form submit: external config change, aborting");
-        app.notify_warning(crate::messages::CONFIG_CHANGED_EXTERNALLY);
+        app.notify_warning(crate::i18n::text(
+            crate::messages::CONFIG_CHANGED_EXTERNALLY,
+        ));
         return;
     }
 

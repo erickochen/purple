@@ -46,7 +46,7 @@ pub(super) fn clone_selected(app: &mut App) {
         if let Some(hint) = stale_hint {
             app.notify_warning(crate::messages::stale_host(&hint));
         } else if vault_cleared {
-            app.notify(crate::messages::CLONED_VAULT_CLEARED);
+            app.notify(crate::i18n::text(crate::messages::CLONED_VAULT_CLEARED));
         }
         *app.forms.host_mut() = form;
         app.set_screen(Screen::AddHost);
@@ -62,18 +62,20 @@ pub(super) fn clone_selected(app: &mut App) {
 /// list so the entry point lives here.
 pub(crate) fn initiate_bulk_vault_sign(app: &mut App) {
     if !app.has_any_vault_role() {
-        app.notify(crate::messages::VAULT_NO_ROLE_CONFIGURED);
+        app.notify(crate::i18n::text(crate::messages::VAULT_NO_ROLE_CONFIGURED));
         return;
     }
     if app.demo_mode {
-        app.notify_warning(crate::messages::DEMO_VAULT_SIGNING_DISABLED);
+        app.notify_warning(crate::i18n::text(
+            crate::messages::DEMO_VAULT_SIGNING_DISABLED,
+        ));
         return;
     }
     // Cancel any in-progress vault signing thread
     if let Some(cancel) = app.vault.signing_cancel() {
         cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         app.vault.clear_signing_cancel();
-        app.notify(crate::messages::VAULT_SIGNING_CANCELLED);
+        app.notify(crate::i18n::text(crate::messages::VAULT_SIGNING_CANCELLED));
         return;
     }
     let provider_config = crate::providers::config::ProviderConfig::load(app.env.paths());
@@ -116,7 +118,7 @@ pub(crate) fn initiate_bulk_vault_sign(app: &mut App) {
     }
 
     if signable.is_empty() {
-        app.notify(crate::messages::VAULT_NO_HOSTS_WITH_ROLE);
+        app.notify(crate::i18n::text(crate::messages::VAULT_NO_HOSTS_WITH_ROLE));
         return;
     }
 
@@ -127,7 +129,7 @@ pub(crate) fn initiate_bulk_vault_sign(app: &mut App) {
     let env_vault_addr = app.env().vault_addr().map(str::to_string);
     let host_addrs: Vec<Option<&str>> = signable.iter().map(|t| t.vault_addr.as_deref()).collect();
     if vault_addr_missing(&host_addrs, env_vault_addr.as_deref()) {
-        app.notify_error(crate::messages::VAULT_NO_ADDRESS);
+        app.notify_error(crate::i18n::text(crate::messages::VAULT_NO_ADDRESS));
         return;
     }
 
@@ -155,7 +157,7 @@ pub(crate) fn initiate_bulk_vault_sign(app: &mut App) {
     }
 
     if needs_signing.is_empty() {
-        app.notify(crate::messages::VAULT_ALL_CERTS_VALID);
+        app.notify(crate::i18n::text(crate::messages::VAULT_ALL_CERTS_VALID));
         return;
     }
 
@@ -170,7 +172,9 @@ pub(super) fn open_file_browser(app: &mut App, events_tx: &mpsc::Sender<AppEvent
         return;
     }
     if app.demo_mode {
-        app.notify_warning(crate::messages::DEMO_FILE_BROWSER_DISABLED);
+        app.notify_warning(crate::i18n::text(
+            crate::messages::DEMO_FILE_BROWSER_DISABLED,
+        ));
         return;
     }
     let Some(host) = app.selected_host() else {
@@ -317,7 +321,7 @@ pub(super) fn cycle_group_by(app: &mut App) {
                 {
                     app.notify_error(crate::messages::ungrouped_save_failed(&e));
                 } else {
-                    app.notify(crate::messages::UNGROUPED);
+                    app.notify(crate::i18n::text(crate::messages::UNGROUPED));
                 }
             } else {
                 // Switch to tag mode directly. The nav bar shows all tags as
@@ -329,7 +333,7 @@ pub(super) fn cycle_group_by(app: &mut App) {
                 {
                     app.notify_error(crate::messages::grouped_by_tag_save_failed(&e));
                 } else {
-                    app.notify(crate::messages::GROUPED_BY_TAG);
+                    app.notify(crate::i18n::text(crate::messages::GROUPED_BY_TAG));
                 }
             }
         }
@@ -341,7 +345,7 @@ pub(super) fn cycle_group_by(app: &mut App) {
             {
                 app.notify_error(crate::messages::ungrouped_save_failed(&e));
             } else {
-                app.notify(crate::messages::UNGROUPED);
+                app.notify(crate::i18n::text(crate::messages::UNGROUPED));
             }
         }
     }
@@ -397,7 +401,7 @@ pub(super) fn undo_last(app: &mut App) {
             app.notify(crate::messages::host_restored(&alias));
         }
     } else {
-        app.notify_warning(crate::messages::NOTHING_TO_UNDO);
+        app.notify_warning(crate::i18n::text(crate::messages::NOTHING_TO_UNDO));
     }
 }
 
@@ -434,7 +438,7 @@ pub(super) fn open_theme_picker(app: &mut App) {
 /// search-mode filtering when enabled and tears it down cleanly when disabled.
 pub(super) fn toggle_down_filter(app: &mut App) {
     if app.ping.status_is_empty() {
-        app.notify_warning(crate::messages::PING_FIRST);
+        app.notify_warning(crate::i18n::text(crate::messages::PING_FIRST));
         return;
     }
     app.ping.set_filter_down_only(!app.ping.filter_down_only());
@@ -496,7 +500,7 @@ pub(super) fn ping_all_hosts(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) 
             app.ping
                 .insert_status(alias.clone(), crate::app::PingStatus::Checking);
         }
-        app.notify_info(crate::messages::PINGING_ALL);
+        app.notify_info(crate::i18n::text(crate::messages::PINGING_ALL));
         crate::ping::ping_all(&hosts_to_ping, events_tx.clone(), app.ping.generation());
     }
 }
@@ -540,7 +544,7 @@ pub(super) fn run_snippet_on_selection(app: &mut App) {
         app.notify_warning(crate::messages::stale_host(&hint));
     }
     if aliases.is_empty() {
-        app.notify_warning(crate::messages::NO_HOST_SELECTED);
+        app.notify_warning(crate::i18n::text(crate::messages::NO_HOST_SELECTED));
     } else {
         super::super::snippet::open_snippet_picker(app, aliases);
     }

@@ -73,14 +73,14 @@ fn close_and_mark_seen(ctx: &mut WhatsNewCtx) {
     if let Err(e) = crate::preferences::save_last_seen_version(ctx.env.paths(), version) {
         log::warn!("[purple] failed to persist last_seen_version: {}", e);
     }
-    let fragment = crate::messages::whats_new_toast::INVITE_FRAGMENT;
+    let fragment = crate::i18n::text(crate::messages::whats_new_toast::INVITE_FRAGMENT);
     ctx.status.drop_toasts_where(|t| t.text.contains(fragment));
     debug!("[purple] whats-new closed, marked seen={}", version);
     ctx.set_screen(Screen::HostList);
 }
 
 pub(super) fn dismiss_whats_new_toast(app: &mut App) {
-    let fragment = crate::messages::whats_new_toast::INVITE_FRAGMENT;
+    let fragment = crate::i18n::text(crate::messages::whats_new_toast::INVITE_FRAGMENT);
     app.status_center
         .drop_toasts_where(|t| t.text.contains(fragment));
 }

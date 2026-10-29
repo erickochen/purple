@@ -344,11 +344,14 @@ fn render_empty_state(frame: &mut Frame, hero_area: Rect, hosts_area: Rect) {
     );
     let block = design::main_block_line(Line::default());
     frame.render_widget(block, combined);
-    let hints = [("$", crate::messages::TAB_EMPTY_KEYS_HINT_KEYGEN)];
+    let hints = [(
+        "$",
+        crate::i18n::text(crate::messages::TAB_EMPTY_KEYS_HINT_KEYGEN),
+    )];
     let empty = design::TabEmpty {
-        card_title: "Keys",
-        headline: crate::messages::TAB_EMPTY_KEYS_HEADLINE,
-        explainer: crate::messages::TAB_EMPTY_KEYS_EXPLAINER,
+        card_title: crate::i18n::text("Keys"),
+        headline: crate::i18n::text(crate::messages::TAB_EMPTY_KEYS_HEADLINE),
+        explainer: crate::i18n::text(crate::messages::TAB_EMPTY_KEYS_EXPLAINER),
         hints: &hints,
     };
     design::render_tab_empty(frame, combined, &empty);
@@ -357,12 +360,14 @@ fn render_empty_state(frame: &mut Frame, hero_area: Rect, hosts_area: Rect) {
 fn footer_spans(vault_active: bool) -> Vec<Span<'static>> {
     use crate::messages::footer as fl;
     let mut footer = design::Footer::new()
-        .primary("Enter", fl::ENTER_COPY)
-        .action("p", fl::ACTION_PUSH);
+        .primary("Enter", crate::i18n::text(fl::ENTER_COPY))
+        .action("p", crate::i18n::text(fl::ACTION_PUSH));
     if vault_active {
-        footer = footer.action("V", fl::ACTION_VAULT_SIGN);
+        footer = footer.action("V", crate::i18n::text(fl::ACTION_VAULT_SIGN));
     }
-    footer.action(":", fl::ACTION_JUMP).into_spans()
+    footer
+        .action(":", crate::i18n::text(fl::ACTION_JUMP))
+        .into_spans()
 }
 
 #[cfg(test)]

@@ -423,7 +423,7 @@ pub(crate) fn top_bar_spans(app: &App) -> Vec<Span<'static>> {
         Span::styled(" purple ", theme::brand_badge()),
         Span::raw(TOP_BAR_GAP),
         Span::styled(
-            "hosts",
+            crate::i18n::text("hosts"),
             if host_active {
                 theme::nav_active()
             } else {
@@ -432,7 +432,7 @@ pub(crate) fn top_bar_spans(app: &App) -> Vec<Span<'static>> {
         ),
         Span::raw(TOP_BAR_GAP),
         Span::styled(
-            "tunnels",
+            crate::i18n::text("tunnels"),
             if tunnel_active {
                 theme::nav_active()
             } else {
@@ -441,7 +441,7 @@ pub(crate) fn top_bar_spans(app: &App) -> Vec<Span<'static>> {
         ),
         Span::raw(TOP_BAR_GAP),
         Span::styled(
-            "containers",
+            crate::i18n::text("containers"),
             if containers_active {
                 theme::nav_active()
             } else {
@@ -450,7 +450,7 @@ pub(crate) fn top_bar_spans(app: &App) -> Vec<Span<'static>> {
         ),
         Span::raw(TOP_BAR_GAP),
         Span::styled(
-            "snippets",
+            crate::i18n::text("snippets"),
             if snippets_active {
                 theme::nav_active()
             } else {
@@ -459,7 +459,7 @@ pub(crate) fn top_bar_spans(app: &App) -> Vec<Span<'static>> {
         ),
         Span::raw(TOP_BAR_GAP),
         Span::styled(
-            "keys",
+            crate::i18n::text("keys"),
             if keys_active {
                 theme::nav_active()
             } else {
@@ -572,13 +572,19 @@ fn render_display_list(
         }
         frame.render_widget(block, area);
         let hints = [
-            ("a", crate::messages::TAB_EMPTY_HOSTS_HINT_ADD),
-            ("S", crate::messages::TAB_EMPTY_HOSTS_HINT_SYNC),
+            (
+                "a",
+                crate::i18n::text(crate::messages::TAB_EMPTY_HOSTS_HINT_ADD),
+            ),
+            (
+                "S",
+                crate::i18n::text(crate::messages::TAB_EMPTY_HOSTS_HINT_SYNC),
+            ),
         ];
         let explainer = crate::messages::tab_empty_hosts_explainer(&app.config_path_display());
         let empty = design::TabEmpty {
-            card_title: "Hosts",
-            headline: crate::messages::TAB_EMPTY_HOSTS_HEADLINE,
+            card_title: crate::i18n::text("Hosts"),
+            headline: crate::i18n::text(crate::messages::TAB_EMPTY_HOSTS_HEADLINE),
             explainer: &explainer,
             hints: &hints,
         };
@@ -950,7 +956,11 @@ fn render_header(
         format!(
             "{}{:<width$}",
             " ".repeat(MARKER_WIDTH + 1 + 2),
-            if name_sort { "NAME \u{25BE}" } else { "NAME" },
+            if name_sort {
+                "NAME \u{25BE}"
+            } else {
+                crate::i18n::text("NAME")
+            },
             width = cols.alias
         ),
         style,
@@ -964,7 +974,7 @@ fn render_header(
                 if host_sort {
                     "ADDRESS \u{25BE}"
                 } else {
-                    "ADDRESS"
+                    crate::i18n::text("ADDRESS")
                 },
                 width = cols.host
             ),
@@ -1420,24 +1430,24 @@ fn footer_spans(
     use crate::messages::footer as fl;
     if selection_active {
         return design::Footer::new()
-            .action("t", fl::ACTION_BULK_TAG)
-            .action("r", fl::ACTION_RUN)
-            .action("?", fl::ACTION_HELP)
-            .action("Esc", fl::ESC_CLEAR)
+            .action("t", crate::i18n::text(fl::ACTION_BULK_TAG))
+            .action("r", crate::i18n::text(fl::ACTION_RUN))
+            .action("?", crate::i18n::text(fl::ACTION_HELP))
+            .action("Esc", crate::i18n::text(fl::ESC_CLEAR))
             .into_spans();
     }
 
     let view_label = if detail_active {
         " compact "
     } else {
-        fl::ACTION_DETAIL
+        crate::i18n::text(fl::ACTION_DETAIL)
     };
     let mut spans = design::Footer::new()
-        .primary("Enter", fl::ENTER_CONNECT)
-        .action("/", fl::ACTION_SEARCH)
-        .action("#", fl::ACTION_TAG)
+        .primary("Enter", crate::i18n::text(fl::ENTER_CONNECT))
+        .action("/", crate::i18n::text(fl::ACTION_SEARCH))
+        .action("#", crate::i18n::text(fl::ACTION_TAG))
         .action("v", view_label)
-        .action(":", fl::ACTION_JUMP)
+        .action(":", crate::i18n::text(fl::ACTION_JUMP))
         .into_spans();
     if filter_down_only {
         spans.push(Span::raw(design::FOOTER_GAP));
@@ -1451,11 +1461,11 @@ fn pattern_footer_spans(detail_active: bool) -> Vec<Span<'static>> {
     let view_label = if detail_active {
         " compact "
     } else {
-        fl::ACTION_DETAIL
+        crate::i18n::text(fl::ACTION_DETAIL)
     };
     design::Footer::new()
-        .action("/", fl::ACTION_SEARCH)
-        .action("#", fl::ACTION_TAG)
+        .action("/", crate::i18n::text(fl::ACTION_SEARCH))
+        .action("#", crate::i18n::text(fl::ACTION_TAG))
         .action("v", view_label)
         .into_spans()
 }
@@ -1463,9 +1473,9 @@ fn pattern_footer_spans(detail_active: bool) -> Vec<Span<'static>> {
 fn search_footer_spans() -> Vec<Span<'static>> {
     use crate::messages::footer as fl;
     let mut spans = design::Footer::new()
-        .primary("Enter", fl::ENTER_CONNECT)
-        .action("Ctrl+E", fl::ACTION_EDIT)
-        .action("Esc", fl::ESC_CANCEL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_CONNECT))
+        .action("Ctrl+E", crate::i18n::text(fl::ACTION_EDIT))
+        .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         .into_spans();
     // Trailing mode hints share the footer row; rendered with the same gap.
     spans.push(Span::raw(design::FOOTER_GAP));
@@ -1509,8 +1519,8 @@ fn render_tag_bar(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 fn tag_footer_spans() -> Vec<Span<'static>> {
     use crate::messages::footer as fl;
     let mut spans = design::Footer::new()
-        .primary("Enter", fl::ENTER_SAVE)
-        .action("Esc", fl::ESC_CANCEL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_SAVE))
+        .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         .into_spans();
     spans.push(Span::raw(design::FOOTER_GAP));
     spans.push(Span::styled("comma-separated", theme::muted()));

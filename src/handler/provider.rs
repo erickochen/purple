@@ -65,7 +65,7 @@ impl ProviderFormCtx<'_> {
             return;
         }
         if !token.contains(':') {
-            self.notify_warning(crate::messages::TOKEN_FORMAT_AWS);
+            self.notify_warning(crate::i18n::text(crate::messages::TOKEN_FORMAT_AWS));
         }
     }
 }
@@ -275,7 +275,7 @@ pub(super) fn handle_provider_list_key(
         }
         KeyCode::Char('s') => {
             if app.demo_mode {
-                app.notify_warning(crate::messages::DEMO_SYNC_DISABLED);
+                app.notify_warning(crate::i18n::text(crate::messages::DEMO_SYNC_DISABLED));
                 return;
             }
             let row = match app
@@ -350,7 +350,9 @@ pub(super) fn handle_provider_list_key(
                     } else if *config_count >= 2 {
                         // Refuse to mass-delete from the header. Force the
                         // user to expand and pick a specific config.
-                        app.notify(crate::messages::EXPAND_TO_REMOVE_CONFIG.to_string());
+                        app.notify(
+                            crate::i18n::text(crate::messages::EXPAND_TO_REMOVE_CONFIG).to_string(),
+                        );
                     } else {
                         // Single config: scope the confirm to that exact id.
                         if let Some(section) = app.providers.config().section(name) {
@@ -570,7 +572,7 @@ fn label_migration_key(ctx: &mut LabelMigrationCtx, key: KeyEvent, provider: &st
                 return;
             }
             if existing == new {
-                ctx.notify_error(crate::messages::LABEL_MUST_DIFFER.to_string());
+                ctx.notify_error(crate::i18n::text(crate::messages::LABEL_MUST_DIFFER).to_string());
                 return;
             }
             // Move on to step 2: the standard provider form, pre-keyed to
@@ -942,7 +944,7 @@ fn provider_form_key(
                 {
                     // An empty picker reads as a bug, so say why it did not
                     // open and name the field that works instead.
-                    app.notify_warning(crate::messages::PICKER_NO_AWS_PROFILES);
+                    app.notify_warning(crate::i18n::text(crate::messages::PICKER_NO_AWS_PROFILES));
                 }
             });
         }
@@ -979,7 +981,9 @@ fn provider_form_key(
 
 fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
     if app.demo_mode {
-        app.notify_warning(crate::messages::DEMO_PROVIDER_CHANGES_DISABLED);
+        app.notify_warning(crate::i18n::text(
+            crate::messages::DEMO_PROVIDER_CHANGES_DISABLED,
+        ));
         app.set_screen(Screen::Providers);
         return;
     }
@@ -1029,7 +1033,9 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
 
     // Check for external provider config changes since form was opened
     if app.provider_config_changed_since_form_open() {
-        app.notify_error(crate::messages::PROVIDER_CONFIG_CHANGED_EXTERNALLY);
+        app.notify_error(crate::i18n::text(
+            crate::messages::PROVIDER_CONFIG_CHANGED_EXTERNALLY,
+        ));
         return;
     }
 
@@ -1061,15 +1067,17 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         let url = app.providers.form_mut().url.trim();
         if url.is_empty() {
             let msg = if kind == Some(ProviderKind::NetBox) {
-                crate::messages::URL_REQUIRED_NETBOX
+                crate::i18n::text(crate::messages::URL_REQUIRED_NETBOX)
             } else {
-                crate::messages::URL_REQUIRED_PROXMOX
+                crate::i18n::text(crate::messages::URL_REQUIRED_PROXMOX)
             };
             app.notify_warning(msg);
             return;
         }
         if !url.to_ascii_lowercase().starts_with("https://") {
-            app.notify_error(crate::messages::PROVIDER_URL_REQUIRES_HTTPS);
+            app.notify_error(crate::i18n::text(
+                crate::messages::PROVIDER_URL_REQUIRES_HTTPS,
+            ));
             return;
         }
     }
@@ -1081,9 +1089,9 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         && !kind.is_some_and(ProviderKind::token_is_optional)
     {
         let hint = if kind == Some(ProviderKind::Gcp) {
-            crate::messages::PROVIDER_TOKEN_REQUIRED_GCP.to_string()
+            crate::i18n::text(crate::messages::PROVIDER_TOKEN_REQUIRED_GCP).to_string()
         } else if kind == Some(ProviderKind::Oracle) {
-            crate::messages::PROVIDER_TOKEN_REQUIRED_ORACLE.to_string()
+            crate::i18n::text(crate::messages::PROVIDER_TOKEN_REQUIRED_ORACLE).to_string()
         } else {
             let display_name = crate::providers::provider_display_name(provider_name.as_str());
             crate::messages::provider_token_required(display_name)
@@ -1094,30 +1102,32 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
 
     // GCP requires a project ID
     if kind == Some(ProviderKind::Gcp) && app.providers.form_mut().project.trim().is_empty() {
-        app.notify_warning(crate::messages::PROJECT_REQUIRED_GCP);
+        app.notify_warning(crate::i18n::text(crate::messages::PROJECT_REQUIRED_GCP));
         return;
     }
 
     // Oracle requires a compartment OCID
     if kind == Some(ProviderKind::Oracle) && app.providers.form_mut().compartment.trim().is_empty()
     {
-        app.notify_warning(crate::messages::COMPARTMENT_REQUIRED_OCI);
+        app.notify_warning(crate::i18n::text(crate::messages::COMPARTMENT_REQUIRED_OCI));
         return;
     }
 
     // AWS/Scaleway require at least one region/zone
     if kind == Some(ProviderKind::Aws) && app.providers.form_mut().regions.trim().is_empty() {
-        app.notify_warning(crate::messages::REGIONS_REQUIRED_AWS);
+        app.notify_warning(crate::i18n::text(crate::messages::REGIONS_REQUIRED_AWS));
         return;
     }
     if kind == Some(ProviderKind::Scaleway) && app.providers.form_mut().regions.trim().is_empty() {
-        app.notify_warning(crate::messages::ZONES_REQUIRED_SCALEWAY);
+        app.notify_warning(crate::i18n::text(crate::messages::ZONES_REQUIRED_SCALEWAY));
         return;
     }
     if kind == Some(ProviderKind::Azure) {
         let subs = app.providers.form().regions.trim().to_string();
         if subs.is_empty() {
-            app.notify_warning(crate::messages::SUBSCRIPTIONS_REQUIRED_AZURE);
+            app.notify_warning(crate::i18n::text(
+                crate::messages::SUBSCRIPTIONS_REQUIRED_AZURE,
+            ));
             return;
         }
         for sub in subs.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
@@ -1131,7 +1141,7 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
     let token = app.providers.form_mut().token.trim().to_string();
     let alias_prefix = app.providers.form_mut().alias_prefix.trim().to_string();
     if crate::ssh_config::model::is_host_pattern(&alias_prefix) {
-        app.notify_warning(crate::messages::ALIAS_PREFIX_INVALID);
+        app.notify_warning(crate::i18n::text(crate::messages::ALIAS_PREFIX_INVALID));
         return;
     }
 
@@ -1144,7 +1154,7 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         }
     };
     if user.contains(char::is_whitespace) {
-        app.notify_warning(crate::messages::USER_NO_WHITESPACE);
+        app.notify_warning(crate::i18n::text(crate::messages::USER_NO_WHITESPACE));
         return;
     }
 
@@ -1160,7 +1170,7 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
 
     let vault_role_trimmed = app.providers.form_mut().vault_role.trim();
     if !vault_role_trimmed.is_empty() && !crate::vault_ssh::is_valid_role(vault_role_trimmed) {
-        app.notify_warning(crate::messages::VAULT_ROLE_FORMAT);
+        app.notify_warning(crate::i18n::text(crate::messages::VAULT_ROLE_FORMAT));
         return;
     }
 
@@ -1316,7 +1326,7 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         && app.providers.form().ssm.is_enabled()
         && app.providers.form().profile.trim().is_empty()
     {
-        app.notify_warning(crate::messages::AWS_SSM_WITHOUT_PROFILE);
+        app.notify_warning(crate::i18n::text(crate::messages::AWS_SSM_WITHOUT_PROFILE));
     }
     app.close_provider_form();
 }

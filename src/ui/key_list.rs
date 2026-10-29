@@ -9,7 +9,7 @@ use crate::app::App;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let title = if app.keys.list().is_empty() {
-        "SSH Keys".to_string()
+        crate::i18n::text("SSH Keys").to_string()
     } else {
         let pos = app.keys.list_state().selected().map(|i| i + 1).unwrap_or(0);
         format!("SSH Keys {}/{}", pos, app.keys.list().len())
@@ -153,8 +153,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let footer_area = design::render_overlay_footer(frame, area);
     use crate::messages::footer as fl;
     design::Footer::new()
-        .primary("Enter", fl::ENTER_SELECT)
-        .action("Esc", fl::ESC_BACK)
+        .primary("Enter", crate::i18n::text(fl::ENTER_SELECT))
+        .action("Esc", crate::i18n::text(fl::ESC_BACK))
         .render_with_status(frame, footer_area, app);
 }
 

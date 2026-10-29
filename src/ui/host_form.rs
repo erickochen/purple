@@ -88,23 +88,23 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     let title = if app.forms.host().is_pattern {
         match &app.screen {
-            Screen::AddHost => "Add Pattern".to_string(),
+            Screen::AddHost => crate::i18n::text("Add Pattern").to_string(),
             Screen::EditHost { alias } => {
                 let max_alias = (form_area.width as usize).saturating_sub(14);
                 let truncated = super::truncate(alias, max_alias);
-                format!("Edit: {}", truncated)
+                crate::tformat!("Edit: {}", truncated)
             }
-            _ => "Pattern".to_string(),
+            _ => crate::i18n::text("Pattern").to_string(),
         }
     } else {
         match &app.screen {
-            Screen::AddHost => "Add New Host".to_string(),
+            Screen::AddHost => crate::i18n::text("Add New Host").to_string(),
             Screen::EditHost { alias } => {
                 let max_alias = (form_area.width as usize).saturating_sub(12);
                 let truncated = super::truncate(alias, max_alias);
-                format!("Edit: {}", truncated)
+                crate::tformat!("Edit: {}", truncated)
             }
-            _ => "Host".to_string(),
+            _ => crate::i18n::text("Host").to_string(),
         }
     };
     frame.render_widget(Clear, form_area);
@@ -178,7 +178,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             theme::muted()
         };
         let field_label = if app.forms.host().is_pattern && field == FormField::Alias {
-            "Pattern"
+            crate::i18n::text("Pattern")
         } else {
             field.label()
         };
@@ -272,7 +272,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 /// Render the key picker popup overlay. Public for reuse from provider form.
 pub fn render_key_picker_overlay(frame: &mut Frame, app: &mut App) {
     if app.keys.list().is_empty() {
-        super::render_picker_empty_overlay(frame, "Select Key", "No keys found in ~/.ssh/");
+        super::render_picker_empty_overlay(
+            frame,
+            crate::i18n::text("Select Key"),
+            crate::i18n::text("No keys found in ~/.ssh/"),
+        );
         return;
     }
 
@@ -336,7 +340,7 @@ pub fn render_key_picker_overlay(frame: &mut Frame, app: &mut App) {
 
     super::render_picker_overlay(
         frame,
-        "Select Key",
+        crate::i18n::text("Select Key"),
         None,
         items,
         &mut app.ui.key_picker_mut().list,
@@ -347,7 +351,11 @@ fn render_proxyjump_picker_overlay(frame: &mut Frame, app: &mut App) {
     let candidates = app.proxyjump_candidates();
 
     if candidates.is_empty() {
-        super::render_picker_empty_overlay(frame, "ProxyJump", "No other hosts configured");
+        super::render_picker_empty_overlay(
+            frame,
+            crate::i18n::text("ProxyJump"),
+            crate::i18n::text("No other hosts configured"),
+        );
         return;
     }
 
@@ -407,7 +415,7 @@ fn render_proxyjump_picker_overlay(frame: &mut Frame, app: &mut App) {
 
     super::render_picker_overlay(
         frame,
-        "ProxyJump",
+        crate::i18n::text("ProxyJump"),
         None,
         items,
         &mut app.ui.proxyjump_picker_mut().list,
@@ -431,7 +439,7 @@ fn render_vault_role_picker_overlay(frame: &mut Frame, app: &mut App) {
 
     super::render_picker_overlay(
         frame,
-        "Vault SSH Role",
+        crate::i18n::text("Vault SSH Role"),
         None,
         items,
         &mut app.ui.vault_role_picker_mut().list,
@@ -462,8 +470,8 @@ fn render_password_picker_overlay(frame: &mut Frame, app: &mut App) {
 
     super::render_picker_overlay(
         frame,
-        "Password Source",
-        Some("Ctrl+D: global default"),
+        crate::i18n::text("Password Source"),
+        Some(crate::i18n::text("Ctrl+D: global default")),
         items,
         &mut app.ui.password_picker_mut().list,
     );
@@ -684,7 +692,7 @@ mod tests {
                     for x in 0..buf.area.width {
                         row.push_str(buf[(x, y)].symbol());
                     }
-                    if row.contains("Password Source") {
+                    if row.contains(crate::i18n::text("Password Source")) {
                         title_row = Some(y);
                         break;
                     }

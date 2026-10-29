@@ -57,15 +57,15 @@ pub fn render_host_key_reset(frame: &mut Frame, app: &App, hostname: &str) {
     let display = super::truncate(hostname, 40);
     let content: Vec<Line<'static>> = vec![
         Line::from(Span::styled(
-            format!("  Host key for {} changed.", display),
+            crate::tformat!("  Host key for {} changed.", display),
             theme::bold(),
         )),
         Line::from(Span::styled(
-            "  This can happen after a server reinstall.",
+            crate::i18n::text("  This can happen after a server reinstall."),
             theme::muted(),
         )),
         Line::from(Span::styled(
-            "  Remove old key and reconnect?",
+            crate::i18n::text("  Remove old key and reconnect?"),
             theme::muted(),
         )),
     ];
@@ -108,7 +108,10 @@ pub fn render_host_key_trust(frame: &mut Frame, app: &App, alias: &str, hostname
             theme::muted(),
         )),
         Line::from(Span::styled(
-            format!("  {}", crate::messages::host_key_trust::DETAIL_RECORDED),
+            format!(
+                "  {}",
+                crate::i18n::text(crate::messages::host_key_trust::DETAIL_RECORDED)
+            ),
             theme::muted(),
         )),
     ];
@@ -120,7 +123,7 @@ pub fn render_host_key_trust(frame: &mut Frame, app: &App, alias: &str, hostname
         frame,
         64,
         design::PopupKind::Destructive,
-        crate::messages::host_key_trust::TITLE,
+        crate::i18n::text(crate::messages::host_key_trust::TITLE),
         content,
         footer_spans,
         app,
@@ -286,7 +289,7 @@ pub fn render_run_snippet(frame: &mut Frame, app: &App, aliases: &[String]) {
         .snippets
         .flow_snippet()
         .map(|s| s.name.clone())
-        .unwrap_or_else(|| crate::messages::SNIPPET_FALLBACK_NAME.to_string());
+        .unwrap_or_else(|| crate::i18n::text(crate::messages::SNIPPET_FALLBACK_NAME).to_string());
     let count = aliases.len();
 
     let max_shown = 6;
@@ -373,7 +376,7 @@ pub fn render_confirm_vault_sign(frame: &mut Frame, app: &App, signable: &[Strin
     }
     content.push(Line::from(""));
     content.push(Line::from(Span::styled(
-        "  Hosts with a still-valid certificate are skipped.".to_string(),
+        crate::i18n::text("  Hosts with a still-valid certificate are skipped.").to_string(),
         theme::muted(),
     )));
 
@@ -515,9 +518,9 @@ pub fn render_welcome(
         0
     };
     let backup_width = if has_backup {
-        UnicodeWidthStr::width(backup_line.as_str()).max(UnicodeWidthStr::width(
+        UnicodeWidthStr::width(backup_line.as_str()).max(UnicodeWidthStr::width(crate::i18n::text(
             crate::messages::WELCOME_BACKUP_TAKEN,
-        ))
+        )))
     } else {
         0
     };
@@ -611,7 +614,7 @@ pub fn render_welcome(
     if has_backup {
         text.push(Line::from(""));
         let b1 = vec![Span::styled(
-            crate::messages::WELCOME_BACKUP_TAKEN,
+            crate::i18n::text(crate::messages::WELCOME_BACKUP_TAKEN),
             theme::muted(),
         )];
         text.push(Line::from(typewriter_spans(b1, &mut char_budget)).alignment(Alignment::Center));

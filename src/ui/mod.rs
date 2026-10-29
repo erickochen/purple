@@ -104,7 +104,9 @@ pub fn render(frame: &mut Frame, app: &mut App, anim: &mut crate::animation::Ani
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let msg = Paragraph::new(Line::from(vec![
             Span::styled(design::ICON_WARNING, theme::warning()),
-            Span::raw(" Terminal too small. Need at least 50x14."),
+            Span::raw(crate::i18n::text(
+                " Terminal too small. Need at least 50x14.",
+            )),
         ]));
         frame.render_widget(msg, area);
         return;
@@ -573,7 +575,7 @@ pub fn render_footer_with_help(
     let right_spans = vec![
         Span::raw("  "),
         Span::styled(" ? ", theme::footer_key()),
-        Span::styled(" more", theme::muted()),
+        Span::styled(crate::i18n::text(" more"), theme::muted()),
     ];
     let right_width: u16 = right_spans.iter().map(|s| s.width()).sum::<usize>() as u16;
     let [left, right] =
@@ -1484,7 +1486,7 @@ mod tests {
         assert!(app.status_center.status().is_none()); // Footer should be clear
         let footer_spans = vec![
             Span::styled(" ? ", theme::footer_key()),
-            Span::styled(" more", theme::muted()),
+            Span::styled(crate::i18n::text(" more"), theme::muted()),
         ];
         terminal
             .draw(|frame| {
@@ -1498,7 +1500,7 @@ mod tests {
             line.push_str(buf[(x, 23)].symbol());
         }
         assert!(
-            line.contains("more"),
+            line.contains(crate::i18n::text("more")),
             "footer should show hints when only toast is active"
         );
     }
@@ -1513,7 +1515,7 @@ mod tests {
         assert!(app.status_center.toast().is_none());
         let footer_spans = vec![
             Span::styled(" ? ", theme::footer_key()),
-            Span::styled(" more", theme::muted()),
+            Span::styled(crate::i18n::text(" more"), theme::muted()),
         ];
         terminal
             .draw(|frame| {
@@ -1626,8 +1628,8 @@ mod tests {
                 let items = vec![ListItem::new("one"), ListItem::new("two")];
                 render_picker_overlay(
                     frame,
-                    "Password Source",
-                    Some("Ctrl+D: global default"),
+                    crate::i18n::text("Password Source"),
+                    Some(crate::i18n::text("Ctrl+D: global default")),
                     items,
                     &mut state,
                 );
@@ -1652,7 +1654,13 @@ mod tests {
             .draw(|frame| {
                 let mut state = ListState::default();
                 let items = vec![ListItem::new("one")];
-                render_picker_overlay(frame, "ProxyJump", None, items, &mut state);
+                render_picker_overlay(
+                    frame,
+                    crate::i18n::text("ProxyJump"),
+                    None,
+                    items,
+                    &mut state,
+                );
                 let dump = buffer_dump(frame.buffer_mut());
                 assert!(dump.contains("ProxyJump"));
                 assert!(
@@ -1714,14 +1722,14 @@ mod tests {
                 // the 48-col inner title bar at width 50.
                 render_picker_overlay(
                     frame,
-                    "Password Source",
+                    crate::i18n::text("Password Source"),
                     Some("this is an excessively long keybinding description that will not fit"),
                     items,
                     &mut state,
                 );
                 let dump = buffer_dump(frame.buffer_mut());
                 assert!(
-                    dump.contains("Password Source"),
+                    dump.contains(crate::i18n::text("Password Source")),
                     "title must still render, got:\n{dump}"
                 );
                 assert!(
@@ -1781,11 +1789,15 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                render_picker_empty_overlay(frame, "ProxyJump", "No other hosts configured");
+                render_picker_empty_overlay(
+                    frame,
+                    crate::i18n::text("ProxyJump"),
+                    crate::i18n::text("No other hosts configured"),
+                );
                 let dump = buffer_dump(frame.buffer_mut());
                 assert!(dump.contains("ProxyJump"), "title missing, got:\n{dump}");
                 assert!(
-                    dump.contains("No other hosts configured"),
+                    dump.contains(crate::i18n::text("No other hosts configured")),
                     "empty-state message missing, got:\n{dump}"
                 );
             })

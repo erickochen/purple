@@ -211,7 +211,7 @@ impl App {
         let raw = match self.hosts_state.ssh_config.raw_host_entry(&host.alias) {
             Some(entry) => entry,
             None => {
-                self.notify_warning(crate::messages::HOST_NOT_FOUND_IN_CONFIG);
+                self.notify_warning(crate::i18n::text(crate::messages::HOST_NOT_FOUND_IN_CONFIG));
                 return false;
             }
         };

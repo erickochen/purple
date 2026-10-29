@@ -96,10 +96,10 @@ pub fn render(frame: &mut Frame, app: &mut App, key_index: usize) {
     let footer_area = design::render_overlay_footer(frame, area);
     use crate::messages::footer as fl;
     design::Footer::new()
-        .primary("Enter", fl::ENTER_CONFIRM)
-        .action("Space", fl::SPACE_TOGGLE)
-        .action("a", fl::ACTION_ALL)
-        .action("Esc", fl::ESC_CANCEL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_CONFIRM))
+        .action("Space", crate::i18n::text(fl::SPACE_TOGGLE))
+        .action("a", crate::i18n::text(fl::ACTION_ALL))
+        .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         .render_with_status(frame, footer_area, app);
 }
 
@@ -143,7 +143,7 @@ fn build_row_spans(
     let checkbox_w = 3;
     let gap = 2;
     let vault_tag = if is_vault {
-        crate::messages::KEY_PUSH_VAULT_TAG
+        crate::i18n::text(crate::messages::KEY_PUSH_VAULT_TAG)
     } else {
         ""
     };

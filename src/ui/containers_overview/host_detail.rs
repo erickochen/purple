@@ -42,7 +42,7 @@ pub(crate) fn build_host_detail_lines(
     let now = current_unix_secs();
 
     // STATUS card -----------------------------------------------------
-    design::section_open(&mut lines, "STATUS", box_width);
+    design::section_open(&mut lines, crate::i18n::text("STATUS"), box_width);
     push_ping_field(&mut lines, app, alias, max_value_width, box_width);
     if let Some(e) = entry {
         let age_secs = now.saturating_sub(e.timestamp);
@@ -128,7 +128,7 @@ pub(crate) fn build_host_detail_lines(
     if tunnel_active {
         design::section_field_styled(
             &mut lines,
-            "Tunnels",
+            crate::i18n::text("Tunnels"),
             "active",
             theme::online_dot(),
             max_value_width,
@@ -139,7 +139,7 @@ pub(crate) fn build_host_detail_lines(
     {
         design::section_field(
             &mut lines,
-            "Tunnels",
+            crate::i18n::text("Tunnels"),
             &h.tunnel_count.to_string(),
             max_value_width,
             box_width,
@@ -148,7 +148,7 @@ pub(crate) fn build_host_detail_lines(
     if collapsed {
         design::section_field_styled(
             &mut lines,
-            "Group",
+            crate::i18n::text("Group"),
             "folded",
             theme::warning(),
             max_value_width,
@@ -303,7 +303,13 @@ pub(crate) fn build_host_detail_lines(
             design::section_field(&mut lines, "Address", &addr, max_value_width, box_width);
         }
         if !h.user.is_empty() {
-            design::section_field(&mut lines, "User", &h.user, max_value_width, box_width);
+            design::section_field(
+                &mut lines,
+                crate::i18n::text("User"),
+                &h.user,
+                max_value_width,
+                box_width,
+            );
         }
         if let Some(provider_name) = h.provider.as_deref() {
             let display = crate::providers::provider_display_name(provider_name);
@@ -316,7 +322,13 @@ pub(crate) fn build_host_detail_lines(
                 Some(r) if !r.is_empty() => format!("{} · {}", display, r),
                 _ => display.to_string(),
             };
-            design::section_field(&mut lines, "Provider", &value, max_value_width, box_width);
+            design::section_field(
+                &mut lines,
+                crate::i18n::text("Provider"),
+                &value,
+                max_value_width,
+                box_width,
+            );
         }
         if !h.tags.is_empty() || !h.provider_tags.is_empty() {
             let combined: Vec<String> = h
@@ -326,10 +338,22 @@ pub(crate) fn build_host_detail_lines(
                 .cloned()
                 .collect();
             let joined = combined.join(", ");
-            design::section_field(&mut lines, "Tags", &joined, max_value_width, box_width);
+            design::section_field(
+                &mut lines,
+                crate::i18n::text("Tags"),
+                &joined,
+                max_value_width,
+                box_width,
+            );
         }
     } else {
-        design::section_field(&mut lines, "Alias", alias, max_value_width, box_width);
+        design::section_field(
+            &mut lines,
+            crate::i18n::text("Alias"),
+            alias,
+            max_value_width,
+            box_width,
+        );
     }
     design::section_close(&mut lines, box_width);
 

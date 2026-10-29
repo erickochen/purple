@@ -14,7 +14,7 @@ pub const SNIPPET_DESCRIPTION_CONTROL_CHARS: &str = "Description contains contro
 pub const SNIPPET_PARAM_NAME_EMPTY: &str = "Parameter name cannot be empty.";
 
 pub fn snippet_param_name_invalid(name: &str) -> String {
-    format!("Parameter name '{}' contains invalid characters.", name)
+    crate::tformat!("Parameter name '{}' contains invalid characters.", name)
 }
 
 /// Fallback display name when a snippet flow has no chosen snippet. Defensive:
@@ -32,27 +32,27 @@ pub const TAB_EMPTY_SNIPPETS_HINT_ADD: &str = "add a snippet";
 // ── Snippets ────────────────────────────────────────────────────────
 
 pub fn snippet_removed(name: &str) -> String {
-    format!("Removed snippet '{}'.", name)
+    crate::tformat!("Removed snippet '{}'.", name)
 }
 
 pub fn snippet_added(name: &str) -> String {
-    format!("Added snippet '{}'.", name)
+    crate::tformat!("Added snippet '{}'.", name)
 }
 
 pub fn snippet_updated(name: &str) -> String {
-    format!("Updated snippet '{}'.", name)
+    crate::tformat!("Updated snippet '{}'.", name)
 }
 
 pub fn snippet_exists(name: &str) -> String {
-    format!("'{}' already exists.", name)
+    crate::tformat!("'{}' already exists.", name)
 }
 
 /// Confirm body shown before running a snippet against the chosen hosts.
 pub fn confirm_run_snippet_body(snippet_name: &str, host_count: usize) -> String {
     if host_count == 1 {
-        format!("Run {} on 1 host?", snippet_name)
+        crate::tformat!("Run {} on 1 host?", snippet_name)
     } else {
-        format!("Run {} on {} hosts?", snippet_name, host_count)
+        crate::tformat!("Run {} on {} hosts?", snippet_name, host_count)
     }
 }
 
@@ -152,11 +152,11 @@ pub const SNIPPET_INTERACTIVE_ON: &str = "yes";
 pub const OUTPUT_COPIED: &str = "Output copied.";
 
 pub fn copy_failed(e: &impl std::fmt::Display) -> String {
-    format!("Copy failed: {}", e)
+    crate::tformat!("Copy failed: {}", e)
 }
 
 // ── Snippet runner errors ───────────────────────────────────────────
 
 pub fn snippet_ssh_launch_failed(e: &impl std::fmt::Display) -> String {
-    format!("Failed to launch ssh: {}", e)
+    crate::tformat!("Failed to launch ssh: {}", e)
 }

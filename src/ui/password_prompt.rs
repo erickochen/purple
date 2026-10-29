@@ -84,10 +84,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     let footer_area = design::render_overlay_footer(frame, area);
     let footer = design::Footer::new()
-        .primary("Enter", fl::ENTER_CONTINUE)
-        .action("Tab", fl::TAB_NEXT)
-        .action("Space", fl::SPACE_TOGGLE)
-        .action("Esc", fl::ESC_CANCEL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_CONTINUE))
+        .action("Tab", crate::i18n::text(fl::TAB_NEXT))
+        .action("Space", crate::i18n::text(fl::SPACE_TOGGLE))
+        .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         .into_spans();
     frame.render_widget(Paragraph::new(Line::from(footer)), footer_area);
 }
@@ -132,8 +132,8 @@ fn render_security_key_pin(frame: &mut Frame, alias: &str, key_label: &str, pin_
 
     let footer_area = design::render_overlay_footer(frame, area);
     let footer = design::Footer::new()
-        .primary("Enter", fl::ENTER_CONTINUE)
-        .action("Esc", fl::ESC_CANCEL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_CONTINUE))
+        .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         .into_spans();
     frame.render_widget(Paragraph::new(Line::from(footer)), footer_area);
 }

@@ -682,7 +682,9 @@ pub(super) fn handle_host_key_reset_key(app: &mut App, key: KeyEvent) {
                 Ok(result) if result.status.success() => {
                     ctx.notify(crate::messages::removed_host_key(&hostname));
                     if ctx.demo_mode {
-                        ctx.notify_warning(crate::messages::DEMO_CONNECTION_DISABLED);
+                        ctx.notify_warning(crate::i18n::text(
+                            crate::messages::DEMO_CONNECTION_DISABLED,
+                        ));
                     } else {
                         ctx.ui.queue_connect(alias, askpass);
                     }
@@ -1057,19 +1059,25 @@ pub(crate) fn start_key_push(
             app.keys.push().results.len(),
             app.keys.push().expected_count
         );
-        app.notify_warning(crate::messages::KEY_PUSH_ALREADY_IN_PROGRESS);
+        app.notify_warning(crate::i18n::text(
+            crate::messages::KEY_PUSH_ALREADY_IN_PROGRESS,
+        ));
         return false;
     }
     if aliases.is_empty() {
         log::debug!("[purple] key_push: rejected, no aliases committed");
-        app.notify_error(crate::messages::KEY_PUSH_NO_HOSTS_SELECTED);
+        app.notify_error(crate::i18n::text(
+            crate::messages::KEY_PUSH_NO_HOSTS_SELECTED,
+        ));
         return false;
     }
     let Some(key_info) = app.keys.list().get(key_index).cloned() else {
         return false;
     };
     if key_info.is_certificate {
-        app.notify_error(crate::messages::KEY_PUSH_CERT_NOT_PUSHABLE);
+        app.notify_error(crate::i18n::text(
+            crate::messages::KEY_PUSH_CERT_NOT_PUSHABLE,
+        ));
         return false;
     }
     let pub_path = crate::key_push::pubkey_path_for(app.env.paths(), &key_info.display_path);

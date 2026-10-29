@@ -149,11 +149,14 @@ fn render_empty(frame: &mut Frame, app: &App, list_area: Rect, detail_area: Opti
     let block = design::main_block_line(Line::from(Span::styled(" Snippets (0) ", theme::bold())));
     let block = crate::ui::host_list::with_update_badge(block, app, list_area.width);
     frame.render_widget(block, list_area);
-    let hints = [("a", crate::messages::TAB_EMPTY_SNIPPETS_HINT_ADD)];
+    let hints = [(
+        "a",
+        crate::i18n::text(crate::messages::TAB_EMPTY_SNIPPETS_HINT_ADD),
+    )];
     let empty = design::TabEmpty {
-        card_title: "Snippets",
-        headline: crate::messages::TAB_EMPTY_SNIPPETS_HEADLINE,
-        explainer: crate::messages::TAB_EMPTY_SNIPPETS_EXPLAINER,
+        card_title: crate::i18n::text("Snippets"),
+        headline: crate::i18n::text(crate::messages::TAB_EMPTY_SNIPPETS_HEADLINE),
+        explainer: crate::i18n::text(crate::messages::TAB_EMPTY_SNIPPETS_EXPLAINER),
         hints: &hints,
     };
     design::render_tab_empty(frame, list_area, &empty);
@@ -240,16 +243,16 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &mut App) {
     let view_label = if app.snippets.view_mode() == ViewMode::Detailed {
         " compact "
     } else {
-        fl::ACTION_DETAIL
+        crate::i18n::text(fl::ACTION_DETAIL)
     };
     let spans = design::Footer::new()
-        .primary("Enter", fl::ENTER_RUN)
-        .action("/", fl::ACTION_SEARCH)
-        .action("a", fl::ACTION_ADD)
-        .action("e", fl::ACTION_EDIT)
-        .action("d", fl::ACTION_DEL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_RUN))
+        .action("/", crate::i18n::text(fl::ACTION_SEARCH))
+        .action("a", crate::i18n::text(fl::ACTION_ADD))
+        .action("e", crate::i18n::text(fl::ACTION_EDIT))
+        .action("d", crate::i18n::text(fl::ACTION_DEL))
         .action("v", view_label)
-        .action(":", fl::ACTION_JUMP)
+        .action(":", crate::i18n::text(fl::ACTION_JUMP))
         .into_spans();
     super::render_footer_with_help(frame, area, spans, app);
 }

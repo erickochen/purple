@@ -155,7 +155,7 @@ fn password_picker_key(ctx: &mut PickerCtx, key: KeyEvent) {
             match crate::preferences::save_askpass_default(ctx.env.paths(), value) {
                 Ok(()) => {
                     if is_none {
-                        ctx.notify(crate::messages::GLOBAL_DEFAULT_CLEARED);
+                        ctx.notify(crate::i18n::text(crate::messages::GLOBAL_DEFAULT_CLEARED));
                     } else {
                         ctx.notify(crate::messages::global_default_set(source.label));
                     }
@@ -191,12 +191,14 @@ fn password_picker_key(ctx: &mut PickerCtx, key: KeyEvent) {
                     ctx.forms
                         .host_mut()
                         .apply_password_source(String::new(), false);
-                    ctx.notify(crate::messages::PASSWORD_SOURCE_CLEARED);
+                    ctx.notify(crate::i18n::text(crate::messages::PASSWORD_SOURCE_CLEARED));
                 } else if is_custom_cmd {
                     ctx.forms
                         .host_mut()
                         .apply_password_source(String::new(), true);
-                    ctx.notify(crate::messages::ASKPASS_CUSTOM_COMMAND_HINT);
+                    ctx.notify(crate::i18n::text(
+                        crate::messages::ASKPASS_CUSTOM_COMMAND_HINT,
+                    ));
                     needs_more_input = true;
                 } else if is_prefix {
                     ctx.forms

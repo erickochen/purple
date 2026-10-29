@@ -24,7 +24,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     let area = super::centered_rect_fixed(60, 7, frame.area());
     frame.render_widget(Clear, area);
-    let block = design::overlay_block(" Run command on container ");
+    let block = design::overlay_block(crate::i18n::text(" Run command on container "));
 
     let identity_line = Line::from(vec![
         Span::raw("  "),
@@ -44,8 +44,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     let footer_area = design::render_overlay_footer(frame, area);
     let footer = design::Footer::new()
-        .primary("Enter", fl::ENTER_RUN)
-        .action("Esc", fl::ESC_CANCEL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_RUN))
+        .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         .into_spans();
     frame.render_widget(Paragraph::new(Line::from(footer)), footer_area);
 }

@@ -278,7 +278,7 @@ fn commit(app: &mut App, terminal: bool) {
         }
         SnippetHostPickPurpose::Run => {
             if aliases.is_empty() {
-                app.notify_warning(crate::messages::PICKER_NONE_SELECTED);
+                app.notify_warning(crate::i18n::text(crate::messages::PICKER_NONE_SELECTED));
                 return;
             }
             log::debug!(

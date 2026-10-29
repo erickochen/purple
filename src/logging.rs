@@ -236,7 +236,10 @@ pub fn level_name(verbose: bool, env: &crate::runtime::env::Env) -> String {
 /// near-instant and this only runs once at startup.
 pub fn detect_ssh_version() -> String {
     query_ssh_version().unwrap_or_else(|| {
-        eprintln!("{}", crate::messages::logging::SSH_VERSION_FAILED);
+        eprintln!(
+            "{}",
+            crate::i18n::text(crate::messages::logging::SSH_VERSION_FAILED)
+        );
         "unknown".to_string()
     })
 }

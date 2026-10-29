@@ -940,7 +940,10 @@ fn handle_pending_snippet(
         ) {
             Ok(r) => {
                 if snippet::not_found_hint_applies(snip.interactive, r.status.code()) {
-                    eprintln!("{}", crate::messages::SNIPPET_NOT_FOUND_HINT);
+                    eprintln!(
+                        "{}",
+                        crate::i18n::text(crate::messages::SNIPPET_NOT_FOUND_HINT)
+                    );
                 }
                 if r.status.success() {
                     ok_count += 1;
@@ -983,14 +986,14 @@ fn handle_pending_snippet(
     );
 
     if !multi {
-        println!("\n{}", crate::messages::cli::DONE);
+        println!("\n{}", crate::i18n::text(crate::messages::cli::DONE));
     } else {
         println!(
             "{}",
             crate::messages::cli::done_multi(&snip.name, aliases.len())
         );
     }
-    println!("\n{}", crate::messages::cli::PRESS_ENTER);
+    println!("\n{}", crate::i18n::text(crate::messages::cli::PRESS_ENTER));
     let _ = std::io::stdin().read_line(&mut String::new());
     terminal.enter()?;
     events.resume();

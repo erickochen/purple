@@ -33,7 +33,7 @@ pub(super) fn render_vault_strip(frame: &mut Frame, area: Rect, rows: &[ActiveCe
 
     if rows.is_empty() {
         let line = Line::from(Span::styled(
-            crate::messages::VAULT_STRIP_EMPTY,
+            crate::i18n::text(crate::messages::VAULT_STRIP_EMPTY),
             theme::muted(),
         ));
         frame.render_widget(Paragraph::new(line), inner);

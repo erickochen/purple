@@ -57,16 +57,16 @@ impl FormField {
 
     pub fn label(self) -> &'static str {
         match self {
-            FormField::Alias => "Name",
-            FormField::Hostname => "Host / IP",
-            FormField::User => "User",
-            FormField::Port => "Port",
-            FormField::IdentityFile => "Identity File",
-            FormField::ProxyJump => "ProxyJump",
-            FormField::AskPass => "Password Source",
-            FormField::VaultSsh => "Vault SSH Role",
-            FormField::VaultAddr => "Vault SSH Address",
-            FormField::Tags => "Tags",
+            FormField::Alias => crate::i18n::text("Name"),
+            FormField::Hostname => crate::i18n::text("Host / IP"),
+            FormField::User => crate::i18n::text("User"),
+            FormField::Port => crate::i18n::text("Port"),
+            FormField::IdentityFile => crate::i18n::text("Identity File"),
+            FormField::ProxyJump => crate::i18n::text("ProxyJump"),
+            FormField::AskPass => crate::i18n::text("Password Source"),
+            FormField::VaultSsh => crate::i18n::text("Vault SSH Role"),
+            FormField::VaultAddr => crate::i18n::text("Vault SSH Address"),
+            FormField::Tags => crate::i18n::text("Tags"),
         }
     }
 
@@ -435,24 +435,28 @@ impl HostForm {
         let alias = self.alias.trim();
         if alias.is_empty() {
             return Err(if self.is_pattern {
-                crate::messages::HOST_PATTERN_EMPTY.to_string()
+                crate::i18n::text(crate::messages::HOST_PATTERN_EMPTY).to_string()
             } else {
-                crate::messages::HOST_ALIAS_EMPTY.to_string()
+                crate::i18n::text(crate::messages::HOST_ALIAS_EMPTY).to_string()
             });
         }
         if self.is_pattern && !crate::ssh_config::model::is_host_pattern(alias) {
-            return Err(crate::messages::HOST_PATTERN_NEEDS_WILDCARD.to_string());
+            return Err(
+                crate::i18n::text(crate::messages::HOST_PATTERN_NEEDS_WILDCARD).to_string(),
+            );
         } else if !self.is_pattern {
             if alias.contains(char::is_whitespace) {
-                return Err(crate::messages::HOST_ALIAS_WHITESPACE.to_string());
+                return Err(crate::i18n::text(crate::messages::HOST_ALIAS_WHITESPACE).to_string());
             }
             if alias.contains('#') {
-                return Err(crate::messages::HOST_ALIAS_HASH.to_string());
+                return Err(crate::i18n::text(crate::messages::HOST_ALIAS_HASH).to_string());
             }
             // Catches *, ?, [, ! — whitespace overlap with the check above is intentional
             // (user gets the more specific whitespace message first)
             if crate::ssh_config::model::is_host_pattern(alias) {
-                return Err(crate::messages::HOST_ALIAS_PATTERN_CHARS.to_string());
+                return Err(
+                    crate::i18n::text(crate::messages::HOST_ALIAS_PATTERN_CHARS).to_string()
+                );
             }
         }
         // Reject control characters in all fields
@@ -477,24 +481,24 @@ impl HostForm {
             }
         }
         if !self.is_pattern && self.hostname.trim().is_empty() {
-            return Err(crate::messages::HOST_HOSTNAME_EMPTY.to_string());
+            return Err(crate::i18n::text(crate::messages::HOST_HOSTNAME_EMPTY).to_string());
         }
         if self.hostname.trim().contains(char::is_whitespace) {
-            return Err(crate::messages::HOST_HOSTNAME_WHITESPACE.to_string());
+            return Err(crate::i18n::text(crate::messages::HOST_HOSTNAME_WHITESPACE).to_string());
         }
         if self.user.trim().contains(char::is_whitespace) {
-            return Err(crate::messages::USER_NO_WHITESPACE.to_string());
+            return Err(crate::i18n::text(crate::messages::USER_NO_WHITESPACE).to_string());
         }
         let port: u16 = self
             .port
             .parse()
-            .map_err(|_| crate::messages::HOST_PORT_INVALID.to_string())?;
+            .map_err(|_| crate::i18n::text(crate::messages::HOST_PORT_INVALID).to_string())?;
         if port == 0 {
-            return Err(crate::messages::HOST_PORT_ZERO.to_string());
+            return Err(crate::i18n::text(crate::messages::HOST_PORT_ZERO).to_string());
         }
         let vault_role = self.vault_ssh.trim();
         if !vault_role.is_empty() && !crate::vault_ssh::is_valid_role(vault_role) {
-            return Err(crate::messages::HOST_VAULT_ROLE_INVALID.to_string());
+            return Err(crate::i18n::text(crate::messages::HOST_VAULT_ROLE_INVALID).to_string());
         }
         // vault_addr is only meaningful when a vault role is set. If the
         // user typed an address but then cleared the role we treat it as
@@ -503,7 +507,7 @@ impl HostForm {
         if !vault_role.is_empty() {
             let addr = self.vault_addr.trim();
             if !addr.is_empty() && !crate::vault_ssh::is_valid_vault_addr(addr) {
-                return Err(crate::messages::HOST_VAULT_ADDR_INVALID.to_string());
+                return Err(crate::i18n::text(crate::messages::HOST_VAULT_ADDR_INVALID).to_string());
             }
         }
         Ok(())
@@ -814,22 +818,22 @@ impl ProviderFormField {
 
     pub fn label(self) -> &'static str {
         match self {
-            ProviderFormField::Label => "Name",
+            ProviderFormField::Label => crate::i18n::text("Name"),
             ProviderFormField::Url => "URL",
-            ProviderFormField::Token => "Token",
-            ProviderFormField::Profile => "Profile",
-            ProviderFormField::Project => "Project ID",
-            ProviderFormField::Compartment => "Compartment",
-            ProviderFormField::Regions => "Regions",
-            ProviderFormField::Filter => "Filter",
-            ProviderFormField::Ssm => "Session Manager",
-            ProviderFormField::AliasPrefix => "Alias Prefix",
-            ProviderFormField::User => "User",
-            ProviderFormField::IdentityFile => "Identity File",
-            ProviderFormField::VerifyTls => "Verify TLS",
-            ProviderFormField::VaultRole => "Vault SSH Role",
-            ProviderFormField::VaultAddr => "Vault SSH Address",
-            ProviderFormField::AutoSync => "Auto Sync",
+            ProviderFormField::Token => crate::i18n::text("Token"),
+            ProviderFormField::Profile => crate::i18n::text("Profile"),
+            ProviderFormField::Project => crate::i18n::text("Project ID"),
+            ProviderFormField::Compartment => crate::i18n::text("Compartment"),
+            ProviderFormField::Regions => crate::i18n::text("Regions"),
+            ProviderFormField::Filter => crate::i18n::text("Filter"),
+            ProviderFormField::Ssm => crate::i18n::text("Session Manager"),
+            ProviderFormField::AliasPrefix => crate::i18n::text("Alias Prefix"),
+            ProviderFormField::User => crate::i18n::text("User"),
+            ProviderFormField::IdentityFile => crate::i18n::text("Identity File"),
+            ProviderFormField::VerifyTls => crate::i18n::text("Verify TLS"),
+            ProviderFormField::VaultRole => crate::i18n::text("Vault SSH Role"),
+            ProviderFormField::VaultAddr => crate::i18n::text("Vault SSH Address"),
+            ProviderFormField::AutoSync => crate::i18n::text("Auto Sync"),
         }
     }
 
@@ -1072,10 +1076,10 @@ impl TunnelFormField {
 
     pub fn label(self) -> &'static str {
         match self {
-            TunnelFormField::Type => "Type",
-            TunnelFormField::BindPort => "Bind Port",
-            TunnelFormField::RemoteHost => "Remote Host",
-            TunnelFormField::RemotePort => "Remote Port",
+            TunnelFormField::Type => crate::i18n::text("Type"),
+            TunnelFormField::BindPort => crate::i18n::text("Bind Port"),
+            TunnelFormField::RemoteHost => crate::i18n::text("Remote Host"),
+            TunnelFormField::RemotePort => crate::i18n::text("Remote Port"),
         }
     }
 }
@@ -1151,27 +1155,29 @@ impl TunnelForm {
                 return Err(crate::messages::field_control_chars_short(name));
             }
         }
-        let port: u16 = self
-            .bind_port
-            .parse()
-            .map_err(|_| crate::messages::TUNNEL_BIND_PORT_INVALID.to_string())?;
+        let port: u16 = self.bind_port.parse().map_err(|_| {
+            crate::i18n::text(crate::messages::TUNNEL_BIND_PORT_INVALID).to_string()
+        })?;
         if port == 0 {
-            return Err(crate::messages::TUNNEL_BIND_PORT_ZERO.to_string());
+            return Err(crate::i18n::text(crate::messages::TUNNEL_BIND_PORT_ZERO).to_string());
         }
         if self.tunnel_type != TunnelType::Dynamic {
             let host = self.remote_host.trim();
             if host.is_empty() {
-                return Err(crate::messages::TUNNEL_REMOTE_HOST_EMPTY.to_string());
+                return Err(
+                    crate::i18n::text(crate::messages::TUNNEL_REMOTE_HOST_EMPTY).to_string()
+                );
             }
             if host.contains(char::is_whitespace) {
-                return Err(crate::messages::TUNNEL_REMOTE_HOST_SPACES.to_string());
+                return Err(
+                    crate::i18n::text(crate::messages::TUNNEL_REMOTE_HOST_SPACES).to_string(),
+                );
             }
-            let rport: u16 = self
-                .remote_port
-                .parse()
-                .map_err(|_| crate::messages::TUNNEL_REMOTE_PORT_INVALID.to_string())?;
+            let rport: u16 = self.remote_port.parse().map_err(|_| {
+                crate::i18n::text(crate::messages::TUNNEL_REMOTE_PORT_INVALID).to_string()
+            })?;
             if rport == 0 {
-                return Err(crate::messages::TUNNEL_REMOTE_PORT_ZERO.to_string());
+                return Err(crate::i18n::text(crate::messages::TUNNEL_REMOTE_PORT_ZERO).to_string());
             }
         }
         Ok(())
@@ -1298,11 +1304,11 @@ impl SnippetFormField {
 
     pub fn label(self) -> &'static str {
         match self {
-            SnippetFormField::Name => "Name",
-            SnippetFormField::Command => "Command",
-            SnippetFormField::Description => "Description",
-            SnippetFormField::Interactive => "Interactive shell",
-            SnippetFormField::DefaultHosts => "Default hosts",
+            SnippetFormField::Name => crate::i18n::text("Name"),
+            SnippetFormField::Command => crate::i18n::text("Command"),
+            SnippetFormField::Description => crate::i18n::text("Description"),
+            SnippetFormField::Interactive => crate::i18n::text("Interactive shell"),
+            SnippetFormField::DefaultHosts => crate::i18n::text("Default hosts"),
         }
     }
 }
@@ -1416,7 +1422,9 @@ impl SnippetForm {
         crate::snippet::validate_name(&self.name)?;
         crate::snippet::validate_command(&self.command)?;
         if self.description.contains(|c: char| c.is_control()) {
-            return Err(crate::messages::SNIPPET_DESCRIPTION_CONTROL_CHARS.to_string());
+            return Err(
+                crate::i18n::text(crate::messages::SNIPPET_DESCRIPTION_CONTROL_CHARS).to_string(),
+            );
         }
         Ok(())
     }

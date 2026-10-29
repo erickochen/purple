@@ -114,7 +114,7 @@ pub fn resolve_token(
     if let Some(t) = env.purple_token() {
         return Ok(t.to_string());
     }
-    anyhow::bail!("{}", crate::messages::cli::NO_TOKEN)
+    anyhow::bail!("{}", crate::i18n::text(crate::messages::cli::NO_TOKEN))
 }
 
 /// Replace the spinner frame prefix in a status text. Returns None if the
@@ -466,11 +466,17 @@ pub fn ensure_bw_session(
     match status {
         askpass::BwStatus::Unlocked => None,
         askpass::BwStatus::NotInstalled => {
-            eprintln!("{}", crate::messages::askpass::BW_NOT_FOUND);
+            eprintln!(
+                "{}",
+                crate::i18n::text(crate::messages::askpass::BW_NOT_FOUND)
+            );
             None
         }
         askpass::BwStatus::NotAuthenticated => {
-            eprintln!("{}", crate::messages::askpass::BW_NOT_LOGGED_IN);
+            eprintln!(
+                "{}",
+                crate::i18n::text(crate::messages::askpass::BW_NOT_LOGGED_IN)
+            );
             None
         }
         askpass::BwStatus::Locked => {
@@ -478,7 +484,10 @@ pub fn ensure_bw_session(
                 let password = match cli::prompt_hidden_input("Bitwarden master password: ") {
                     Ok(Some(p)) if !p.is_empty() => p,
                     Ok(Some(_)) => {
-                        eprintln!("{}", crate::messages::askpass::EMPTY_PASSWORD);
+                        eprintln!(
+                            "{}",
+                            crate::i18n::text(crate::messages::askpass::EMPTY_PASSWORD)
+                        );
                         return None;
                     }
                     Ok(None) => return None,
@@ -511,7 +520,11 @@ pub fn ensure_proton_login(env: &crate::runtime::env::Env, askpass: Option<&str>
         env,
         askpass,
         || askpass::proton_status(env),
-        || cli::prompt_hidden_input(crate::messages::askpass::PROTON_LOGIN_PROMPT),
+        || {
+            cli::prompt_hidden_input(crate::i18n::text(
+                crate::messages::askpass::PROTON_LOGIN_PROMPT,
+            ))
+        },
     );
 }
 
@@ -539,7 +552,10 @@ pub fn ensure_proton_login_with<S, P>(
         }
         askpass::ProtonStatus::NotInstalled => {
             debug!("[config] Proton Pass pre-flight: pass-cli not installed");
-            eprintln!("{}", crate::messages::askpass::PROTON_NOT_FOUND);
+            eprintln!(
+                "{}",
+                crate::i18n::text(crate::messages::askpass::PROTON_NOT_FOUND)
+            );
         }
         askpass::ProtonStatus::NotAuthenticated => {
             debug!("[external] Proton Pass pre-flight: not authenticated, prompting for PAT");
@@ -548,7 +564,10 @@ pub fn ensure_proton_login_with<S, P>(
                     Ok(Some(p)) if !p.is_empty() => p,
                     Ok(Some(_)) => {
                         debug!("[external] Proton Pass pre-flight: empty PAT, aborting");
-                        eprintln!("{}", crate::messages::askpass::EMPTY_PASSWORD);
+                        eprintln!(
+                            "{}",
+                            crate::i18n::text(crate::messages::askpass::EMPTY_PASSWORD)
+                        );
                         return;
                     }
                     Ok(None) => {
@@ -566,7 +585,10 @@ pub fn ensure_proton_login_with<S, P>(
                         debug!(
                             "[external] Proton Pass pre-flight: login succeeded on attempt {attempt}"
                         );
-                        eprintln!("{}", crate::messages::askpass::PROTON_LOGIN_SUCCESS);
+                        eprintln!(
+                            "{}",
+                            crate::i18n::text(crate::messages::askpass::PROTON_LOGIN_SUCCESS)
+                        );
                         return;
                     }
                     Err(e) => {
@@ -636,14 +658,20 @@ pub fn ensure_keychain_password(
     ) {
         Ok(Some(p)) if !p.is_empty() => p,
         Ok(Some(_)) => {
-            eprintln!("{}", crate::messages::askpass::EMPTY_PASSWORD);
+            eprintln!(
+                "{}",
+                crate::i18n::text(crate::messages::askpass::EMPTY_PASSWORD)
+            );
             return;
         }
         Ok(None) => return,
         Err(_) => return,
     };
     match askpass::store_in_keychain(env, alias, &password) {
-        Ok(()) => eprintln!("{}", crate::messages::askpass::PASSWORD_IN_KEYCHAIN),
+        Ok(()) => eprintln!(
+            "{}",
+            crate::i18n::text(crate::messages::askpass::PASSWORD_IN_KEYCHAIN)
+        ),
         Err(e) => eprintln!("{}", crate::messages::askpass::keychain_store_failed(&e)),
     }
 }

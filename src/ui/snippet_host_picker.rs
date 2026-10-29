@@ -36,7 +36,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .snippets
         .flow_snippet()
         .map(|s| s.name.clone())
-        .unwrap_or_else(|| crate::messages::SNIPPET_FALLBACK_NAME.to_string());
+        .unwrap_or_else(|| crate::i18n::text(crate::messages::SNIPPET_FALLBACK_NAME).to_string());
     let title = if edit_default {
         crate::messages::snippet_default_hosts_picker_title(
             &snippet_name,
@@ -78,9 +78,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     if rows.is_empty() {
         let msg = if show_search {
-            crate::messages::PICKER_NO_MATCHES
+            crate::i18n::text(crate::messages::PICKER_NO_MATCHES)
         } else {
-            crate::messages::PICKER_NO_HOSTS
+            crate::i18n::text(crate::messages::PICKER_NO_HOSTS)
         };
         design::render_empty(frame, list_area, msg);
     } else {
@@ -120,23 +120,23 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let footer = if filtering {
         // Editing the filter: Enter applies it, Esc clears it.
         design::Footer::new()
-            .primary("Enter", fl::ENTER_CONFIRM)
-            .action("Esc", fl::ESC_CANCEL)
+            .primary("Enter", crate::i18n::text(fl::ENTER_CONFIRM))
+            .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
     } else {
         // Four core actions keep the footer within the overlay width. `a`
         // (select all) and `!` (terminal run, run mode only) stay working keys
         // but are not in the footer. Enter confirms a run, or saves the chosen
         // default hosts when the picker was opened from the edit form.
         let primary = if edit_default {
-            fl::ENTER_SAVE
+            crate::i18n::text(fl::ENTER_SAVE)
         } else {
-            fl::ENTER_CONFIRM
+            crate::i18n::text(fl::ENTER_CONFIRM)
         };
         design::Footer::new()
             .primary("Enter", primary)
-            .action("/", fl::ACTION_SEARCH)
-            .action("Space", fl::SPACE_TOGGLE)
-            .action("Esc", fl::ESC_CANCEL)
+            .action("/", crate::i18n::text(fl::ACTION_SEARCH))
+            .action("Space", crate::i18n::text(fl::SPACE_TOGGLE))
+            .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
     };
     footer.render_with_status(frame, footer_area, app);
 }

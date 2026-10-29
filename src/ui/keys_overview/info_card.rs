@@ -126,16 +126,16 @@ fn render_info_content(
     };
 
     let identity: [Line; 4] = [
-        kv(LABEL_W, "Type", &type_val, theme::bold()),
+        kv(LABEL_W, crate::i18n::text("Type"), &type_val, theme::bold()),
         kv(
             LABEL_W,
-            "Fingerprint",
+            crate::i18n::text("Fingerprint"),
             &ui::truncate(&key.fingerprint, value_budget),
             theme::muted(),
         ),
         kv(
             LABEL_W,
-            "Path",
+            crate::i18n::text("Path"),
             &ui::truncate(&key.display_path, value_budget),
             theme::bold(),
         ),

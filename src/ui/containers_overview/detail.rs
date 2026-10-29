@@ -268,7 +268,13 @@ pub(crate) fn build_detail_lines(
         if has_lifecycle {
             design::section_open(&mut lines, "LIFECYCLE", box_width);
             if let Some(p) = insp.restart_policy.as_deref() {
-                design::section_field(&mut lines, "Restart", p, max_value_width, box_width);
+                design::section_field(
+                    &mut lines,
+                    crate::i18n::text("Restart"),
+                    p,
+                    max_value_width,
+                    box_width,
+                );
             }
             // Restart count: only render when the field is meaningful (a
             // policy is set or we already saw restarts).
@@ -289,13 +295,25 @@ pub(crate) fn build_detail_lines(
                 );
             }
             if let Some(c) = format_iso_timestamp(&insp.created_at) {
-                design::section_field(&mut lines, "Created", &c, max_value_width, box_width);
+                design::section_field(
+                    &mut lines,
+                    crate::i18n::text("Created"),
+                    &c,
+                    max_value_width,
+                    box_width,
+                );
             }
             if let Some(s) = format_iso_timestamp(&insp.started_at) {
                 design::section_field(&mut lines, "Started", &s, max_value_width, box_width);
             }
             if let Some(s) = format_iso_timestamp(&insp.finished_at) {
-                design::section_field(&mut lines, "Stopped", &s, max_value_width, box_width);
+                design::section_field(
+                    &mut lines,
+                    crate::i18n::text("Stopped"),
+                    &s,
+                    max_value_width,
+                    box_width,
+                );
             }
             // Stop signal: SIGTERM is the implicit docker default; only
             // surface when the image overrides it.
@@ -391,7 +409,13 @@ pub(crate) fn build_detail_lines(
                 );
             }
             if let Some(s) = insp.image_source.as_deref() {
-                design::section_field(&mut lines, "Source", s, max_value_width, box_width);
+                design::section_field(
+                    &mut lines,
+                    crate::i18n::text("Source"),
+                    s,
+                    max_value_width,
+                    box_width,
+                );
             }
             if let Some(d) = insp.image_digest.as_deref() {
                 design::section_field(
@@ -548,7 +572,7 @@ pub(crate) fn build_detail_lines(
                 };
                 design::section_field_styled(
                     &mut lines,
-                    "User",
+                    crate::i18n::text("User"),
                     u,
                     user_style,
                     max_value_width,
@@ -638,7 +662,13 @@ pub(crate) fn build_detail_lines(
                 );
             }
             if non_standard_log && let Some(d) = insp.log_driver.as_deref() {
-                design::section_field(&mut lines, "Logs", d, max_value_width, box_width);
+                design::section_field(
+                    &mut lines,
+                    crate::i18n::text("Logs"),
+                    d,
+                    max_value_width,
+                    box_width,
+                );
             }
             design::section_close(&mut lines, box_width);
         }

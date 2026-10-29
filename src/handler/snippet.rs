@@ -139,7 +139,7 @@ impl SnippetCtx<'_> {
     /// Guards the empty-host case so the picker never opens with no rows.
     fn open_default_hosts_picker(&mut self) {
         if self.hosts.list().is_empty() {
-            self.notify_warning(crate::messages::PICKER_NO_HOSTS);
+            self.notify_warning(crate::i18n::text(crate::messages::PICKER_NO_HOSTS));
             return;
         }
         self.snippets.reset_host_pick();
@@ -414,7 +414,7 @@ fn run_or_prompt_params(
     events_tx: &mpsc::Sender<AppEvent>,
 ) {
     if ctx.demo_mode {
-        ctx.notify_warning(crate::messages::DEMO_EXECUTION_DISABLED);
+        ctx.notify_warning(crate::i18n::text(crate::messages::DEMO_EXECUTION_DISABLED));
         return;
     }
     let params = crate::snippet::parse_params(&snippet.command);
@@ -641,7 +641,7 @@ fn output_key(ctx: &mut SnippetCtx, key: KeyEvent) {
                     text.push('\n');
                 }
                 match clipboard::copy_to_clipboard(&text) {
-                    Ok(()) => ctx.notify(crate::messages::OUTPUT_COPIED),
+                    Ok(()) => ctx.notify(crate::i18n::text(crate::messages::OUTPUT_COPIED)),
                     Err(e) => ctx.notify_error(crate::messages::copy_failed(&e)),
                 }
             }

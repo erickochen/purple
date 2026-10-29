@@ -199,7 +199,9 @@ fn dispatch_hit(app: &mut App, hit: &JumpHit, _mode: JumpMode, events_tx: &mpsc:
                 .into_iter()
                 .collect();
             if target.is_empty() {
-                app.notify_warning(crate::messages::PALETTE_SNIPPET_NEEDS_HOST);
+                app.notify_warning(crate::i18n::text(
+                    crate::messages::PALETTE_SNIPPET_NEEDS_HOST,
+                ));
                 return;
             }
             app.snippets.set_flow_targets(target);

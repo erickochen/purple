@@ -21,7 +21,7 @@ pub fn render_provider_list(frame: &mut Frame, app: &mut App) {
     let area = design::overlay_area(frame, design::OVERLAY_W, design::OVERLAY_H, height);
     frame.render_widget(Clear, area);
 
-    let block = design::overlay_block("Providers");
+    let block = design::overlay_block(crate::i18n::text("Providers"));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -81,7 +81,7 @@ pub fn render_provider_list(frame: &mut Frame, app: &mut App) {
         // Destructive confirm: centred popup, action verbs both sides.
         design::render_destructive_popup(
             frame,
-            crate::messages::CONFIRM_PROVIDER_REMOVE_TITLE,
+            crate::i18n::text(crate::messages::CONFIRM_PROVIDER_REMOVE_TITLE),
             &question,
             &detail,
             "remove",
@@ -124,22 +124,22 @@ pub fn render_provider_list(frame: &mut Frame, app: &mut App) {
         let edit_label = match selected_row {
             Some(crate::app::ProviderRow::Header { config_count, name }) if *config_count >= 2 => {
                 if app.providers.expanded_providers().contains(name) {
-                    fl::ENTER_COLLAPSE
+                    crate::i18n::text(fl::ENTER_COLLAPSE)
                 } else {
-                    fl::ENTER_EXPAND
+                    crate::i18n::text(fl::ENTER_EXPAND)
                 }
             }
-            _ => fl::ENTER_EDIT,
+            _ => crate::i18n::text(fl::ENTER_EDIT),
         };
         let mut f = design::Footer::new()
             .primary("Enter", edit_label)
-            .action("a", fl::ACTION_ADD)
-            .action("s", fl::ACTION_SYNC)
-            .action("d", fl::ACTION_DEL);
+            .action("a", crate::i18n::text(fl::ACTION_ADD))
+            .action("s", crate::i18n::text(fl::ACTION_SYNC))
+            .action("d", crate::i18n::text(fl::ACTION_DEL));
         if selected_stale_count > 0 {
             f = f.action("X", &format!(" purge {} stale ", selected_stale_count));
         }
-        f = f.action("Esc", fl::ESC_BACK);
+        f = f.action("Esc", crate::i18n::text(fl::ESC_BACK));
         f.render_with_status(frame, footer_area, app);
     }
 }
@@ -366,12 +366,12 @@ pub fn render_label_migration(frame: &mut Frame, app: &mut App, provider_name: &
     let fields = [
         (
             crate::app::LabelMigrationField::Existing,
-            crate::messages::LABEL_MIGRATION_FIELD_CURRENT,
+            crate::i18n::text(crate::messages::LABEL_MIGRATION_FIELD_CURRENT),
             existing,
         ),
         (
             crate::app::LabelMigrationField::New,
-            crate::messages::LABEL_MIGRATION_FIELD_NEW,
+            crate::i18n::text(crate::messages::LABEL_MIGRATION_FIELD_NEW),
             new,
         ),
     ];
@@ -887,7 +887,7 @@ fn render_region_picker_overlay(frame: &mut Frame, app: &mut App) {
     } else if picker_kind == Some(ProviderKind::Ovh) {
         "Endpoint"
     } else {
-        "Regions"
+        crate::i18n::text("Regions")
     };
     let title = format!("Select {} ({} selected)", zone_label, count);
     let block_area = Rect::new(
@@ -961,9 +961,9 @@ fn render_region_picker_overlay(frame: &mut Frame, app: &mut App) {
     let footer_area = design::render_overlay_footer(frame, block_area);
     use crate::messages::footer as fl;
     design::Footer::new()
-        .primary("Enter", fl::ENTER_APPLY)
-        .action("Space", fl::SPACE_TOGGLE)
-        .action("Esc", fl::ESC_CANCEL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_APPLY))
+        .action("Space", crate::i18n::text(fl::SPACE_TOGGLE))
+        .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         .render_with_status(frame, footer_area, app);
 }
 

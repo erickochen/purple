@@ -201,7 +201,7 @@ fn submit_security_key_pin(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
     });
     app.set_screen(back);
     if execute_retry(app, retry, false, events_tx) {
-        app.notify(crate::messages::askpass::PIN_TOUCH_KEY);
+        app.notify(crate::i18n::text(crate::messages::askpass::PIN_TOUCH_KEY));
     } else {
         // Nothing carries the PIN, so the next run asks for it again.
         app.abandon_security_key_trial(flow, Some(&alias));
@@ -762,7 +762,10 @@ mod tests {
             "an old hand-out must not prove the new PIN"
         );
         let toast = app.status_center.toast().expect("toast");
-        assert_eq!(toast.text, crate::messages::askpass::PIN_TOUCH_KEY);
+        assert_eq!(
+            toast.text,
+            crate::i18n::text(crate::messages::askpass::PIN_TOUCH_KEY)
+        );
     }
 
     #[test]
@@ -779,7 +782,7 @@ mod tests {
         assert!(app.security_key_pins.trial().is_none());
         assert_ne!(
             app.status_center.toast().map(|t| t.text.as_str()),
-            Some(crate::messages::askpass::PIN_TOUCH_KEY),
+            Some(crate::i18n::text(crate::messages::askpass::PIN_TOUCH_KEY)),
             "no key will blink"
         );
     }

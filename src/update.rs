@@ -398,7 +398,10 @@ pub fn self_update(env: &crate::runtime::env::Env) -> Result<()> {
     }
 
     // Fetch latest version (needs redirects for GitHub release asset downloads)
-    print!("{}", crate::messages::update::STEP_CHECKING);
+    print!(
+        "{}",
+        crate::i18n::text(crate::messages::update::STEP_CHECKING)
+    );
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(30)))
         .build()
@@ -490,15 +493,24 @@ pub fn self_update(env: &crate::runtime::env::Env) -> Result<()> {
         &format!("{}/{}.sha256", base_url, tarball_name),
         &sha_path,
     )?;
-    println!("{}", crate::messages::update::DONE);
+    println!("{}", crate::i18n::text(crate::messages::update::DONE));
 
     // Verify checksum
-    print!("{}", crate::messages::update::STEP_VERIFYING_CHECKSUM);
+    print!(
+        "{}",
+        crate::i18n::text(crate::messages::update::STEP_VERIFYING_CHECKSUM)
+    );
     verify_checksum(&tarball_path, &sha_path)?;
-    println!("{}", crate::messages::update::CHECKSUM_OK);
+    println!(
+        "{}",
+        crate::i18n::text(crate::messages::update::CHECKSUM_OK)
+    );
 
     // Extract
-    print!("{}", crate::messages::update::STEP_INSTALLING);
+    print!(
+        "{}",
+        crate::i18n::text(crate::messages::update::STEP_INSTALLING)
+    );
     let status = std::process::Command::new("tar")
         .arg("-xzf")
         .arg(&tarball_path)
@@ -544,7 +556,7 @@ pub fn self_update(env: &crate::runtime::env::Env) -> Result<()> {
         return Err(e).context("Failed to replace binary");
     }
 
-    println!("{}", crate::messages::update::DONE);
+    println!("{}", crate::i18n::text(crate::messages::update::DONE));
     info!("[purple] Update completed: {latest}");
     println!(
         "{}",

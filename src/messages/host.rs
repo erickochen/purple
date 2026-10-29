@@ -12,24 +12,24 @@
 pub fn stale_host(hint: &str) -> String {
     let trimmed = hint.trim().trim_end_matches('.');
     if trimmed.is_empty() {
-        "Stale host.".to_string()
+        crate::i18n::text("Stale host.").to_string()
     } else {
-        format!("Stale host. {}.", trimmed)
+        crate::tformat!("Stale host. {}.", trimmed)
     }
 }
 
 // ── Host list ───────────────────────────────────────────────────────
 
 pub fn copied_ssh_command(alias: &str) -> String {
-    format!("Copied SSH command for {}.", alias)
+    crate::tformat!("Copied SSH command for {}.", alias)
 }
 
 pub fn copied_config_block(alias: &str) -> String {
-    format!("Copied config block for {}.", alias)
+    crate::tformat!("Copied config block for {}.", alias)
 }
 
 pub fn showing_unreachable(count: usize) -> String {
-    format!(
+    crate::tformat!(
         "Showing {} unreachable host{}.",
         count,
         if count == 1 { "" } else { "s" }
@@ -37,31 +37,31 @@ pub fn showing_unreachable(count: usize) -> String {
 }
 
 pub fn sorted_by(label: &str) -> String {
-    format!("Sorted by {}.", label)
+    crate::tformat!("Sorted by {}.", label)
 }
 
 pub fn sorted_by_save_failed(label: &str, e: &impl std::fmt::Display) -> String {
-    format!("Sorted by {}. (save failed: {})", label, e)
+    crate::tformat!("Sorted by {}. (save failed: {})", label, e)
 }
 
 pub fn grouped_by(label: &str) -> String {
-    format!("Grouped by {}.", label)
+    crate::tformat!("Grouped by {}.", label)
 }
 
 pub fn grouped_by_save_failed(label: &str, e: &impl std::fmt::Display) -> String {
-    format!("Grouped by {}. (save failed: {})", label, e)
+    crate::tformat!("Grouped by {}. (save failed: {})", label, e)
 }
 
 pub const UNGROUPED: &str = "Ungrouped.";
 
 pub fn ungrouped_save_failed(e: &impl std::fmt::Display) -> String {
-    format!("Ungrouped. (save failed: {})", e)
+    crate::tformat!("Ungrouped. (save failed: {})", e)
 }
 
 pub const GROUPED_BY_TAG: &str = "Grouped by tag.";
 
 pub fn grouped_by_tag_save_failed(e: &impl std::fmt::Display) -> String {
-    format!("Grouped by tag. (save failed: {})", e)
+    crate::tformat!("Grouped by tag. (save failed: {})", e)
 }
 
 pub fn host_restored(alias: &str) -> String {
@@ -145,7 +145,7 @@ pub const HOST_VAULT_ADDR_INVALID: &str = "Vault SSH address: must be a non-empt
 /// Long-form "{} contains control characters." used by `HostForm::validate`
 /// where the toast doubles as guidance ("that's not going to work").
 pub fn field_control_chars(name: &str) -> String {
-    format!(
+    crate::tformat!(
         "{} contains control characters. That's not going to work.",
         name
     )
@@ -154,11 +154,11 @@ pub fn field_control_chars(name: &str) -> String {
 // ── Host CRUD (add / edit) ──────────────────────────────────────────
 
 pub fn pattern_already_exists(alias: &str) -> String {
-    format!("Pattern '{}' already exists.", alias)
+    crate::tformat!("Pattern '{}' already exists.", alias)
 }
 
 pub fn host_alias_already_exists(alias: &str) -> String {
-    format!("'{}' already exists. Aliases must be unique.", alias)
+    crate::tformat!("'{}' already exists. Aliases must be unique.", alias)
 }
 
 pub const PATTERN_NO_LONGER_EXISTS: &str = "Pattern no longer exists.";
@@ -171,7 +171,7 @@ pub fn cert_path_resolve_failed(e: &impl std::fmt::Display) -> String {
 /// Toast shown after a host is added through the TUI form. The CLI
 /// `purple add` flow shares this string via `messages::cli::welcome`.
 pub fn welcome_aboard(alias: &str) -> String {
-    format!("Welcome aboard, {}!", alias)
+    crate::tformat!("Welcome aboard, {}!", alias)
 }
 
 // ── Bulk tag editor ─────────────────────────────────────────────────
@@ -216,11 +216,11 @@ pub fn bulk_tag_apply_status(
 // ── Confirm delete ──────────────────────────────────────────────────
 
 pub fn goodbye_host(alias: &str) -> String {
-    format!("Goodbye, {}. We barely knew ye. (u to undo)", alias)
+    crate::tformat!("Goodbye, {}. We barely knew ye. (u to undo)", alias)
 }
 
 pub fn host_not_found(alias: &str) -> String {
-    format!("Host '{}' not found.", alias)
+    crate::tformat!("Host '{}' not found.", alias)
 }
 
 /// Toast after stripping an alias token from a shared `Host` line. Undo is
@@ -281,17 +281,17 @@ pub fn group_pref_reset_failed(e: &impl std::fmt::Display) -> String {
 // ── Host key reset ──────────────────────────────────────────────────
 
 pub fn host_key_remove_failed(stderr: &str) -> String {
-    format!("Failed to remove host key: {}", stderr)
+    crate::tformat!("Failed to remove host key: {}", stderr)
 }
 
 pub fn ssh_keygen_failed(e: &impl std::fmt::Display) -> String {
-    format!("Failed to run ssh-keygen: {}", e)
+    crate::tformat!("Failed to run ssh-keygen: {}", e)
 }
 
 // ── Confirm / host key ──────────────────────────────────────────────
 
 pub fn removed_host_key(hostname: &str) -> String {
-    format!("Removed host key for {}. Reconnecting...", hostname)
+    crate::tformat!("Removed host key for {}. Reconnecting...", hostname)
 }
 
 // ── Host detail (tags) ──────────────────────────────────────────────

@@ -137,7 +137,7 @@ fn toggle_at_cursor(ctx: &mut KeyPushCtx) {
         None => return,
     };
     if is_vault_host(host, ctx.paths) {
-        ctx.notify(crate::messages::KEY_PUSH_VAULT_SKIP);
+        ctx.notify(crate::i18n::text(crate::messages::KEY_PUSH_VAULT_SKIP));
         return;
     }
     let alias = host.alias.clone();
@@ -193,7 +193,7 @@ fn toggle_select_all_eligible(ctx: &mut KeyPushCtx) {
 /// user gets feedback instead of a silent no-op.
 fn commit_to_confirm(ctx: &mut KeyPushCtx, key_index: usize) {
     if ctx.keys.push().selected.is_empty() {
-        ctx.notify(crate::messages::PICKER_NONE_SELECTED);
+        ctx.notify(crate::i18n::text(crate::messages::PICKER_NONE_SELECTED));
         return;
     }
     // Preserve picker order (the user just saw the list in this order),

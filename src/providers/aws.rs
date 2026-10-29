@@ -132,7 +132,7 @@ fn resolve_credentials(
     // the three sources here rather than point at a token that was never set.
     if token.trim().is_empty() {
         return Err(ProviderError::Execute(
-            crate::messages::AWS_NO_CREDENTIALS.to_string(),
+            crate::i18n::text(crate::messages::AWS_NO_CREDENTIALS).to_string(),
         ));
     }
     Err(ProviderError::AuthFailed)
@@ -171,19 +171,29 @@ fn resolve_profile(
 pub(crate) fn chain_error_note(error: &super::aws_profile::ChainError) -> &'static str {
     use super::aws_profile::ChainError;
     match error {
-        ChainError::SsoNotSupported(_) => crate::messages::PROFILE_NOTE_SSO,
-        ChainError::WebIdentity(_) => crate::messages::PROFILE_NOTE_WEB_IDENTITY,
-        ChainError::CredentialProcess(_) => crate::messages::PROFILE_NOTE_CREDENTIAL_PROCESS,
-        ChainError::CredentialSource(_) => crate::messages::PROFILE_NOTE_CREDENTIAL_SOURCE,
-        ChainError::MfaRequired(_) => crate::messages::PROFILE_NOTE_MFA,
-        ChainError::Loop(_) | ChainError::TooDeep(_) => crate::messages::PROFILE_NOTE_CHAIN,
-        ChainError::RoleWithoutSource(_) => crate::messages::PROFILE_NOTE_NO_SOURCE,
+        ChainError::SsoNotSupported(_) => crate::i18n::text(crate::messages::PROFILE_NOTE_SSO),
+        ChainError::WebIdentity(_) => crate::i18n::text(crate::messages::PROFILE_NOTE_WEB_IDENTITY),
+        ChainError::CredentialProcess(_) => {
+            crate::i18n::text(crate::messages::PROFILE_NOTE_CREDENTIAL_PROCESS)
+        }
+        ChainError::CredentialSource(_) => {
+            crate::i18n::text(crate::messages::PROFILE_NOTE_CREDENTIAL_SOURCE)
+        }
+        ChainError::MfaRequired(_) => crate::i18n::text(crate::messages::PROFILE_NOTE_MFA),
+        ChainError::Loop(_) | ChainError::TooDeep(_) => {
+            crate::i18n::text(crate::messages::PROFILE_NOTE_CHAIN)
+        }
+        ChainError::RoleWithoutSource(_) => {
+            crate::i18n::text(crate::messages::PROFILE_NOTE_NO_SOURCE)
+        }
         // Every row the picker draws is a profile that exists, so a missing
         // one can only be the profile a source_profile points at.
-        ChainError::Missing(_) => crate::messages::PROFILE_NOTE_MISSING_SOURCE,
-        ChainError::FileUnreadable(_) => crate::messages::PROFILE_NOTE_UNREADABLE,
+        ChainError::Missing(_) => crate::i18n::text(crate::messages::PROFILE_NOTE_MISSING_SOURCE),
+        ChainError::FileUnreadable(_) => {
+            crate::i18n::text(crate::messages::PROFILE_NOTE_UNREADABLE)
+        }
         ChainError::NoKeys(_) | ChainError::PartialCredentials(..) => {
-            crate::messages::PROFILE_NOTE_NO_KEYS
+            crate::i18n::text(crate::messages::PROFILE_NOTE_NO_KEYS)
         }
     }
 }

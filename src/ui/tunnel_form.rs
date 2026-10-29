@@ -15,8 +15,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             alias,
             editing: Some(_),
             ..
-        } => format!("Tunnels for {} > Edit", alias),
-        Screen::TunnelForm { alias, .. } => format!("Tunnels for {} > Add", alias),
+        } => crate::tformat!("Tunnels for {} > Edit", alias),
+        Screen::TunnelForm { alias, .. } => crate::tformat!("Tunnels for {} > Add", alias),
         _ => return,
     };
 
@@ -103,7 +103,7 @@ fn render_field_content(
         let type_label = form.tunnel_type.label();
         let content = if is_focused {
             let inner_width = area.width as usize;
-            let val_width = type_label.len();
+            let val_width = type_label.width();
             let gap = inner_width.saturating_sub(val_width + 3);
             Line::from(vec![
                 Span::styled(type_label, theme::bold()),
@@ -131,9 +131,13 @@ fn render_field_content(
     };
 
     let placeholder = match field {
-        TunnelFormField::BindPort => crate::messages::hints::TUNNEL_BIND_PORT,
-        TunnelFormField::RemoteHost => crate::messages::hints::TUNNEL_REMOTE_HOST,
-        TunnelFormField::RemotePort => crate::messages::hints::TUNNEL_REMOTE_PORT,
+        TunnelFormField::BindPort => crate::i18n::text(crate::messages::hints::TUNNEL_BIND_PORT),
+        TunnelFormField::RemoteHost => {
+            crate::i18n::text(crate::messages::hints::TUNNEL_REMOTE_HOST)
+        }
+        TunnelFormField::RemotePort => {
+            crate::i18n::text(crate::messages::hints::TUNNEL_REMOTE_PORT)
+        }
         TunnelFormField::Type => {
             debug_assert!(
                 false,

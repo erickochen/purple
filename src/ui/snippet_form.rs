@@ -10,8 +10,8 @@ use crate::app::{App, Screen, SnippetFormField};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let title = match (&app.screen, app.snippets.form_editing()) {
-        (Screen::SnippetForm, Some(_)) => "Snippets > Edit",
-        _ => "Snippets > Add",
+        (Screen::SnippetForm, Some(_)) => crate::i18n::text("Snippets > Edit"),
+        _ => crate::i18n::text("Snippets > Add"),
     };
 
     let fields = SnippetFormField::ALL;
@@ -98,10 +98,12 @@ fn render_field_content(
     }
 
     let placeholder = match field {
-        SnippetFormField::Name => crate::messages::hints::SNIPPET_NAME,
-        SnippetFormField::Command => crate::messages::hints::SNIPPET_COMMAND,
+        SnippetFormField::Name => crate::i18n::text(crate::messages::hints::SNIPPET_NAME),
+        SnippetFormField::Command => crate::i18n::text(crate::messages::hints::SNIPPET_COMMAND),
         SnippetFormField::Description | SnippetFormField::Interactive => "",
-        SnippetFormField::DefaultHosts => crate::messages::hints::SNIPPET_DEFAULT_HOSTS,
+        SnippetFormField::DefaultHosts => {
+            crate::i18n::text(crate::messages::hints::SNIPPET_DEFAULT_HOSTS)
+        }
     };
 
     let field_value: String = match field {
@@ -133,7 +135,7 @@ fn render_field_content(
     } else if field_value.is_empty() && is_focused {
         if placeholder.is_empty() {
             Line::from(Span::styled(
-                crate::messages::hints::SNIPPET_OPTIONAL,
+                crate::i18n::text(crate::messages::hints::SNIPPET_OPTIONAL),
                 theme::muted(),
             ))
         } else {

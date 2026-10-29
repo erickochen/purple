@@ -33,8 +33,16 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
     let type_display = key.type_display();
     let mut lines = vec![
         Line::from(""),
-        design::kv_line("Type", &type_display, design::KV_LABEL_WIDE),
-        design::kv_line("Fingerprint", &key.fingerprint, design::KV_LABEL_WIDE),
+        design::kv_line(
+            crate::i18n::text("Type"),
+            &type_display,
+            design::KV_LABEL_WIDE,
+        ),
+        design::kv_line(
+            crate::i18n::text("Fingerprint"),
+            &key.fingerprint,
+            design::KV_LABEL_WIDE,
+        ),
         design::kv_line(
             "Comment",
             if key.comment.is_empty() {
@@ -44,7 +52,11 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
             },
             design::KV_LABEL_WIDE,
         ),
-        design::kv_line("Path", &key.display_path, design::KV_LABEL_WIDE),
+        design::kv_line(
+            crate::i18n::text("Path"),
+            &key.display_path,
+            design::KV_LABEL_WIDE,
+        ),
         Line::from(""),
     ];
     lines.extend(design::content_section("Linked Hosts"));
@@ -82,6 +94,6 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
     // Footer below the block
     let footer_area = design::render_overlay_footer(frame, area);
     design::Footer::new()
-        .action("Esc", crate::messages::footer::ESC_CLOSE)
+        .action("Esc", crate::i18n::text(crate::messages::footer::ESC_CLOSE))
         .render_with_status(frame, footer_area, app);
 }

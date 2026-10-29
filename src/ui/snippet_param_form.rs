@@ -126,7 +126,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             frame,
             block_area,
             preview_divider_y,
-            " Preview ",
+            crate::i18n::text(" Preview "),
             theme::muted(),
             theme::border_dim(),
         );
@@ -155,9 +155,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         } else {
             use crate::messages::footer as fl;
             design::Footer::new()
-                .primary("Enter", fl::ENTER_RUN)
-                .action("Tab", fl::TAB_NEXT)
-                .action("Esc", fl::ESC_CANCEL)
+                .primary("Enter", crate::i18n::text(fl::ENTER_RUN))
+                .action("Tab", crate::i18n::text(fl::TAB_NEXT))
+                .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
                 .render_with_status(frame, footer_area, app);
         }
     }

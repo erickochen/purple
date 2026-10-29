@@ -83,7 +83,7 @@ fn toggle_tunnel(app: &mut App) {
         return;
     }
     if app.demo_mode {
-        app.notify_warning(crate::messages::DEMO_TUNNELS_DISABLED);
+        app.notify_warning(crate::i18n::text(crate::messages::DEMO_TUNNELS_DISABLED));
         return;
     }
     if app
@@ -153,7 +153,7 @@ fn confirm_delete_selected(app: &mut App) {
     // the index stored in `pending_delete` was captured against the same
     // ordering used by `selected_row()`.
     let Some((alias, rule)) = nth_row(app, sel) else {
-        app.notify_warning(crate::messages::TUNNEL_NOT_FOUND);
+        app.notify_warning(crate::i18n::text(crate::messages::TUNNEL_NOT_FOUND));
         return;
     };
     let directive_key = rule.tunnel_type.directive_key().to_string();
@@ -177,7 +177,7 @@ fn confirm_delete_selected(app: &mut App) {
     } else if sel >= total {
         app.ui.tunnels_overview_state_mut().select(Some(total - 1));
     }
-    app.notify(crate::messages::TUNNEL_REMOVED);
+    app.notify(crate::i18n::text(crate::messages::TUNNEL_REMOVED));
 }
 
 /// Resolve the (alias, rule) pair at `target` using the same filtered +
@@ -276,7 +276,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) {
             // which host the tunnel belongs to.
             let editable = super::tunnel_host_picker::editable_aliases(app);
             if editable.is_empty() {
-                app.notify_warning(crate::messages::TUNNEL_NO_EDITABLE_HOSTS);
+                app.notify_warning(crate::i18n::text(crate::messages::TUNNEL_NO_EDITABLE_HOSTS));
                 return;
             }
             app.ui.tunnel_host_picker_state_mut().select(Some(0));
@@ -288,7 +288,9 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) {
                 return;
             };
             if selected_row_is_included(app) {
-                app.notify_warning(crate::messages::TUNNEL_INCLUDED_READ_ONLY);
+                app.notify_warning(crate::i18n::text(
+                    crate::messages::TUNNEL_INCLUDED_READ_ONLY,
+                ));
                 return;
             }
             // The TunnelForm uses an `editing: Option<usize>` index into
@@ -298,7 +300,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) {
             app.refresh_tunnel_list(&alias);
             let editing_idx = app.tunnels.list().iter().position(|r| r == &rule);
             let Some(idx) = editing_idx else {
-                app.notify_warning(crate::messages::TUNNEL_NOT_FOUND);
+                app.notify_warning(crate::i18n::text(crate::messages::TUNNEL_NOT_FOUND));
                 return;
             };
             app.open_tunnel_edit_form(alias, &rule, idx);
@@ -308,7 +310,9 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) {
                 return;
             };
             if selected_row_is_included(app) {
-                app.notify_warning(crate::messages::TUNNEL_INCLUDED_READ_ONLY);
+                app.notify_warning(crate::i18n::text(
+                    crate::messages::TUNNEL_INCLUDED_READ_ONLY,
+                ));
                 return;
             }
             if sel < row_count(app) {
@@ -344,7 +348,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent) {
                 && !app.status_center.toast().is_some_and(|t| t.sticky) =>
         {
             log::debug!("[purple] esc on idle tunnels overview, showing quit hint toast");
-            app.notify(crate::messages::ESC_QUIT_HINT);
+            app.notify(crate::i18n::text(crate::messages::ESC_QUIT_HINT));
             app.ui.set_esc_quit_hint_shown(true);
         }
         _ => {}

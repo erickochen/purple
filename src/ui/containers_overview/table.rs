@@ -196,7 +196,11 @@ pub(crate) fn render_header(
     let name_arrow = matches!(sort_mode, ContainersSortMode::AlphaContainer);
 
     let host_label = if host_arrow { "HOST \u{25BE}" } else { "HOST" };
-    let name_label = if name_arrow { "NAME \u{25BE}" } else { "NAME" };
+    let name_label = if name_arrow {
+        "NAME \u{25BE}"
+    } else {
+        crate::i18n::text("NAME")
+    };
 
     let leading_pad = " ".repeat(HIGHLIGHT_W + MARKER_W + STATUS_DOT_W);
     let mut spans = vec![Span::styled(leading_pad, style)];

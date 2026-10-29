@@ -159,7 +159,7 @@ fn keys_key(ctx: &mut KeysCtx, key: KeyEvent, push_in_flight: bool) {
             // Match host-list and tunnels: dismiss the upgrade toast and
             // open the What's New overlay so release notes are reachable
             // from any main tab.
-            let fragment = crate::messages::whats_new_toast::INVITE_FRAGMENT;
+            let fragment = crate::i18n::text(crate::messages::whats_new_toast::INVITE_FRAGMENT);
             ctx.status.drop_toasts_where(|t| t.text.contains(fragment));
             ctx.set_screen(Screen::WhatsNew(crate::app::WhatsNewState::default()));
         }
@@ -186,7 +186,7 @@ fn keys_key(ctx: &mut KeysCtx, key: KeyEvent, push_in_flight: bool) {
             if !ctx.ui.esc_quit_hint_shown() && !ctx.status.toast().is_some_and(|t| t.sticky) =>
         {
             log::debug!("[purple] esc on idle keys overview, showing quit hint toast");
-            ctx.notify(crate::messages::ESC_QUIT_HINT);
+            ctx.notify(crate::i18n::text(crate::messages::ESC_QUIT_HINT));
             ctx.ui.set_esc_quit_hint_shown(true);
         }
         _ => {}
@@ -369,7 +369,7 @@ fn open_push_picker(app: &mut App) {
     // opens when it has something to pick from. Matches the
     // tunnels-tab / containers-tab guard pattern.
     if app.hosts_state.list().is_empty() {
-        app.notify_warning(crate::messages::PICKER_NO_HOSTS);
+        app.notify_warning(crate::i18n::text(crate::messages::PICKER_NO_HOSTS));
         return;
     }
     // Fresh picker: drop any leftover selection from a prior run.

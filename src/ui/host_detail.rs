@@ -50,7 +50,7 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
     if let Some(ref askpass) = host.askpass {
         lines.push(Line::from(""));
         lines.push(design::kv_line(
-            "Password",
+            crate::i18n::text("Password"),
             &askpass.to_string(),
             design::KV_LABEL_WIDE,
         ));
@@ -59,7 +59,7 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
     if let Some(ref source) = host.source_file {
         lines.push(Line::from(""));
         lines.push(design::kv_line(
-            "Source",
+            crate::i18n::text("Source"),
             &source.display().to_string(),
             design::KV_LABEL_WIDE,
         ));
@@ -73,12 +73,12 @@ pub fn render(frame: &mut Frame, app: &App, index: usize) {
     use crate::messages::footer as fl;
     let mut footer_builder = design::Footer::new();
     if !is_included {
-        footer_builder = footer_builder.action("e", fl::ACTION_EDIT);
+        footer_builder = footer_builder.action("e", crate::i18n::text(fl::ACTION_EDIT));
     }
     let footer_spans = footer_builder
-        .action("T", fl::ACTION_TUNNELS)
-        .action("r", fl::ACTION_SNIPPET)
-        .action("Esc", fl::ESC_BACK)
+        .action("T", crate::i18n::text(fl::ACTION_TUNNELS))
+        .action("r", crate::i18n::text(fl::ACTION_SNIPPET))
+        .action("Esc", crate::i18n::text(fl::ESC_BACK))
         .into_spans();
     let footer_area = design::render_overlay_footer(frame, area);
     super::render_footer_with_status(frame, footer_area, footer_spans, app);

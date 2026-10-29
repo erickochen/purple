@@ -148,7 +148,9 @@ impl ContainersActionCtx<'_> {
     /// demo mode is active.
     fn queue_shell_into(&mut self, row: crate::ui::containers_overview::ContainerRow) {
         if self.demo_mode {
-            self.notify_warning(crate::messages::DEMO_CONTAINER_EXEC_DISABLED);
+            self.notify_warning(crate::i18n::text(
+                crate::messages::DEMO_CONTAINER_EXEC_DISABLED,
+            ));
             return;
         }
         let Some((row, runtime, askpass)) = self.validate_running_row(row) else {
@@ -209,7 +211,9 @@ impl ContainersActionCtx<'_> {
     /// Demo-guard + validate `row`, then open the restart confirm dialog.
     fn open_restart_confirm(&mut self, row: crate::ui::containers_overview::ContainerRow) {
         if self.demo_mode {
-            self.notify_warning(crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED);
+            self.notify_warning(crate::i18n::text(
+                crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED,
+            ));
             return;
         }
         let Some((row, _runtime, _askpass)) = self.validate_running_row(row) else {
@@ -233,7 +237,9 @@ impl ContainersActionCtx<'_> {
     /// Demo-guard + validate `row`, then open the stop confirm dialog.
     fn open_stop_confirm(&mut self, row: crate::ui::containers_overview::ContainerRow) {
         if self.demo_mode {
-            self.notify_warning(crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED);
+            self.notify_warning(crate::i18n::text(
+                crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED,
+            ));
             return;
         }
         let Some((row, _runtime, _askpass)) = self.validate_running_row(row) else {
@@ -259,7 +265,9 @@ impl ContainersActionCtx<'_> {
     /// nothing to restart. Demo mode short-circuits.
     fn open_host_restart_all_confirm(&mut self, alias: &str) {
         if self.demo_mode {
-            self.notify_warning(crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED);
+            self.notify_warning(crate::i18n::text(
+                crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED,
+            ));
             return;
         }
         let members = self.host_running_members(alias);
@@ -286,7 +294,9 @@ impl ContainersActionCtx<'_> {
     /// container on the host.
     fn open_host_stop_all_confirm(&mut self, alias: &str) {
         if self.demo_mode {
-            self.notify_warning(crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED);
+            self.notify_warning(crate::i18n::text(
+                crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED,
+            ));
             return;
         }
         let members = self.host_running_members(alias);
@@ -375,7 +385,9 @@ impl ContainersActionCtx<'_> {
     /// Demo-guard + validate `row`, then open the exec command prompt.
     fn open_exec_prompt(&mut self, row: crate::ui::containers_overview::ContainerRow) {
         if self.demo_mode {
-            self.notify_warning(crate::messages::DEMO_CONTAINER_EXEC_DISABLED);
+            self.notify_warning(crate::i18n::text(
+                crate::messages::DEMO_CONTAINER_EXEC_DISABLED,
+            ));
             return;
         }
         let Some((row, _runtime, _askpass)) = self.validate_running_row(row) else {
@@ -682,7 +694,9 @@ pub(crate) fn auto_fetch_new_hosts(app: &mut App, events_tx: &mpsc::Sender<AppEv
 /// item every time a listing returns.
 fn refresh_all_hosts(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
     if app.containers_overview.refresh_batch().is_some() {
-        app.notify_warning(crate::messages::REFRESH_BATCH_ALREADY_RUNNING);
+        app.notify_warning(crate::i18n::text(
+            crate::messages::REFRESH_BATCH_ALREADY_RUNNING,
+        ));
         return;
     }
     if app.demo_mode {
@@ -700,7 +714,9 @@ fn refresh_all_hosts(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
             .collect();
         let total = snapshots.len();
         if total == 0 {
-            app.notify_warning(crate::messages::REFRESH_NOTHING_TO_REFRESH);
+            app.notify_warning(crate::i18n::text(
+                crate::messages::REFRESH_NOTHING_TO_REFRESH,
+            ));
             return;
         }
         let in_flight_aliases: std::collections::HashSet<String> =
@@ -756,7 +772,9 @@ fn refresh_all_hosts(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
     }
     let total = queue.len();
     if total == 0 {
-        app.notify_warning(crate::messages::REFRESH_NOTHING_TO_REFRESH);
+        app.notify_warning(crate::i18n::text(
+            crate::messages::REFRESH_NOTHING_TO_REFRESH,
+        ));
         return;
     }
     log::info!("[purple] container refresh-all: queued {} hosts", total);
@@ -849,7 +867,9 @@ fn open_stack_restart_confirm(app: &mut App) {
     // container row), so the demo toast must fire even when the cursor
     // sits on a host-divider row.
     if app.demo_mode {
-        app.notify_warning(crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED);
+        app.notify_warning(crate::i18n::text(
+            crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED,
+        ));
         return;
     }
     let Some(row) = selected_container_row(app) else {
@@ -1004,7 +1024,9 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<
         }
         KeyCode::Char('a') => {
             if app.demo_mode {
-                app.notify_warning(crate::messages::DEMO_CONTAINER_REFRESH_DISABLED);
+                app.notify_warning(crate::i18n::text(
+                    crate::messages::DEMO_CONTAINER_REFRESH_DISABLED,
+                ));
                 return;
             }
             // Guard: opening a host picker with zero hosts surfaces an
@@ -1012,7 +1034,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<
             // guard pattern: notify the user and short-circuit so the
             // picker only opens when it has something to pick from.
             if app.hosts_state.list().is_empty() {
-                app.notify_warning(crate::messages::PICKER_NO_HOSTS);
+                app.notify_warning(crate::i18n::text(crate::messages::PICKER_NO_HOSTS));
                 return;
             }
             app.ui.container_host_picker_state_mut().select(Some(0));
@@ -1058,7 +1080,7 @@ pub(super) fn handle_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<
                 && !app.status_center.toast().is_some_and(|t| t.sticky) =>
         {
             log::debug!("[purple] esc on idle containers overview, showing quit hint toast");
-            app.notify(crate::messages::ESC_QUIT_HINT);
+            app.notify(crate::i18n::text(crate::messages::ESC_QUIT_HINT));
             app.ui.set_esc_quit_hint_shown(true);
         }
         _ => {}

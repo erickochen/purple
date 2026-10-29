@@ -77,7 +77,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         ]));
 
         if result.stdout.is_empty() && result.stderr.is_empty() {
-            lines.push(Line::from(Span::styled("  [No output]", theme::muted())));
+            lines.push(Line::from(Span::styled(
+                crate::i18n::text("  [No output]"),
+                theme::muted(),
+            )));
         } else {
             for line in result.stdout.lines() {
                 lines.push(Line::from(Span::raw(format!("  {}", line))));
@@ -91,7 +94,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         }
         if result.shows_not_found_hint(state.interactive) {
             lines.push(Line::from(Span::styled(
-                format!("  {}", crate::messages::SNIPPET_NOT_FOUND_HINT),
+                format!(
+                    "  {}",
+                    crate::i18n::text(crate::messages::SNIPPET_NOT_FOUND_HINT)
+                ),
                 theme::muted(),
             )));
         }
@@ -119,17 +125,35 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let mut f = design::Footer::new();
     if state.all_done {
         f = f
-            .action("c", fl::SNIPPET_OUTPUT_COPY)
-            .action(fl::KEYS_SCROLL, fl::LABEL_SCROLL)
-            .action(fl::KEYS_NEXT_PREV_HOST, fl::LABEL_NEXT_PREV_HOST)
-            .action(fl::KEYS_TOP_BOTTOM, fl::LABEL_TOP_BOTTOM)
-            .action("Esc", fl::ESC_CLOSE);
+            .action("c", crate::i18n::text(fl::SNIPPET_OUTPUT_COPY))
+            .action(
+                crate::i18n::text(fl::KEYS_SCROLL),
+                crate::i18n::text(fl::LABEL_SCROLL),
+            )
+            .action(
+                crate::i18n::text(fl::KEYS_NEXT_PREV_HOST),
+                crate::i18n::text(fl::LABEL_NEXT_PREV_HOST),
+            )
+            .action(
+                crate::i18n::text(fl::KEYS_TOP_BOTTOM),
+                crate::i18n::text(fl::LABEL_TOP_BOTTOM),
+            )
+            .action("Esc", crate::i18n::text(fl::ESC_CLOSE));
     } else {
         f = f
-            .action(fl::KEYS_SCROLL, fl::LABEL_SCROLL)
-            .action(fl::KEYS_NEXT_PREV_HOST, fl::LABEL_NEXT_PREV_HOST)
-            .action(fl::KEYS_TOP_BOTTOM, fl::LABEL_TOP_BOTTOM)
-            .action("Ctrl+C", fl::CTRL_C_CANCEL);
+            .action(
+                crate::i18n::text(fl::KEYS_SCROLL),
+                crate::i18n::text(fl::LABEL_SCROLL),
+            )
+            .action(
+                crate::i18n::text(fl::KEYS_NEXT_PREV_HOST),
+                crate::i18n::text(fl::LABEL_NEXT_PREV_HOST),
+            )
+            .action(
+                crate::i18n::text(fl::KEYS_TOP_BOTTOM),
+                crate::i18n::text(fl::LABEL_TOP_BOTTOM),
+            )
+            .action("Ctrl+C", crate::i18n::text(fl::CTRL_C_CANCEL));
     }
     f.render_with_status(frame, footer_area, app);
 }
@@ -197,7 +221,7 @@ mod tests {
     #[test]
     fn command_not_found_shows_the_interactive_shell_tip() {
         let text = render_text(crate::snippet::EXIT_COMMAND_NOT_FOUND, false);
-        assert!(text.contains(crate::messages::SNIPPET_NOT_FOUND_HINT));
+        assert!(text.contains(crate::i18n::text(crate::messages::SNIPPET_NOT_FOUND_HINT)));
     }
 
     #[test]

@@ -28,7 +28,7 @@ fn clipboard_cmd() -> Result<&'static str, String> {
                 }
             }
 
-            Err(crate::messages::NO_CLIPBOARD_TOOL.to_string())
+            Err(crate::i18n::text(crate::messages::NO_CLIPBOARD_TOOL).to_string())
         })
         .clone()
 }

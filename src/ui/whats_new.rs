@@ -116,9 +116,15 @@ pub fn render(frame: &mut Frame, app: &App) {
     let footer_area = design::render_overlay_footer(frame, area);
     use crate::messages::footer as fl;
     design::Footer::new()
-        .action(msg::FOOTER_CLOSE_KEYS, fl::ESC_CLOSE)
-        .action(fl::KEYS_SCROLL, fl::LABEL_SCROLL)
-        .action(fl::KEYS_TOP_BOTTOM, fl::LABEL_TOP_BOTTOM)
+        .action(msg::FOOTER_CLOSE_KEYS, crate::i18n::text(fl::ESC_CLOSE))
+        .action(
+            crate::i18n::text(fl::KEYS_SCROLL),
+            crate::i18n::text(fl::LABEL_SCROLL),
+        )
+        .action(
+            crate::i18n::text(fl::KEYS_TOP_BOTTOM),
+            crate::i18n::text(fl::LABEL_TOP_BOTTOM),
+        )
         .render_with_status(frame, footer_area, app);
 }
 

@@ -119,9 +119,9 @@ impl App {
         };
         if !exists {
             return Err(if self.forms.host.is_pattern {
-                crate::messages::PATTERN_NO_LONGER_EXISTS.to_string()
+                crate::i18n::text(crate::messages::PATTERN_NO_LONGER_EXISTS).to_string()
             } else {
-                crate::messages::HOST_NO_LONGER_EXISTS.to_string()
+                crate::i18n::text(crate::messages::HOST_NO_LONGER_EXISTS).to_string()
             });
         }
         let duplicate = if self.forms.host.is_pattern {

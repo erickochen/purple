@@ -104,12 +104,12 @@ pub fn import_from_known_hosts(
 ) -> Result<(usize, usize, usize, usize), String> {
     info!("[config] Import started: source=~/.ssh/known_hosts");
     let known_hosts_path = paths
-        .ok_or(crate::messages::IMPORT_HOME_DIR_UNKNOWN)?
+        .ok_or(crate::i18n::text(crate::messages::IMPORT_HOME_DIR_UNKNOWN))?
         .ssh_dir()
         .join("known_hosts");
 
     if !known_hosts_path.exists() {
-        return Err(crate::messages::IMPORT_KNOWN_HOSTS_MISSING.to_string());
+        return Err(crate::i18n::text(crate::messages::IMPORT_KNOWN_HOSTS_MISSING).to_string());
     }
 
     let file = std::fs::File::open(&known_hosts_path)

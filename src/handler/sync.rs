@@ -30,7 +30,7 @@ pub fn spawn_provider_sync(
                     warn!("[config] Unknown provider requested for sync: {name}");
                     let _ = tx.send(AppEvent::SyncError {
                         provider: name,
-                        message: crate::messages::SYNC_UNKNOWN_PROVIDER.to_string(),
+                        message: crate::i18n::text(crate::messages::SYNC_UNKNOWN_PROVIDER).to_string(),
                     });
                     return;
                 }
@@ -85,7 +85,7 @@ pub fn spawn_provider_sync(
         );
         let _ = tx_fallback.send(AppEvent::SyncError {
             provider: name_fallback,
-            message: crate::messages::SYNC_THREAD_SPAWN_FAILED.to_string(),
+            message: crate::i18n::text(crate::messages::SYNC_THREAD_SPAWN_FAILED).to_string(),
         });
     }
 }

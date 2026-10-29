@@ -69,7 +69,9 @@ fn exec_prompt_key(ctx: &mut ExecPromptCtx, key: KeyEvent) {
             // newlines or escapes cannot smuggle a multi-line command
             // past the single-line prompt.
             if cmd.chars().any(|c| c.is_control()) {
-                ctx.notify_error(crate::messages::CONTAINER_EXEC_INVALID_COMMAND.to_string());
+                ctx.notify_error(
+                    crate::i18n::text(crate::messages::CONTAINER_EXEC_INVALID_COMMAND).to_string(),
+                );
                 return;
             }
             let alias = alias.clone();

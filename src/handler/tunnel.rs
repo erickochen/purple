@@ -207,7 +207,7 @@ impl TunnelCtx<'_> {
             debug!(
                 "[purple] tunnel forward removal skipped: alias={alias} {key} {value} not found"
             );
-            self.notify_warning(crate::messages::TUNNEL_NOT_FOUND);
+            self.notify_warning(crate::i18n::text(crate::messages::TUNNEL_NOT_FOUND));
             return false;
         }
         if let Err(e) = self.hosts.ssh_config().write() {
@@ -315,7 +315,7 @@ fn tunnel_list_key(ctx: &mut TunnelCtx, key: KeyEvent) {
                             .tunnel_list_state_mut()
                             .select(Some(ctx.tunnels.list().len() - 1));
                     }
-                    ctx.notify(crate::messages::TUNNEL_REMOVED);
+                    ctx.notify(crate::i18n::text(crate::messages::TUNNEL_REMOVED));
                 }
             }
             super::ConfirmAction::No => {
@@ -353,7 +353,9 @@ fn tunnel_list_key(ctx: &mut TunnelCtx, key: KeyEvent) {
         KeyCode::Char('a') => {
             // Check if host is from an included file (read-only)
             if host_is_read_only(ctx, &alias) {
-                ctx.notify_warning(crate::messages::TUNNEL_INCLUDED_READ_ONLY);
+                ctx.notify_warning(crate::i18n::text(
+                    crate::messages::TUNNEL_INCLUDED_READ_ONLY,
+                ));
                 return;
             }
             let alias = alias.clone();
@@ -362,7 +364,9 @@ fn tunnel_list_key(ctx: &mut TunnelCtx, key: KeyEvent) {
         }
         KeyCode::Char('e') => {
             if host_is_read_only(ctx, &alias) {
-                ctx.notify_warning(crate::messages::TUNNEL_INCLUDED_READ_ONLY);
+                ctx.notify_warning(crate::i18n::text(
+                    crate::messages::TUNNEL_INCLUDED_READ_ONLY,
+                ));
                 return;
             }
             if let Some(sel) = ctx.ui.tunnel_list_state().selected()
@@ -375,7 +379,9 @@ fn tunnel_list_key(ctx: &mut TunnelCtx, key: KeyEvent) {
         }
         KeyCode::Char('d') => {
             if host_is_read_only(ctx, &alias) {
-                ctx.notify_warning(crate::messages::TUNNEL_INCLUDED_READ_ONLY);
+                ctx.notify_warning(crate::i18n::text(
+                    crate::messages::TUNNEL_INCLUDED_READ_ONLY,
+                ));
                 return;
             }
             if let Some(sel) = ctx.ui.tunnel_list_state().selected()
@@ -391,7 +397,7 @@ fn tunnel_list_key(ctx: &mut TunnelCtx, key: KeyEvent) {
                 ctx.stop_active_tunnel(&alias);
             } else if !ctx.tunnels.list().is_empty() {
                 if ctx.demo_mode {
-                    ctx.notify_warning(crate::messages::DEMO_TUNNELS_DISABLED);
+                    ctx.notify_warning(crate::i18n::text(crate::messages::DEMO_TUNNELS_DISABLED));
                     return;
                 }
                 ctx.spawn_active_tunnel(&alias);
@@ -494,7 +500,9 @@ fn tunnel_form_key(ctx: &mut TunnelCtx, key: KeyEvent) {
 fn submit_tunnel_form(ctx: &mut TunnelCtx, alias: &str, editing: Option<usize>) {
     // Check for external config changes since form was opened
     if ctx.config_changed_since_form_open() {
-        ctx.notify_warning(crate::messages::CONFIG_CHANGED_EXTERNALLY);
+        ctx.notify_warning(crate::i18n::text(
+            crate::messages::CONFIG_CHANGED_EXTERNALLY,
+        ));
         return;
     }
 
@@ -517,12 +525,14 @@ fn submit_tunnel_form(ctx: &mut TunnelCtx, alias: &str, editing: Option<usize>) 
                 .remove_forward(alias, &old_key, &old_value)
             {
                 ctx.hosts.set_ssh_config(config_backup);
-                ctx.notify_warning(crate::messages::TUNNEL_ORIGINAL_NOT_FOUND);
+                ctx.notify_warning(crate::i18n::text(
+                    crate::messages::TUNNEL_ORIGINAL_NOT_FOUND,
+                ));
                 return;
             }
         } else {
             // Index out of bounds (external config change) — abort
-            ctx.notify_warning(crate::messages::TUNNEL_LIST_CHANGED);
+            ctx.notify_warning(crate::i18n::text(crate::messages::TUNNEL_LIST_CHANGED));
             return;
         }
     }
@@ -534,7 +544,7 @@ fn submit_tunnel_form(ctx: &mut TunnelCtx, alias: &str, editing: Option<usize>) 
         .has_forward(alias, directive_key, &directive_value)
     {
         ctx.hosts.set_ssh_config(config_backup);
-        ctx.notify_warning(crate::messages::TUNNEL_DUPLICATE);
+        ctx.notify_warning(crate::i18n::text(crate::messages::TUNNEL_DUPLICATE));
         return;
     }
 
@@ -560,7 +570,7 @@ fn submit_tunnel_form(ctx: &mut TunnelCtx, alias: &str, editing: Option<usize>) 
     ctx.refresh_tunnel_list(alias);
     ctx.reload_hosts();
     ctx.fix_selection_after_list_change();
-    ctx.notify(crate::messages::TUNNEL_SAVED);
+    ctx.notify(crate::i18n::text(crate::messages::TUNNEL_SAVED));
     let return_to = tunnel_form_return_screen(ctx.top_page, alias);
     ctx.close_tunnel_form(return_to);
 }

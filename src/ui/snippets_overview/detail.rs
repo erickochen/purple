@@ -82,16 +82,28 @@ fn build_static_cards(
         design::section_line(lines, vec![Span::styled(row, theme::muted())], box_width);
     }
     lines.push(design::section_empty_line(box_width));
-    design::section_field(lines, "Parameters", &params.len().to_string(), 0, box_width);
+    design::section_field(
+        lines,
+        crate::i18n::text("Parameters"),
+        &params.len().to_string(),
+        0,
+        box_width,
+    );
     if !targets.is_empty() {
         let value = crate::messages::snippet::snippet_default_hosts_summary(targets);
-        design::section_field(lines, "Default hosts", &value, content_w, box_width);
+        design::section_field(
+            lines,
+            crate::i18n::text("Default hosts"),
+            &value,
+            content_w,
+            box_width,
+        );
     }
     if snippet.interactive {
         design::section_field(
             lines,
-            crate::messages::snippet::SNIPPET_INTERACTIVE_LABEL,
-            crate::messages::snippet::SNIPPET_INTERACTIVE_ON,
+            crate::i18n::text(crate::messages::snippet::SNIPPET_INTERACTIVE_LABEL),
+            crate::i18n::text(crate::messages::snippet::SNIPPET_INTERACTIVE_ON),
             content_w,
             box_width,
         );
@@ -107,7 +119,7 @@ fn build_static_cards(
     };
 
     // COMMAND
-    design::section_open(lines, "COMMAND", box_width);
+    design::section_open(lines, crate::i18n::text("COMMAND"), box_width);
     for row in wrap_lines(&snippet.command, content_w) {
         design::section_line(lines, highlight_params(&row), box_width);
     }
@@ -154,7 +166,7 @@ fn build_static_cards(
             format!(
                 "{} {}",
                 design::ICON_PENDING,
-                crate::messages::snippet::IMPACT_FLEET_SCOPE
+                crate::i18n::text(crate::messages::snippet::IMPACT_FLEET_SCOPE)
             ),
             fleet_style,
         )],
@@ -546,7 +558,7 @@ mod tests {
     #[test]
     fn overview_shows_interactive_shell_only_when_on() {
         let (w, h) = (60, 30);
-        let label = crate::messages::snippet::SNIPPET_INTERACTIVE_LABEL;
+        let label = crate::i18n::text(crate::messages::snippet::SNIPPET_INTERACTIVE_LABEL);
         let plain = snippet("plain");
         let buf = render_buffer(w, h, &plain, &SnippetRunLog::default());
         assert!(!buffer_contains(&buf, w, h, label));
@@ -691,7 +703,7 @@ mod tests {
         assert!(text.contains("28 of 29 host runs ok"));
         assert!(text.contains("1 partial"));
         assert!(!text.contains("failed"));
-        assert!(text.contains(crate::messages::snippet::RUN_LAST_PREFIX));
+        assert!(text.contains(crate::i18n::text(crate::messages::snippet::RUN_LAST_PREFIX)));
         // The trailing run is Ok, so the last-run marker is the success glyph.
         assert!(text.contains(design::ICON_SUCCESS));
     }

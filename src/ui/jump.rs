@@ -127,7 +127,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Span::raw(" "),
             Span::styled("\u{2588}", theme::accent_bold()),
             Span::raw(" "),
-            Span::styled(crate::messages::PALETTE_PLACEHOLDER, theme::muted()),
+            Span::styled(
+                crate::i18n::text(crate::messages::PALETTE_PLACEHOLDER),
+                theme::muted(),
+            ),
         ])
     } else {
         Line::from(vec![
@@ -141,7 +144,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let list_row = rows[3];
 
     if visible_full.is_empty() {
-        design::render_empty(frame, list_row, crate::messages::PALETTE_NO_RESULTS);
+        design::render_empty(
+            frame,
+            list_row,
+            crate::i18n::text(crate::messages::PALETTE_NO_RESULTS),
+        );
         render_footer(frame, area, app);
         return;
     }
@@ -211,10 +218,10 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
     let footer_area = design::render_overlay_footer(frame, area);
     use crate::messages::footer as fl;
     design::Footer::new()
-        .primary("Enter", fl::ENTER_SELECT)
-        .action("\u{2191}\u{2193}", fl::ARROWS_SELECT)
-        .action("Tab", fl::TAB_NEXT)
-        .action("Esc", fl::ESC_CLOSE)
+        .primary("Enter", crate::i18n::text(fl::ENTER_SELECT))
+        .action("\u{2191}\u{2193}", crate::i18n::text(fl::ARROWS_SELECT))
+        .action("Tab", crate::i18n::text(fl::TAB_NEXT))
+        .action("Esc", crate::i18n::text(fl::ESC_CLOSE))
         .render_with_status(frame, footer_area, app);
 }
 
@@ -532,7 +539,7 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
         let text: String = buf.content.iter().map(|c| c.symbol().to_string()).collect();
         assert!(
-            text.contains("no matches") || text.contains("No matches"),
+            text.contains("no matches") || text.contains(crate::i18n::text("No matches")),
             "should render no-matches placeholder"
         );
     }
@@ -725,9 +732,9 @@ mod tests {
         assert_eq!(
             leading_categories,
             vec![
-                "Containers".to_string(),
-                "Containers".to_string(),
-                "Containers".to_string()
+                crate::i18n::text("Containers").to_string(),
+                crate::i18n::text("Containers").to_string(),
+                crate::i18n::text("Containers").to_string()
             ],
             "first three slots must be Containers actions on the containers tab"
         );
@@ -760,9 +767,9 @@ mod tests {
         assert_eq!(
             leading_categories,
             vec![
-                "Tunnels".to_string(),
-                "Tunnels".to_string(),
-                "Tunnels".to_string()
+                crate::i18n::text("Tunnels").to_string(),
+                crate::i18n::text("Tunnels").to_string(),
+                crate::i18n::text("Tunnels").to_string()
             ],
             "first three slots must be Tunnels actions on the tunnels tab"
         );

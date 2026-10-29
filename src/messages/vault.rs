@@ -178,7 +178,7 @@ pub fn vault_write_cert_failed(path: &impl std::fmt::Display) -> String {
 }
 
 pub fn vault_ssh_keygen_run_failed(e: &impl std::fmt::Display) -> String {
-    format!("Failed to run ssh-keygen: {}", e)
+    crate::tformat!("Failed to run ssh-keygen: {}", e)
 }
 
 // ── Vault SSH bulk signing summaries (event_loop.rs) ────────────────

@@ -152,14 +152,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     use crate::messages::footer as fl;
     let mut footer_spans = design::Footer::new()
-        .primary("Enter", fl::ENTER_COPY)
-        .action("Tab", fl::TAB_NEXT)
-        .action("Space", fl::FB_SELECT)
-        .action("a", fl::ACTION_ALL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_COPY))
+        .action("Tab", crate::i18n::text(fl::TAB_NEXT))
+        .action("Space", crate::i18n::text(fl::FB_SELECT))
+        .action("a", crate::i18n::text(fl::ACTION_ALL))
         .action("s", sort_label)
-        .action(".", fl::ACTION_HIDDEN)
-        .action("R", fl::ACTION_REFRESH)
-        .action("Esc", fl::ESC_CLOSE)
+        .action(".", crate::i18n::text(fl::ACTION_HIDDEN))
+        .action("R", crate::i18n::text(fl::ACTION_REFRESH))
+        .action("Esc", crate::i18n::text(fl::ESC_CLOSE))
         .into_spans();
 
     if selected_count > 0 {
@@ -250,7 +250,7 @@ fn build_file_list_items<'a>(
 
     if entries.is_empty() {
         items.push(ListItem::new(Line::from(Span::styled(
-            "   (empty directory)",
+            crate::i18n::text("   (empty directory)"),
             theme::muted(),
         ))));
         return items;
@@ -338,9 +338,9 @@ fn render_confirm_dialog(
     };
 
     let header = if req.sources.len() == 1 {
-        format!("  Copy to {}:", direction)
+        crate::tformat!("  Copy to {}:", direction)
     } else {
-        format!("  Copy {} files to {}:", req.sources.len(), direction)
+        crate::tformat!("  Copy {} files to {}:", req.sources.len(), direction)
     };
 
     let mut content_lines: Vec<String> = Vec::new();
@@ -390,7 +390,7 @@ fn render_confirm_dialog(
 
     frame.render_widget(Clear, dialog_area);
 
-    let block = design::overlay_block("Confirm");
+    let block = design::overlay_block(crate::i18n::text("Confirm"));
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, dialog_area);
 
@@ -429,7 +429,7 @@ fn render_error_dialog(frame: &mut Frame, message: &str, area: Rect) {
         content_lines.push(format!("  {}", line));
     }
     if content_lines.is_empty() {
-        content_lines.push("  Copy failed.".to_string());
+        content_lines.push(crate::i18n::text("  Copy failed.").to_string());
     }
 
     let max_content: usize = content_lines
@@ -460,7 +460,7 @@ fn render_error_dialog(frame: &mut Frame, message: &str, area: Rect) {
 
     let footer_area = design::render_overlay_footer(frame, dialog_area);
     let footer_line = design::Footer::new()
-        .action("Esc", crate::messages::footer::ESC_CLOSE)
+        .action("Esc", crate::i18n::text(crate::messages::footer::ESC_CLOSE))
         .to_line();
     frame.render_widget(Paragraph::new(footer_line), footer_area);
 }

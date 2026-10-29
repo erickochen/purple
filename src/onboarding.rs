@@ -117,7 +117,7 @@ mod tests {
         let paths = Paths::new(dir.path());
         preferences::save_last_seen_version(Some(&paths), "0.0.1").unwrap();
         let outcome = evaluate(Some(&paths));
-        let fragment = crate::messages::whats_new_toast::INVITE_FRAGMENT;
+        let fragment = crate::i18n::text(crate::messages::whats_new_toast::INVITE_FRAGMENT);
         assert!(
             outcome
                 .upgrade_toast

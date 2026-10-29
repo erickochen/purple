@@ -50,9 +50,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     if visible.is_empty() {
         let msg = if total_editable == 0 {
-            crate::messages::TUNNEL_NO_EDITABLE_HOSTS
+            crate::i18n::text(crate::messages::TUNNEL_NO_EDITABLE_HOSTS)
         } else {
-            crate::messages::TUNNEL_HOST_PICKER_NO_MATCH
+            crate::i18n::text(crate::messages::TUNNEL_HOST_PICKER_NO_MATCH)
         };
         design::render_empty(frame, rows[2], msg);
     } else {
@@ -76,8 +76,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let footer_area = design::render_overlay_footer(frame, area);
     use crate::messages::footer as fl;
     design::Footer::new()
-        .primary("Enter", fl::ENTER_SELECT)
-        .action("\u{2191}\u{2193}", fl::ARROWS_SELECT)
-        .action("Esc", fl::ESC_CANCEL)
+        .primary("Enter", crate::i18n::text(fl::ENTER_SELECT))
+        .action("\u{2191}\u{2193}", crate::i18n::text(fl::ARROWS_SELECT))
+        .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         .render_with_status(frame, footer_area, app);
 }

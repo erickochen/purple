@@ -57,7 +57,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // Legend — always visible so first-time users learn the glyphs.
     let legend = if editable_count == 0 {
         Line::from(Span::styled(
-            "  No editable hosts in selection.",
+            crate::i18n::text("  No editable hosts in selection."),
             theme::muted(),
         ))
     } else {
@@ -128,17 +128,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     } else {
         let f = if input_active {
             design::Footer::new()
-                .primary("Enter", fl::ENTER_ADD)
-                .action("Esc", fl::ESC_CANCEL)
+                .primary("Enter", crate::i18n::text(fl::ENTER_ADD))
+                .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         } else {
             // Stakes test: this is a list-completion action ("apply my
             // changes"), so primary verb is "apply" not generic "ok".
             // NNGroup: name a button to explain what it does.
             design::Footer::new()
-                .primary("Enter", fl::ENTER_APPLY)
-                .action("Space", fl::SPACE_CYCLE)
-                .action("+", fl::ACTION_NEW)
-                .action("Esc", fl::ESC_CANCEL)
+                .primary("Enter", crate::i18n::text(fl::ENTER_APPLY))
+                .action("Space", crate::i18n::text(fl::SPACE_CYCLE))
+                .action("+", crate::i18n::text(fl::ACTION_NEW))
+                .action("Esc", crate::i18n::text(fl::ESC_CANCEL))
         };
         f.render_with_status(frame, footer_area, app);
     }

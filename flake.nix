@@ -53,6 +53,8 @@
                    "rust-toolchain.toml"
                    "CHANGELOG.md"
                  ]
+              || relPath == "locales"
+              || pkgs.lib.hasPrefix "locales/" relPath
               || relPath == "src"
               || pkgs.lib.hasPrefix "src/" relPath
               || relPath == "tests"

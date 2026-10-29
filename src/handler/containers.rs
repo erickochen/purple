@@ -157,7 +157,9 @@ impl ContainersCtx<'_> {
             return;
         }
         if self.demo_mode {
-            self.notify_warning(crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED);
+            self.notify_warning(crate::i18n::text(
+                crate::messages::DEMO_CONTAINER_ACTIONS_DISABLED,
+            ));
             return;
         }
         let Some(runtime) = state.runtime else {
@@ -344,7 +346,9 @@ fn containers_key(
         KeyCode::Char('R') => {
             // Refresh container list
             if ctx.demo_mode {
-                ctx.notify_warning(crate::messages::DEMO_CONTAINER_REFRESH_DISABLED);
+                ctx.notify_warning(crate::i18n::text(
+                    crate::messages::DEMO_CONTAINER_REFRESH_DISABLED,
+                ));
                 return Ok(());
             }
             // Resolve the SSH context before borrowing the session mutably for

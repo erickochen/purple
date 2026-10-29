@@ -340,18 +340,30 @@ fn render_connection(
     box_width: usize,
     max_value_width: usize,
 ) {
-    section_open(lines, "CONNECTION", box_width);
+    section_open(lines, crate::i18n::text("CONNECTION"), box_width);
 
-    section_field(lines, "Host", &host.hostname, max_value_width, box_width);
+    section_field(
+        lines,
+        crate::i18n::text("Host"),
+        &host.hostname,
+        max_value_width,
+        box_width,
+    );
 
     if !host.user.is_empty() {
-        section_field(lines, "User", &host.user, max_value_width, box_width);
+        section_field(
+            lines,
+            crate::i18n::text("User"),
+            &host.user,
+            max_value_width,
+            box_width,
+        );
     }
 
     if host.port != 22 {
         section_field(
             lines,
-            "Port",
+            crate::i18n::text("Port"),
             &host.port.to_string(),
             max_value_width,
             box_width,
@@ -370,7 +382,7 @@ fn render_connection(
     if let Some(ref askpass) = host.askpass {
         section_field(
             lines,
-            "Password",
+            crate::i18n::text("Password"),
             password_label(askpass),
             max_value_width,
             box_width,
@@ -586,7 +598,7 @@ fn render_tags(
     box_width: usize,
 ) {
     if !host.tags.is_empty() || !host.provider_tags.is_empty() || host.provider.is_some() {
-        section_open(lines, "TAGS", box_width);
+        section_open(lines, crate::i18n::text("TAGS"), box_width);
 
         let mut all_tags: Vec<String> = host
             .provider_tags
@@ -697,7 +709,7 @@ fn render_vault_cert(
                     let adjusted = remaining_secs - elapsed;
                     if adjusted <= 0 {
                         needs_action = true;
-                        ("Expired".to_string(), theme::error())
+                        (crate::i18n::text("Expired").to_string(), theme::error())
                     } else {
                         let text =
                             format!("Valid ({})", crate::vault_ssh::format_remaining(adjusted));
@@ -706,7 +718,7 @@ fn render_vault_cert(
                 }
                 crate::vault_ssh::CertStatus::Expired => {
                     needs_action = true;
-                    ("Expired".to_string(), theme::error())
+                    (crate::i18n::text("Expired").to_string(), theme::error())
                 }
                 crate::vault_ssh::CertStatus::Missing => {
                     needs_action = true;
@@ -905,7 +917,7 @@ fn render_source(
         section_open_notitle(lines, box_width);
         section_field(
             lines,
-            "Source",
+            crate::i18n::text("Source"),
             &source.display().to_string(),
             max_value_width,
             box_width,
@@ -1034,7 +1046,7 @@ fn render_pat_tags(lines: &mut Vec<Line<'static>>, tags: &[String], box_width: u
     if tags.is_empty() {
         return;
     }
-    section_open(lines, "TAGS", box_width);
+    section_open(lines, crate::i18n::text("TAGS"), box_width);
     let inner_width = box_width.saturating_sub(4);
     let tag_rows = wrap_tags(tags, inner_width);
     for row in &tag_rows {
@@ -1095,7 +1107,7 @@ fn render_pat_source(
     section_open(lines, "SOURCE", box_width);
     section_field(
         lines,
-        "File",
+        crate::i18n::text("File"),
         &source.display().to_string(),
         max_value_width,
         box_width,
@@ -1156,12 +1168,12 @@ fn meta_label(key: &str) -> String {
         "datacenter" => "Datacenter".to_string(), // legacy, pre-2.6.0
         "location" => "Location".to_string(),
         "instance" => "Instance".to_string(),
-        "size" => "Size".to_string(),
+        "size" => crate::i18n::text("Size").to_string(),
         "machine" => "Machine".to_string(),
         "vm_size" => "VM Size".to_string(),
         "plan" => "Plan".to_string(),
         "specs" => "Specs".to_string(),
-        "type" => "Type".to_string(),
+        "type" => crate::i18n::text("Type").to_string(),
         "shape" => "Shape".to_string(),
         "os" => "OS".to_string(),
         "image" => "Image".to_string(),

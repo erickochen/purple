@@ -107,19 +107,19 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 fn build_footer_spans(search: Option<&ContainerLogsSearch>) -> Vec<Span<'static>> {
     match search {
         Some(_) => design::Footer::new()
-            .primary("Esc", fl::ACTION_CLOSE)
-            .action("Tab/Shift-Tab", fl::ACTION_MATCH)
-            .action("←/→", fl::ACTION_MOVE)
-            .action("Bksp", fl::ACTION_DEL)
+            .primary("Esc", crate::i18n::text(fl::ACTION_CLOSE))
+            .action("Tab/Shift-Tab", crate::i18n::text(fl::ACTION_MATCH))
+            .action("←/→", crate::i18n::text(fl::ACTION_MOVE))
+            .action("Bksp", crate::i18n::text(fl::ACTION_DEL))
             .into_spans(),
         None => design::Footer::new()
-            .primary("Esc", fl::ACTION_BACK)
-            .action("/", fl::ACTION_SEARCH)
-            .action("g", fl::ACTION_TOP)
-            .action("G", fl::ACTION_BOTTOM)
-            .action("j/k", fl::ACTION_SCROLL)
-            .action("PgUp/PgDn", fl::ACTION_PAGE)
-            .action("r", fl::ACTION_REFRESH)
+            .primary("Esc", crate::i18n::text(fl::ACTION_BACK))
+            .action("/", crate::i18n::text(fl::ACTION_SEARCH))
+            .action("g", crate::i18n::text(fl::ACTION_TOP))
+            .action("G", crate::i18n::text(fl::ACTION_BOTTOM))
+            .action("j/k", crate::i18n::text(fl::ACTION_SCROLL))
+            .action("PgUp/PgDn", crate::i18n::text(fl::ACTION_PAGE))
+            .action("r", crate::i18n::text(fl::ACTION_REFRESH))
             .into_spans(),
     }
 }
@@ -151,7 +151,10 @@ fn build_title(
         ));
     } else if fetched_at == 0 {
         spans.push(Span::styled(
-            format!("· {} ", crate::messages::CONTAINER_LOGS_LOADING),
+            format!(
+                "· {} ",
+                crate::i18n::text(crate::messages::CONTAINER_LOGS_LOADING)
+            ),
             theme::muted(),
         ));
     } else {
@@ -170,7 +173,10 @@ fn render_search_bar(frame: &mut Frame, area: Rect, search: &ContainerLogsSearch
     let suffix = if search.query.is_empty() {
         String::new()
     } else if search.matches.is_empty() {
-        format!(" ({})", crate::messages::CONTAINER_LOGS_SEARCH_NO_MATCHES)
+        format!(
+            " ({})",
+            crate::i18n::text(crate::messages::CONTAINER_LOGS_SEARCH_NO_MATCHES)
+        )
     } else {
         format!(
             " ({})",
@@ -236,7 +242,10 @@ fn render_body(
         let lines = vec![
             Line::from(""),
             Line::from(Span::styled(
-                format!("  {}", crate::messages::CONTAINER_LOGS_LOADING),
+                format!(
+                    "  {}",
+                    crate::i18n::text(crate::messages::CONTAINER_LOGS_LOADING)
+                ),
                 theme::muted(),
             )),
         ];

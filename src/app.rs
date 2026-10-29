@@ -1357,7 +1357,7 @@ pub(crate) fn apply_bulk_tags(
     forms: &mut FormState,
 ) -> Result<BulkTagApplyResult, String> {
     if forms.bulk_tag_editor.aliases.is_empty() {
-        return Err(crate::messages::BULK_TAG_NO_HOSTS_SELECTED.to_string());
+        return Err(crate::i18n::text(crate::messages::BULK_TAG_NO_HOSTS_SELECTED).to_string());
     }
     let aliases = forms.bulk_tag_editor.aliases.clone();
     let rows = forms.bulk_tag_editor.rows.clone();

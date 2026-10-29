@@ -46,13 +46,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let is_main_view =
         is_host_list || is_tunnels_tab || is_containers_tab || is_snippets_tab || is_keys_tab;
     let title_text = if is_tunnels_tab {
-        "Tunnels"
+        crate::i18n::text("Tunnels")
     } else if is_containers_tab {
-        "Containers"
+        crate::i18n::text("Containers")
     } else if is_snippets_tab {
-        "Snippets"
+        crate::i18n::text("Snippets")
     } else if is_keys_tab {
-        "Keys"
+        crate::i18n::text("Keys")
     } else {
         context_title(return_screen)
     };
@@ -82,10 +82,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Screen::TagPicker => tag_picker_lines(),
             Screen::BulkTagEditor => bulk_tag_editor_lines(),
             Screen::ThemePicker => vec![
-                help_line("j/k ↑↓", "up / down"),
-                help_line("Enter", "select theme"),
-                help_line("?", "help"),
-                help_line("Esc", "cancel"),
+                help_line("j/k ↑↓", crate::i18n::text("up / down")),
+                help_line("Enter", crate::i18n::text("select theme")),
+                help_line("?", crate::i18n::text("help")),
+                help_line("Esc", crate::i18n::text("cancel")),
             ],
             _ => vec![],
         };
@@ -229,11 +229,17 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         // "Got an idea or a bug?" = 21 chars + 3 spaces = 24.
         let info_lines = vec![
             Line::from(vec![
-                Span::styled("All commands and docs:  ", theme::muted()),
+                Span::styled(
+                    crate::i18n::text("All commands and docs:  "),
+                    theme::muted(),
+                ),
                 Span::styled("github.com/erickochen/purple/wiki", theme::muted()),
             ]),
             Line::from(vec![
-                Span::styled("Got an idea or a bug?   ", theme::muted()),
+                Span::styled(
+                    crate::i18n::text("Got an idea or a bug?   "),
+                    theme::muted(),
+                ),
                 Span::styled("github.com/erickochen/purple/issues", theme::muted()),
             ]),
         ];
@@ -246,7 +252,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     use crate::messages::footer as fl;
     if can_scroll {
         let mut spans = design::Footer::new()
-            .action(fl::KEYS_SCROLL, fl::LABEL_SCROLL)
+            .action(
+                crate::i18n::text(fl::KEYS_SCROLL),
+                crate::i18n::text(fl::LABEL_SCROLL),
+            )
             .into_spans();
         let position = app.ui.help_scroll().saturating_add(1);
         let max = max_scroll.saturating_add(1);
@@ -257,13 +266,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         spans.push(Span::raw(design::FOOTER_GAP));
         spans.extend(
             design::Footer::new()
-                .action("Esc", fl::ESC_CLOSE)
+                .action("Esc", crate::i18n::text(fl::ESC_CLOSE))
                 .into_spans(),
         );
         super::render_footer_with_status(frame, footer_area, spans, app);
     } else {
         design::Footer::new()
-            .action("Esc", fl::ESC_CLOSE)
+            .action("Esc", crate::i18n::text(fl::ESC_CLOSE))
             .render_with_status(frame, footer_area, app);
     }
 }
@@ -273,20 +282,20 @@ fn context_title(screen: &Screen) -> &'static str {
         // The host list is purple's main screen, so its help pane title is
         // simply `Help` — no need to label "which" help, there is no other
         // help the user could mean from here.
-        Screen::HostList | Screen::Welcome { .. } => "Help",
-        Screen::FileBrowser { .. } => "File Explorer",
-        Screen::SnippetPicker => "Snippets",
-        Screen::SnippetOutput => "Output",
-        Screen::Containers { .. } => "Containers",
-        Screen::TunnelList { .. } => "Tunnels",
-        Screen::Providers => "Providers",
-        Screen::KeyList => "SSH Keys",
-        Screen::KeyDetail { .. } => "Key Detail",
-        Screen::HostDetail { .. } => "All Directives",
-        Screen::TagPicker => "Tags",
-        Screen::BulkTagEditor => "Bulk tags",
-        Screen::ThemePicker => "Theme",
-        _ => "Help",
+        Screen::HostList | Screen::Welcome { .. } => crate::i18n::text("Help"),
+        Screen::FileBrowser { .. } => crate::i18n::text("File Explorer"),
+        Screen::SnippetPicker => crate::i18n::text("Snippets"),
+        Screen::SnippetOutput => crate::i18n::text("Output"),
+        Screen::Containers { .. } => crate::i18n::text("Containers"),
+        Screen::TunnelList { .. } => crate::i18n::text("Tunnels"),
+        Screen::Providers => crate::i18n::text("Providers"),
+        Screen::KeyList => crate::i18n::text("SSH Keys"),
+        Screen::KeyDetail { .. } => crate::i18n::text("Key Detail"),
+        Screen::HostDetail { .. } => crate::i18n::text("All Directives"),
+        Screen::TagPicker => crate::i18n::text("Tags"),
+        Screen::BulkTagEditor => crate::i18n::text("Bulk tags"),
+        Screen::ThemePicker => crate::i18n::text("Theme"),
+        _ => crate::i18n::text("Help"),
     }
 }
 
@@ -330,57 +339,57 @@ fn host_list_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
     // aligned with `q/Esc quit` in col2, so the last row of both columns is
     // a close/leave action. `r/R` mirrors `p/P` — single-target vs all.
     let col1 = vec![
-        blank(),                    // row 0
-        section_header("NAVIGATE"), // row 1
-        blank(),                    // row 2
-        help_line("j/k ↑↓", "up / down"),
-        help_line("PgDn/PgUp", "page down / up"),
-        help_line("Enter", "connect"),
-        help_line("/", "search (scoped)"),
-        help_line("#", "tag picker"),
-        help_line("Esc", "clear filter / selection"),
-        blank(),                // row 9
-        section_header("VIEW"), // row 10 ↔ col2 CONNECT AND RUN
+        blank(),                                       // row 0
+        section_header(crate::i18n::text("NAVIGATE")), // row 1
+        blank(),                                       // row 2
+        help_line("j/k ↑↓", crate::i18n::text("up / down")),
+        help_line("PgDn/PgUp", crate::i18n::text("page down / up")),
+        help_line("Enter", crate::i18n::text("connect")),
+        help_line("/", crate::i18n::text("search (scoped)")),
+        help_line("#", crate::i18n::text("tag picker")),
+        help_line("Esc", crate::i18n::text("clear filter / selection")),
+        blank(),                                   // row 9
+        section_header(crate::i18n::text("VIEW")), // row 10 ↔ col2 CONNECT AND RUN
         blank(),
-        help_line("v", "detail panel"),
-        help_line("s", "cycle sort"),
-        help_line("g", "group (off/provider/tag)"),
-        blank(),                     // row 15
-        section_header("CLIPBOARD"), // row 16 ↔ col2 TOOLS
+        help_line("v", crate::i18n::text("detail panel")),
+        help_line("s", crate::i18n::text("cycle sort")),
+        help_line("g", crate::i18n::text("group (off/provider/tag)")),
+        blank(),                                        // row 15
+        section_header(crate::i18n::text("CLIPBOARD")), // row 16 ↔ col2 TOOLS
         blank(),
-        help_line("y", "copy ssh command"),
-        help_line("n", "what's new"),
+        help_line("y", crate::i18n::text("copy ssh command")),
+        help_line("n", crate::i18n::text("what's new")),
         blank(),
         blank(),
         blank(),
-        help_line(":", "jump (search anything)"), // row 23 ↔ col2 q quit
+        help_line(":", crate::i18n::text("jump (search anything)")), // row 23 ↔ col2 q quit
     ];
 
     let col2 = vec![
-        blank(),                        // row 0
-        section_header("MANAGE HOSTS"), // row 1 ↔ col1 NAVIGATE
+        blank(),                                           // row 0
+        section_header(crate::i18n::text("MANAGE HOSTS")), // row 1 ↔ col1 NAVIGATE
         blank(),
-        help_line_short("a", "add host"),
-        help_line_short("e", "edit"),
-        help_line_short("d", "del"),
-        help_line_short("u", "undo del"),
-        help_line_short("t", "bulk tag"),
+        help_line_short("a", crate::i18n::text("add host")),
+        help_line_short("e", crate::i18n::text("edit")),
+        help_line_short("d", crate::i18n::text("del")),
+        help_line_short("u", crate::i18n::text("undo del")),
+        help_line_short("t", crate::i18n::text("bulk tag")),
         blank(),
-        blank(),                           // row 9  padding so headers align
-        section_header("CONNECT AND RUN"), // row 10 ↔ col1 VIEW
+        blank(), // row 9  padding so headers align
+        section_header(crate::i18n::text("CONNECT AND RUN")), // row 10 ↔ col1 VIEW
         blank(),
-        help_line_short("Space", "multi-select"),
-        help_line_short("r/R", "snippet / all"),
-        help_line_short("p/P", "ping / all"),
+        help_line_short("Space", crate::i18n::text("multi-select")),
+        help_line_short("r/R", crate::i18n::text("snippet / all")),
+        help_line_short("p/P", crate::i18n::text("ping / all")),
         blank(),
-        section_header("TOOLS"), // row 16 ↔ col1 CLIPBOARD
+        section_header(crate::i18n::text("TOOLS")), // row 16 ↔ col1 CLIPBOARD
         blank(),
-        help_line_short("F", "file explorer"),
-        help_line_short("T", "tunnels"),
-        help_line_short("C", "containers"),
-        help_line_short("K", "SSH keys"),
-        help_line_short("S", "providers"),
-        help_line_short("q", "quit"), // row 23 ↔ col1 `:`
+        help_line_short("F", crate::i18n::text("file explorer")),
+        help_line_short("T", crate::i18n::text("tunnels")),
+        help_line_short("C", crate::i18n::text("containers")),
+        help_line_short("K", crate::i18n::text("SSH keys")),
+        help_line_short("S", crate::i18n::text("providers")),
+        help_line_short("q", crate::i18n::text("quit")), // row 23 ↔ col1 `:`
     ];
 
     (col1, col2)
@@ -388,33 +397,33 @@ fn host_list_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
 
 fn file_browser_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("Tab", "switch pane"));
-    lines.push(help_line("j/k ↑↓", "up / down"));
-    lines.push(help_line("Enter", "open dir / copy"));
-    lines.push(help_line("Backspace", "go up"));
-    lines.push(help_line("Space", "select / deselect"));
-    lines.push(help_line("a", "select all / none"));
-    lines.push(help_line(".", "toggle hidden"));
-    lines.push(help_line("s", "cycle sort"));
-    lines.push(help_line("R", "refresh"));
-    lines.push(help_line("PgDn/PgUp", "page down / up"));
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc", "close"));
+    lines.push(help_line("Tab", crate::i18n::text("switch pane")));
+    lines.push(help_line("j/k ↑↓", crate::i18n::text("up / down")));
+    lines.push(help_line("Enter", crate::i18n::text("open dir / copy")));
+    lines.push(help_line("Backspace", crate::i18n::text("go up")));
+    lines.push(help_line("Space", crate::i18n::text("select / deselect")));
+    lines.push(help_line("a", crate::i18n::text("select all / none")));
+    lines.push(help_line(".", crate::i18n::text("toggle hidden")));
+    lines.push(help_line("s", crate::i18n::text("cycle sort")));
+    lines.push(help_line("R", crate::i18n::text("refresh")));
+    lines.push(help_line("PgDn/PgUp", crate::i18n::text("page down / up")));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc", crate::i18n::text("close")));
     lines
 }
 
 fn snippet_picker_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("Enter", "run (captured)"));
+    lines.push(help_line("Enter", crate::i18n::text("run (captured)")));
     lines.push(help_line("!", "run (raw terminal)"));
-    lines.push(help_line("/", "search"));
-    lines.push(help_line("a", "add snippet"));
-    lines.push(help_line("e", "edit"));
-    lines.push(help_line("d", "del"));
-    lines.push(help_line("j/k ↑↓", "up / down"));
-    lines.push(help_line("PgDn/PgUp", "page down / up"));
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc", "close"));
+    lines.push(help_line("/", crate::i18n::text("search")));
+    lines.push(help_line("a", crate::i18n::text("add snippet")));
+    lines.push(help_line("e", crate::i18n::text("edit")));
+    lines.push(help_line("d", crate::i18n::text("del")));
+    lines.push(help_line("j/k ↑↓", crate::i18n::text("up / down")));
+    lines.push(help_line("PgDn/PgUp", crate::i18n::text("page down / up")));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc", crate::i18n::text("close")));
     lines
 }
 
@@ -424,8 +433,8 @@ fn snippet_output_lines() -> Vec<Line<'static>> {
     lines.push(help_line("n/N", "next / prev host"));
     lines.push(help_line("c", "copy output"));
     lines.push(help_line("j/k ↑↓", "scroll"));
-    lines.push(help_line("PgDn/PgUp", "page down / up"));
-    lines.push(help_line("?", "help"));
+    lines.push(help_line("PgDn/PgUp", crate::i18n::text("page down / up")));
+    lines.push(help_line("?", crate::i18n::text("help")));
     lines.push(help_line("Ctrl+C", "cancel run"));
     lines.push(help_line("q/Esc", "close / cancel"));
     lines
@@ -433,27 +442,27 @@ fn snippet_output_lines() -> Vec<Line<'static>> {
 
 fn containers_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k ↑↓", "up / down"));
+    lines.push(help_line("j/k ↑↓", crate::i18n::text("up / down")));
     lines.push(help_line("s", "start"));
-    lines.push(help_line("x", "stop"));
-    lines.push(help_line("r", "restart"));
-    lines.push(help_line("R", "refresh"));
-    lines.push(help_line("PgDn/PgUp", "page down / up"));
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc", "close"));
+    lines.push(help_line("x", crate::i18n::text("stop")));
+    lines.push(help_line("r", crate::i18n::text("restart")));
+    lines.push(help_line("R", crate::i18n::text("refresh")));
+    lines.push(help_line("PgDn/PgUp", crate::i18n::text("page down / up")));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc", crate::i18n::text("close")));
     lines
 }
 
 fn tunnels_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k ↑↓", "up / down"));
-    lines.push(help_line("a", "add tunnel"));
-    lines.push(help_line("e", "edit"));
-    lines.push(help_line("d", "del"));
-    lines.push(help_line("Enter", "start / stop"));
-    lines.push(help_line("PgDn/PgUp", "page down / up"));
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc", "close"));
+    lines.push(help_line("j/k ↑↓", crate::i18n::text("up / down")));
+    lines.push(help_line("a", crate::i18n::text("add tunnel")));
+    lines.push(help_line("e", crate::i18n::text("edit")));
+    lines.push(help_line("d", crate::i18n::text("del")));
+    lines.push(help_line("Enter", crate::i18n::text("start / stop")));
+    lines.push(help_line("PgDn/PgUp", crate::i18n::text("page down / up")));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc", crate::i18n::text("close")));
     lines
 }
 
@@ -464,31 +473,31 @@ fn tunnels_lines() -> Vec<Line<'static>> {
 /// so each column ends on a leave-action verb.
 fn tunnels_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
     let col1 = vec![
-        blank(),                    // row 0
-        section_header("NAVIGATE"), // row 1 ↔ col2 MANAGE TUNNELS
-        blank(),                    // row 2
-        help_line("j/k ↑↓", "up / down"),
-        help_line("PgDn/PgUp", "page down / up"),
+        blank(),                                       // row 0
+        section_header(crate::i18n::text("NAVIGATE")), // row 1 ↔ col2 MANAGE TUNNELS
+        blank(),                                       // row 2
+        help_line("j/k ↑↓", crate::i18n::text("up / down")),
+        help_line("PgDn/PgUp", crate::i18n::text("page down / up")),
         help_line("g/G", "top / bottom"),
-        help_line("/", "search"),
+        help_line("/", crate::i18n::text("search")),
         help_line("Esc", "clear search"),
         blank(),                   // row 8
         blank(),                   // row 9 padding so headers align
         section_header("ACTIONS"), // row 10 ↔ col2 NAVIGATE TABS
         blank(),
-        help_line("Enter", "start / stop"),
-        help_line("s", "cycle sort"),
+        help_line("Enter", crate::i18n::text("start / stop")),
+        help_line("s", crate::i18n::text("cycle sort")),
         blank(),
-        help_line(":", "jump (search anything)"), // row 15 ↔ col2 q quit
+        help_line(":", crate::i18n::text("jump (search anything)")), // row 15 ↔ col2 q quit
     ];
 
     let col2 = vec![
         blank(),                          // row 0
         section_header("MANAGE TUNNELS"), // row 1 ↔ col1 NAVIGATE
         blank(),
-        help_line_short("a", "add tunnel"),
-        help_line_short("e", "edit"),
-        help_line_short("d", "del"),
+        help_line_short("a", crate::i18n::text("add tunnel")),
+        help_line_short("e", crate::i18n::text("edit")),
+        help_line_short("d", crate::i18n::text("del")),
         blank(),
         blank(),
         blank(),
@@ -496,9 +505,9 @@ fn tunnels_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
         section_header("NAVIGATE TABS"), // row 10 ↔ col1 ACTIONS
         blank(),
         help_line_short("Tab", "switch tabs"),
-        help_line_short("n", "what's new"),
+        help_line_short("n", crate::i18n::text("what's new")),
         blank(),
-        help_line_short("q", "quit"), // row 15 ↔ col1 `:`
+        help_line_short("q", crate::i18n::text("quit")), // row 15 ↔ col1 `:`
     ];
 
     (col1, col2)
@@ -507,12 +516,12 @@ fn tunnels_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
 fn containers_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
     let col1 = vec![
         blank(),
-        section_header("NAVIGATE"),
+        section_header(crate::i18n::text("NAVIGATE")),
         blank(),
-        help_line("j/k ↑↓", "up / down"),
-        help_line("PgDn/PgUp", "page down / up"),
+        help_line("j/k ↑↓", crate::i18n::text("up / down")),
+        help_line("PgDn/PgUp", crate::i18n::text("page down / up")),
         help_line("g/G", "top / bottom"),
-        help_line("/", "search"),
+        help_line("/", crate::i18n::text("search")),
         help_line("Esc", "clear search"),
         help_line("v", "toggle detail panel"),
         help_line("Space", "fold / unfold host group"),
@@ -524,11 +533,11 @@ fn containers_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
         help_line("l", "logs (last 200 lines)"),
         help_line("K", "kick (restart)"),
         help_line("Ctrl-K", "kick whole stack"),
-        help_line("S", "stop"),
+        help_line("S", crate::i18n::text("stop")),
         help_line("e", "exec one-off command"),
-        help_line("s", "cycle sort"),
+        help_line("s", crate::i18n::text("cycle sort")),
         blank(),
-        help_line(":", "jump (search anything)"),
+        help_line(":", crate::i18n::text("jump (search anything)")),
     ];
 
     let col2 = vec![
@@ -545,15 +554,15 @@ fn containers_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
         blank(),
         help_line_short("r", "refresh host"),
         help_line_short("R", "refresh all"),
-        help_line_short("a", "add host"),
+        help_line_short("a", crate::i18n::text("add host")),
         blank(),
         blank(),
         section_header("NAVIGATE TABS"),
         blank(),
         help_line_short("Tab", "switch tabs"),
-        help_line_short("n", "what's new"),
+        help_line_short("n", crate::i18n::text("what's new")),
         blank(),
-        help_line_short("q", "quit"),
+        help_line_short("q", crate::i18n::text("quit")),
     ];
 
     (col1, col2)
@@ -572,14 +581,14 @@ fn keys_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
     // STRENGTH legend + VAULT STRIP legend + TABS in col2 (15-char
     // descriptions via help_line_short).
     let col1 = vec![
-        blank(),                    // row 0
-        section_header("NAVIGATE"), // row 1
+        blank(),                                       // row 0
+        section_header(crate::i18n::text("NAVIGATE")), // row 1
         blank(),
-        help_line("j/k ↑↓", "up / down"),
-        help_line("PgDn/PgUp", "page down / up"),
+        help_line("j/k ↑↓", crate::i18n::text("up / down")),
+        help_line("PgDn/PgUp", crate::i18n::text("page down / up")),
         help_line("g/G", "first / last"),
-        help_line("/", "search (scoped)"),
-        help_line(":", "jump (search anything)"),
+        help_line("/", crate::i18n::text("search (scoped)")),
+        help_line(":", crate::i18n::text("jump (search anything)")),
         help_line("Esc", "clear filter"),
         blank(),
         section_header("ACTIONS"),
@@ -607,8 +616,8 @@ fn keys_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
         section_header("TABS"),
         blank(),
         help_line_short("Tab", "switch tabs"),
-        help_line_short("n", "what's new"),
-        help_line_short("q", "quit"),
+        help_line_short("n", crate::i18n::text("what's new")),
+        help_line_short("q", crate::i18n::text("quit")),
     ];
 
     (col1, col2)
@@ -617,21 +626,21 @@ fn keys_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
 fn snippets_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
     let col1 = vec![
         blank(),
-        section_header("NAVIGATE"),
+        section_header(crate::i18n::text("NAVIGATE")),
         blank(),
-        help_line("j/k ↑↓", "up / down"),
-        help_line("PgDn/PgUp", "page down / up"),
+        help_line("j/k ↑↓", crate::i18n::text("up / down")),
+        help_line("PgDn/PgUp", crate::i18n::text("page down / up")),
         help_line("g/G", "first / last"),
-        help_line("/", "search (scoped)"),
+        help_line("/", crate::i18n::text("search (scoped)")),
         help_line("Esc", "clear filter"),
         blank(),
         section_header("ACTIONS"),
         blank(),
         help_line("Enter/r", "run on hosts"),
         help_line("!", "run in terminal"),
-        help_line("a", "add snippet"),
-        help_line("e", "edit snippet"),
-        help_line("d", "delete snippet"),
+        help_line("a", crate::i18n::text("add snippet")),
+        help_line("e", crate::i18n::text("edit snippet")),
+        help_line("d", crate::i18n::text("delete snippet")),
         help_line("v", "toggle detail"),
     ];
 
@@ -646,8 +655,8 @@ fn snippets_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
         section_header("TABS"),
         blank(),
         help_line_short("Tab", "switch tabs"),
-        help_line_short("n", "what's new"),
-        help_line_short("q", "quit"),
+        help_line_short("n", crate::i18n::text("what's new")),
+        help_line_short("q", crate::i18n::text("quit")),
     ];
 
     (col1, col2)
@@ -655,62 +664,62 @@ fn snippets_overview_columns() -> (Vec<Line<'static>>, Vec<Line<'static>>) {
 
 fn key_list_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k ↑↓", "up / down"));
+    lines.push(help_line("j/k ↑↓", crate::i18n::text("up / down")));
     lines.push(help_line("Enter", "view detail"));
-    lines.push(help_line("PgDn/PgUp", "page down / up"));
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc", "close"));
+    lines.push(help_line("PgDn/PgUp", crate::i18n::text("page down / up")));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc", crate::i18n::text("close")));
     lines
 }
 
 fn key_detail_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc", "close"));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc", crate::i18n::text("close")));
     lines
 }
 
 fn host_detail_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
     lines.push(help_line("e", "edit host"));
-    lines.push(help_line("r", "run snippet"));
-    lines.push(help_line("T", "tunnels"));
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc/i", "close"));
+    lines.push(help_line("r", crate::i18n::text("run snippet")));
+    lines.push(help_line("T", crate::i18n::text("tunnels")));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc/i", crate::i18n::text("close")));
     lines
 }
 
 fn tag_picker_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k ↑↓", "up / down"));
+    lines.push(help_line("j/k ↑↓", crate::i18n::text("up / down")));
     lines.push(help_line("Enter", "filter by tag"));
-    lines.push(help_line("PgDn/PgUp", "page down / up"));
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc/#", "close"));
+    lines.push(help_line("PgDn/PgUp", crate::i18n::text("page down / up")));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc/#", crate::i18n::text("close")));
     lines
 }
 
 fn bulk_tag_editor_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k ↑↓", "up / down"));
+    lines.push(help_line("j/k ↑↓", crate::i18n::text("up / down")));
     lines.push(help_line("Space", "cycle [~] [x] [ ]"));
     lines.push(help_line("+", "new tag"));
-    lines.push(help_line("Enter", "apply"));
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc", "cancel"));
+    lines.push(help_line("Enter", crate::i18n::text("apply")));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc", crate::i18n::text("cancel")));
     lines
 }
 
 fn providers_lines() -> Vec<Line<'static>> {
     let mut lines = vec![blank()];
-    lines.push(help_line("j/k ↑↓", "up / down"));
+    lines.push(help_line("j/k ↑↓", crate::i18n::text("up / down")));
     lines.push(help_line("Enter", "configure"));
-    lines.push(help_line("s", "sync"));
+    lines.push(help_line("s", crate::i18n::text("sync")));
     lines.push(help_line("d", "del config"));
     lines.push(help_line("X", "purge stale"));
-    lines.push(help_line("PgDn/PgUp", "page down / up"));
-    lines.push(help_line("?", "help"));
-    lines.push(help_line("q/Esc", "close"));
+    lines.push(help_line("PgDn/PgUp", crate::i18n::text("page down / up")));
+    lines.push(help_line("?", crate::i18n::text("help")));
+    lines.push(help_line("q/Esc", crate::i18n::text("close")));
     lines
 }
 
@@ -742,7 +751,7 @@ mod tests {
         assert!(!lines.is_empty());
         let text: String = lines.iter().map(|l| l.to_string()).collect();
         assert!(
-            text.contains("run (captured)"),
+            text.contains(crate::i18n::text("run (captured)")),
             "should have Enter shortcut"
         );
     }
@@ -783,7 +792,7 @@ mod tests {
 
     #[test]
     fn help_line_has_right_aligned_key() {
-        let line = help_line("j/k", "up / down");
+        let line = help_line("j/k", crate::i18n::text("up / down"));
         let key_text = line.spans[0].to_string();
         assert!(key_text.starts_with(' '), "key should have leading spaces");
         assert!(
@@ -794,7 +803,7 @@ mod tests {
 
     #[test]
     fn help_line_description_is_dim() {
-        let line = help_line("j/k", "up / down");
+        let line = help_line("j/k", crate::i18n::text("up / down"));
         let desc_span = &line.spans[1];
         assert!(
             desc_span.style.add_modifier.contains(Modifier::DIM),
@@ -809,7 +818,7 @@ mod tests {
             context_title(&Screen::FileBrowser {
                 alias: "test".into()
             }),
-            "File Explorer"
+            crate::i18n::text("File Explorer")
         );
         assert_eq!(context_title(&Screen::SnippetPicker), "Snippets");
         assert_eq!(context_title(&Screen::SnippetOutput), "Output");
@@ -817,13 +826,13 @@ mod tests {
             context_title(&Screen::Containers {
                 alias: "test".into()
             }),
-            "Containers"
+            crate::i18n::text("Containers")
         );
         assert_eq!(
             context_title(&Screen::TunnelList {
                 alias: "test".into()
             }),
-            "Tunnels"
+            crate::i18n::text("Tunnels")
         );
     }
 
@@ -880,12 +889,12 @@ mod tests {
             .map(|l| l.to_string())
             .collect();
         for desc in &[
-            "file explorer",
-            "tunnels",
-            "containers",
-            "SSH keys",
-            "providers",
-            "copy ssh command",
+            crate::i18n::text("file explorer"),
+            crate::i18n::text("tunnels"),
+            crate::i18n::text("containers"),
+            crate::i18n::text("SSH keys"),
+            crate::i18n::text("providers"),
+            crate::i18n::text("copy ssh command"),
         ] {
             assert!(all_text.contains(desc), "help columns missing '{}'", desc);
         }
@@ -896,13 +905,13 @@ mod tests {
         let (col1, _) = host_list_columns();
         let text: String = col1.iter().map(|l| l.to_string()).collect();
         for desc in &[
-            "up / down",
-            "page down / up",
-            "connect",
-            "search",
-            "tag picker",
-            "detail panel",
-            "cycle sort",
+            crate::i18n::text("up / down"),
+            crate::i18n::text("page down / up"),
+            crate::i18n::text("connect"),
+            crate::i18n::text("search"),
+            crate::i18n::text("tag picker"),
+            crate::i18n::text("detail panel"),
+            crate::i18n::text("cycle sort"),
         ] {
             assert!(text.contains(desc), "col1 missing '{}'", desc);
         }
@@ -960,13 +969,13 @@ mod tests {
             ("file_browser", file_browser_lines()),
             ("snippet_picker", snippet_picker_lines()),
             ("snippet_output", snippet_output_lines()),
-            ("containers", containers_lines()),
-            ("tunnels", tunnels_lines()),
+            (crate::i18n::text("containers"), containers_lines()),
+            (crate::i18n::text("tunnels"), tunnels_lines()),
             ("key_list", key_list_lines()),
             ("key_detail", key_detail_lines()),
             ("host_detail", host_detail_lines()),
             ("tag_picker", tag_picker_lines()),
-            ("providers", providers_lines()),
+            (crate::i18n::text("providers"), providers_lines()),
         ];
         for (name, lines) in cases {
             let has_help_key = lines.iter().any(|l| {
@@ -1040,12 +1049,12 @@ mod tests {
         let mut app = help_test_app(Screen::HostList);
         let text = render_to_text(&mut app, 100, 40);
         for header in [
-            "NAVIGATE",
-            "VIEW",
-            "CLIPBOARD",
-            "MANAGE HOSTS",
-            "CONNECT AND RUN",
-            "TOOLS",
+            crate::i18n::text("NAVIGATE"),
+            crate::i18n::text("VIEW"),
+            crate::i18n::text("CLIPBOARD"),
+            crate::i18n::text("MANAGE HOSTS"),
+            crate::i18n::text("CONNECT AND RUN"),
+            crate::i18n::text("TOOLS"),
         ] {
             assert!(
                 text.contains(header),
@@ -1070,7 +1079,12 @@ mod tests {
             0,
             "host-list help should fit without scrolling at 100x50"
         );
-        for header in ["NAVIGATE", "VIEW", "MANAGE HOSTS", "TOOLS"] {
+        for header in [
+            crate::i18n::text("NAVIGATE"),
+            crate::i18n::text("VIEW"),
+            crate::i18n::text("MANAGE HOSTS"),
+            crate::i18n::text("TOOLS"),
+        ] {
             assert!(
                 text.contains(header),
                 "host-list help should render '{header}' fully at 100x50"
@@ -1104,12 +1118,12 @@ mod tests {
             .map(|l| l.to_string())
             .collect();
         for desc in &[
-            "start / stop",
-            "add tunnel",
-            "edit",
-            "search",
-            "cycle sort",
-            "jump (search anything)",
+            crate::i18n::text("start / stop"),
+            crate::i18n::text("add tunnel"),
+            crate::i18n::text("edit"),
+            crate::i18n::text("search"),
+            crate::i18n::text("cycle sort"),
+            crate::i18n::text("jump (search anything)"),
             "switch tabs",
         ] {
             assert!(
@@ -1156,11 +1170,11 @@ mod tests {
             "tunnels-tab help must show tunnel section header"
         );
         assert!(
-            text.contains("start / stop"),
+            text.contains(crate::i18n::text("start / stop")),
             "tunnels-tab help should show Enter shortcut"
         );
         assert!(
-            !text.contains("MANAGE HOSTS"),
+            !text.contains(crate::i18n::text("MANAGE HOSTS")),
             "tunnels-tab help must not show host-list section headers"
         );
         assert!(
@@ -1183,13 +1197,13 @@ mod tests {
             .collect();
         for desc in &[
             "shell into container",
-            "search",
-            "cycle sort",
-            "jump (search anything)",
+            crate::i18n::text("search"),
+            crate::i18n::text("cycle sort"),
+            crate::i18n::text("jump (search anything)"),
             "switch tabs",
             "refresh host",
             "refresh all",
-            "add host",
+            crate::i18n::text("add host"),
         ] {
             assert!(
                 text.contains(desc),
@@ -1209,9 +1223,9 @@ mod tests {
         for desc in &[
             "run on hosts",
             "run in terminal",
-            "add snippet",
-            "edit snippet",
-            "delete snippet",
+            crate::i18n::text("add snippet"),
+            crate::i18n::text("edit snippet"),
+            crate::i18n::text("delete snippet"),
             "toggle detail",
             "switch tabs",
         ] {
@@ -1236,7 +1250,7 @@ mod tests {
             "snippets-tab help must show Enter/r shortcut"
         );
         assert!(
-            text.contains("add snippet"),
+            text.contains(crate::i18n::text("add snippet")),
             "snippets-tab help must show 'a' shortcut"
         );
         assert!(
@@ -1263,7 +1277,7 @@ mod tests {
             "containers-tab help must show 'R' shortcut"
         );
         assert!(
-            text.contains("add host"),
+            text.contains(crate::i18n::text("add host")),
             "containers-tab help must show 'a' shortcut"
         );
         assert!(

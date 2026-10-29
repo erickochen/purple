@@ -247,7 +247,7 @@ pub fn skipping_host(alias: &str, e: &impl std::fmt::Display) -> String {
 // ── Password CLI ────────────────────────────────────────────────
 
 pub fn password_removed(alias: &str) -> String {
-    format!("Password removed for {}.", alias)
+    crate::tformat!("Password removed for {}.", alias)
 }
 
 // ── Log CLI ─────────────────────────────────────────────────────
