@@ -401,12 +401,21 @@ fn run_direct_connect(
     {
         eprintln!("{}", msg);
     }
-    let askpass = host_entry
+    let mut askpass = host_entry
         .as_ref()
         .and_then(|h| h.askpass.clone())
         .or_else(|| preferences::load_askpass_default(env.paths()));
     ensure_proton_login(env, askpass.as_deref());
     let bw_session = ensure_bw_session(env, None, askpass.as_deref());
+    if !crate::bitwarden_enroll::prepare(
+        env,
+        config_path,
+        &alias,
+        &mut askpass,
+        bw_session.as_deref(),
+    )? {
+        return Ok(());
+    }
     ensure_keychain_password(env, &alias, askpass.as_deref());
     let launcher = crate::ssh_launcher::SshLauncher::resolve(env);
     let result = connection::connect(
@@ -454,12 +463,21 @@ fn run_positional_alias(
             eprintln!("{}", msg);
         }
         let alias = host.alias.clone();
-        let askpass = host
+        let mut askpass = host
             .askpass
             .clone()
             .or_else(|| preferences::load_askpass_default(env.paths()));
         ensure_proton_login(&env, askpass.as_deref());
         let bw_session = ensure_bw_session(&env, None, askpass.as_deref());
+        if !crate::bitwarden_enroll::prepare(
+            &env,
+            config_path,
+            &alias,
+            &mut askpass,
+            bw_session.as_deref(),
+        )? {
+            return Ok(());
+        }
         ensure_keychain_password(&env, &alias, askpass.as_deref());
         print!("{}", messages::cli::beaming_up(&alias));
         let launcher = crate::ssh_launcher::SshLauncher::resolve(&env);

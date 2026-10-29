@@ -321,6 +321,28 @@ impl App {
         } else {
             Vec::new()
         };
+        let rename_result = if !self.demo_mode && !self.forms.host.is_pattern {
+            // Identity uses effective SSH values, including inherited User/Port.
+            let saved_entry = self
+                .hosts_state
+                .ssh_config
+                .host_entries()
+                .into_iter()
+                .find(|host| host.alias == alias)
+                .expect("saved host exists");
+            crate::bitwarden_enroll::queue_rename(
+                &self.env,
+                self.reload.config_path(),
+                &old_entry,
+                &saved_entry,
+            )
+        } else {
+            Ok(false)
+        };
+        if matches!(rename_result, Ok(true)) {
+            self.ui.pending_bitwarden_rename =
+                Some((alias.clone(), entry.askpass.clone().unwrap_or_default()));
+        }
         self.rename_aliases(&renames);
         // cert_cache is intentionally NOT migrated by rename_aliases; clear
         // the stale entry under the old alias and refresh under the new one
@@ -330,7 +352,11 @@ impl App {
             self.vault.cert_cache.remove(old_alias);
         }
         self.refresh_cert_cache(&alias);
-        Ok(format!("{} got a makeover.", alias))
+        match rename_result {
+            Err(e) => Ok(crate::messages::bitwarden::rename_queue_failed(&e)),
+            Ok(true) => Ok(crate::messages::bitwarden::rename_queued(&alias)),
+            Ok(false) => Ok(format!("{} got a makeover.", alias)),
+        }
     }
 
     /// Apply a batch of `(old, new)` alias renames after the SSH config

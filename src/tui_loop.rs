@@ -102,6 +102,7 @@ pub fn run_tui(mut app: App) -> Result<()> {
 
         lazy_cert_check(&mut app, &events_tx);
 
+        handle_pending_bitwarden_rename(&mut app, &mut terminal, &events)?;
         handle_pending_connect(&mut app, &mut terminal, &events, &mut last_config_check)?;
         handle_pending_container_exec(&mut app, &mut terminal, &events, &mut last_config_check)?;
         handle_pending_container_logs(&mut app, &events_tx);
@@ -484,6 +485,36 @@ fn lazy_cert_check(app: &mut App, events_tx: &std::sync::mpsc::Sender<AppEvent>)
     }
 }
 
+fn handle_pending_bitwarden_rename(
+    app: &mut App,
+    terminal: &mut tui::Tui,
+    events: &EventHandler,
+) -> Result<()> {
+    let Some((alias, source)) = app.ui.pending_bitwarden_rename.take() else {
+        return Ok(());
+    };
+    events.pause();
+    terminal.suspend()?;
+    let env = std::sync::Arc::clone(&app.env);
+    if let Some(token) = ensure_bw_session(&env, app.bw_session.as_deref(), Some(&source)) {
+        app.bw_session = Some(token);
+    }
+    let result = crate::bitwarden_enroll::sync_pending_rename(
+        &env,
+        app.reload.config_path(),
+        &alias,
+        app.bw_session.as_deref(),
+    );
+    terminal.enter()?;
+    events.resume();
+    match result {
+        Ok(Some(message)) => app.notify(message.to_string()),
+        Ok(None) => {}
+        Err(e) => app.notify_warning(crate::messages::bitwarden::host_renamed_pending(&e)),
+    }
+    Ok(())
+}
+
 /// Drain any queued SSH connection request. In tmux mode we open a new
 /// window and leave the TUI alive; otherwise we suspend the TUI, run ssh
 /// inline, then restore it. Vault SSH signing and askpass pre-flight
@@ -503,7 +534,7 @@ fn handle_pending_connect(
         .iter()
         .find(|h| h.alias == alias)
         .cloned();
-    let askpass = host_askpass.or_else(|| preferences::load_askpass_default(app.env().paths()));
+    let mut askpass = host_askpass.or_else(|| preferences::load_askpass_default(app.env().paths()));
     let has_active_tunnel = app.tunnels.active_contains(&alias);
     let use_tmux = connection::is_in_tmux(app.env()) && askpass.is_none();
     let launcher = crate::ssh_launcher::SshLauncher::resolve(app.env());
@@ -589,6 +620,24 @@ fn handle_pending_connect(
     ensure_proton_login(&env, askpass.as_deref());
     if let Some(token) = ensure_bw_session(&env, app.bw_session.as_deref(), askpass.as_deref()) {
         app.bw_session = Some(token);
+    }
+    match crate::bitwarden_enroll::prepare(
+        &env,
+        app.reload.config_path(),
+        &alias,
+        &mut askpass,
+        app.bw_session.as_deref(),
+    ) {
+        Ok(true) => {}
+        outcome => {
+            terminal.enter()?;
+            events.resume();
+            match outcome {
+                Err(e) => app.notify_error(e.to_string()),
+                _ => app.notify_warning(crate::messages::bitwarden::CANCELLED),
+            }
+            return Ok(());
+        }
     }
     ensure_keychain_password(&env, &alias, askpass.as_deref());
     print!("{}", crate::messages::cli::beaming_up(&alias));

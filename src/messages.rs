@@ -9,6 +9,7 @@
 //! picker) own their own slice of the surface and are glob-re-exported
 //! below so callers continue to write `crate::messages::X` unchanged.
 
+pub mod bitwarden;
 pub mod container;
 pub mod host;
 pub mod picker;

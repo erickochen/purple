@@ -190,6 +190,9 @@ jobs:
       - name: Run smoke test
         run: ./tests/smoke_tui.sh ./target/debug/purple
 
+      - name: Check Bitwarden first-connection enrollment
+        run: python3 tests/bitwarden_enroll_smoke.py target/debug/purple
+
   visual-regression:
     name: Visual regression
     runs-on: ubuntu-22.04

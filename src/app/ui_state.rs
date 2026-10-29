@@ -114,6 +114,7 @@ pub struct UiSelection {
     pub(in crate::app) known_hosts_count: usize,
     /// Pending SSH dispatch queued by connect actions; consumed by the event loop.
     pub(in crate::app) pending_connect: Option<(String, Option<String>)>,
+    pub(crate) pending_bitwarden_rename: Option<(String, String)>,
 }
 
 impl UiSelection {

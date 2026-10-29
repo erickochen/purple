@@ -334,7 +334,9 @@ pub(super) fn submit_form(app: &mut App) {
             // Handle keychain changes on edit
             let mut final_msg = msg;
             if old_askpass.as_deref() == Some("keychain") {
-                if app.forms.host_mut().askpass != "keychain" {
+                if app.forms.host_mut().askpass.starts_with("bw:") {
+                    final_msg = crate::messages::bitwarden::keychain_preserved(&final_msg);
+                } else if app.forms.host_mut().askpass != "keychain" {
                     // Source changed away from keychain. remove old entry
                     if let Screen::EditHost { ref alias } = app.screen {
                         let _ = crate::askpass::remove_from_keychain(&app.env, alias);

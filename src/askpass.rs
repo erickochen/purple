@@ -28,7 +28,7 @@ pub const PASSWORD_SOURCES: &[PasswordSourceOption] = &[
     PasswordSourceOption {
         label: "Bitwarden",
         value: "bw:",
-        hint: "bw:item-name",
+        hint: "bw: = save on first login",
     },
     PasswordSourceOption {
         label: "pass",
@@ -737,6 +737,10 @@ fn retrieve_from_pass(env: &crate::runtime::env::Env, entry: &str) -> Result<Str
 /// Retrieve from Bitwarden CLI. The item_id can be an item ID or search term.
 /// Uses `bw get password <item_id>` which requires an unlocked vault (BW_SESSION).
 fn retrieve_from_bitwarden(env: &crate::runtime::env::Env, item_id: &str) -> Result<String> {
+    anyhow::ensure!(
+        !item_id.trim().is_empty(),
+        crate::messages::bitwarden::UNBOUND
+    );
     let result = env
         .command("bw")
         .args(["get", "password", item_id])

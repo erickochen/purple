@@ -10007,3 +10007,41 @@ fn config_path_display_collapses_home_and_keeps_demo_default() {
     );
     assert_eq!(no_home.config_path_display(), "/srv/ssh_config");
 }
+
+#[test]
+fn bitwarden_host_rename_persists_uuid_and_queues_metadata_sync() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_path = dir.path().join("config");
+    let uuid = "11111111-1111-4111-8111-111111111111";
+    std::fs::write(
+        &config_path,
+        format!("Host before\n HostName example.test\n User root\n # purple:askpass bw:{uuid}\n"),
+    )
+    .unwrap();
+    let env = Arc::new(crate::runtime::env::Env::for_test(dir.path()));
+    let config = SshConfigFile::parse(&config_path).unwrap();
+    let mut app = App::with_env(config, Arc::clone(&env));
+    let host = app.hosts_state.list[0].clone();
+    assert!(app.open_host_edit_form(host, None));
+    app.forms.host.alias = "after".into();
+    app.edit_host_from_form("before").unwrap();
+    let saved = SshConfigFile::parse(&config_path)
+        .unwrap()
+        .host_entries()
+        .remove(0);
+    assert_eq!(saved.alias, "after");
+    assert_eq!(saved.askpass, Some(format!("bw:{uuid}")));
+    assert_eq!(
+        app.ui.pending_bitwarden_rename,
+        Some(("after".into(), format!("bw:{uuid}")))
+    );
+    let journal = env
+        .paths()
+        .unwrap()
+        .state_dir()
+        .join("bitwarden-renames")
+        .join(format!("{uuid}.json"));
+    let pending: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(journal).unwrap()).unwrap();
+    assert_eq!(pending["new_name"], "Purple / after");
+}
