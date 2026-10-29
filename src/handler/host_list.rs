@@ -331,11 +331,16 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
                 ));
             }
         }
-        KeyCode::Char('L') => {
-            if let Err(e) = crate::i18n::toggle() {
-                app.notify_error(crate::messages::language::error(&e));
-            }
-        }
+        KeyCode::Char('L') => match crate::i18n::toggle_for_session(!app.demo_mode) {
+            Err(e) => app.notify_error(crate::messages::language::error(&e)),
+            Ok(()) => app.notify(crate::messages::language::selected(
+                if crate::i18n::is_chinese() {
+                    "zh-CN"
+                } else {
+                    "en"
+                },
+            )),
+        },
         KeyCode::Char('g') => actions::cycle_group_by(app),
         KeyCode::Char('i') => {
             if app.is_pattern_selected() {

@@ -58,7 +58,17 @@ fn switch_languages_and_preserve_user_values() {
         screen.contains("prod-eu1"),
         "Host alias must remain unchanged"
     );
+    // A demo toggle must never persist a preference.
+    i18n::toggle_for_session(false).unwrap();
+    assert_eq!(i18n::text("Snippets"), "Snippets");
+    assert_eq!(std::fs::read_to_string(&language).unwrap(), "zh-CN\n");
+    i18n::toggle_for_session(false).unwrap();
     i18n::toggle().unwrap();
     assert_eq!(i18n::text("Snippets"), "Snippets");
     assert_eq!(std::fs::read_to_string(&language).unwrap(), "en\n");
+    i18n::initialize(Some("en"), None).unwrap();
+    i18n::toggle_for_session(true).unwrap();
+    assert!(i18n::is_chinese());
+    assert_eq!(std::fs::read_to_string(&language).unwrap(), "en\n");
+    i18n::initialize(None, None).unwrap();
 }

@@ -249,10 +249,7 @@ pub fn default_audit_log_path(paths: Option<&crate::runtime::env::Paths>) -> Opt
     match paths {
         Some(p) => Some(p.mcp_audit_log()),
         None => {
-            warn!(
-                "[purple] {}",
-                crate::i18n::text(messages::MCP_AUDIT_HOME_DIR_UNAVAILABLE)
-            );
+            warn!("[purple] {}", messages::MCP_AUDIT_HOME_DIR_UNAVAILABLE);
             None
         }
     }
@@ -639,7 +636,7 @@ fn handle_tools_call(params: Option<Value>, ctx: &McpContext) -> JsonRpcResponse
 
     if !ctx.is_tool_allowed(tool_name) {
         debug!("[purple] MCP tool denied (read-only mode): tool={tool_name}");
-        let result = mcp_tool_error(crate::i18n::text(messages::MCP_TOOL_DENIED_READ_ONLY));
+        let result = mcp_tool_error(messages::MCP_TOOL_DENIED_READ_ONLY);
         if let Some(audit) = ctx.audit.as_ref() {
             audit.record(tool_name, &args, AuditOutcome::Denied);
         }

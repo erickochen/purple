@@ -5,12 +5,17 @@ use std::sync::{
     OnceLock,
     atomic::{AtomicBool, Ordering},
 };
+static SESSION_OVERRIDE: AtomicBool = AtomicBool::new(false);
 static CHINESE: AtomicBool = AtomicBool::new(false);
 static CATALOG: OnceLock<HashMap<String, String>> = OnceLock::new();
 static LANGUAGE_FILE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Whether the current UI session uses Simplified Chinese.
 pub fn is_chinese() -> bool {
     CHINESE.load(Ordering::Relaxed)
 }
+
+/// Translate a catalog key, falling back to its English text.
 pub fn text(english: &'static str) -> &'static str {
     if !is_chinese() {
         return english;
@@ -21,6 +26,22 @@ pub fn text(english: &'static str) -> &'static str {
     });
     map.get(english).map(String::as_str).unwrap_or(english)
 }
+/// Load optional translations over the bundled catalog; reject invalid placeholders.
+fn read_override(path: &std::path::Path) -> anyhow::Result<HashMap<String, String>> {
+    let overrides: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    for (key, value) in &overrides {
+        anyhow::ensure!(
+            key.matches("{}").count() == value.matches("{}").count(),
+            "Invalid language placeholder: {key}"
+        );
+    }
+    let mut catalog: HashMap<String, String> =
+        serde_json::from_str(include_str!("../locales/zh-CN.json"))?;
+    catalog.extend(overrides);
+    Ok(catalog)
+}
+
+/// Select the session language; an invalid override cannot disable CLI recovery.
 pub fn initialize(language: Option<&str>, path: Option<PathBuf>) -> anyhow::Result<()> {
     if let Some(p) = path {
         let _ = LANGUAGE_FILE.set(p);
@@ -31,24 +52,28 @@ pub fn initialize(language: Option<&str>, path: Option<PathBuf>) -> anyhow::Resu
         .map(|p| p.join("locales/zh-CN.json"))
         && path.exists()
     {
-        let map: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-        for (key, value) in &map {
-            anyhow::ensure!(
-                key.matches("{}").count() == value.matches("{}").count(),
-                "Invalid language placeholder: {key}"
-            );
+        match read_override(&path) {
+            Ok(map) => {
+                let _ = CATALOG.set(map);
+            }
+            Err(error) => eprintln!(
+                "{}",
+                crate::messages::language::invalid_override(&path, &error)
+            ),
         }
-        let _ = CATALOG.set(map);
     }
     let saved = LANGUAGE_FILE
         .get()
         .and_then(|p| std::fs::read_to_string(p).ok());
+    SESSION_OVERRIDE.store(language.is_some(), Ordering::Relaxed);
     CHINESE.store(
         language.or(saved.as_deref()).unwrap_or("en").trim() == "zh-CN",
         Ordering::Relaxed,
     );
     Ok(())
 }
+
+/// Translate before substituting opaque user values.
 pub fn format_text(key: &'static str, args: &[String]) -> String {
     let template = text(key);
     let mut out = String::new();
@@ -60,6 +85,8 @@ pub fn format_text(key: &'static str, args: &[String]) -> String {
     }
     out
 }
+
+/// Persist an explicit language choice and update this session.
 pub fn save(language: &str) -> std::io::Result<()> {
     let path = LANGUAGE_FILE
         .get()
@@ -68,12 +95,26 @@ pub fn save(language: &str) -> std::io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     crate::fs_util::atomic_write(path, format!("{language}\n").as_bytes())?;
+    SESSION_OVERRIDE.store(false, Ordering::Relaxed);
     CHINESE.store(language == "zh-CN", Ordering::Relaxed);
     Ok(())
 }
+
+/// Toggle the language, respecting a session-only override.
 pub fn toggle() -> std::io::Result<()> {
-    save(if is_chinese() { "en" } else { "zh-CN" })
+    toggle_for_session(true)
 }
+/// Demo and explicit --lang overrides stay in memory when the user presses L.
+pub fn toggle_for_session(persist: bool) -> std::io::Result<()> {
+    let language = if is_chinese() { "en" } else { "zh-CN" };
+    if persist && !SESSION_OVERRIDE.load(Ordering::Relaxed) {
+        save(language)
+    } else {
+        CHINESE.store(language == "zh-CN", Ordering::Relaxed);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

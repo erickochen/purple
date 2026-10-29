@@ -515,11 +515,21 @@ pub const COLUMN_HEADER_PREFIX: &str = "   ";
 /// Inter-column gap as string.
 pub const COL_GAP_STR: &str = "  ";
 
+/// Pad labels by terminal columns rather than Unicode scalar count.
+fn pad_to_width(label: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+    format!(
+        "{}{}",
+        label,
+        " ".repeat(width.saturating_sub(label.width()))
+    )
+}
+
 /// Key-value line: muted label (left-padded to width) + bold value.
 pub fn kv_line(label: &str, value: &str, label_width: usize) -> Line<'static> {
     Line::from(vec![
         Span::styled(
-            format!("  {:<width$}", label, width = label_width),
+            format!("  {}", pad_to_width(label, label_width)),
             theme::muted(),
         ),
         Span::styled(value.to_string(), theme::bold()),
@@ -1424,7 +1434,7 @@ pub fn section_field(
     };
     let spans = vec![
         Span::styled(
-            format!("{:<width$}", label, width = SECTION_LABEL_W as usize),
+            pad_to_width(label, SECTION_LABEL_W as usize),
             theme::muted(),
         ),
         Span::styled(display, theme::bold()),
@@ -1450,7 +1460,7 @@ pub fn section_field_styled(
     };
     let spans = vec![
         Span::styled(
-            format!("{:<width$}", label, width = SECTION_LABEL_W as usize),
+            pad_to_width(label, SECTION_LABEL_W as usize),
             theme::muted(),
         ),
         Span::styled(display, value_style),
@@ -2357,5 +2367,26 @@ mod tests {
         assert!(out.ends_with('…'));
         let inner = &out[..out.len() - '…'.len_utf8()];
         assert!(unicode_width::UnicodeWidthStr::width(inner) <= 8);
+    }
+}
+
+#[cfg(test)]
+mod localized_width_tests {
+    use super::*;
+    #[test]
+    fn cjk_labels_align_values_and_keep_section_borders() {
+        let _guard = crate::demo_flag::GLOBAL_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        for label in ["主机", "私钥文件", "ProxyJump", "e\u{301}"] {
+            let line = kv_line(label, "value", 14);
+            assert_eq!(line.spans[0].width(), 16);
+            let mut lines = Vec::new();
+            section_field(&mut lines, label, "value", 10, 35);
+            section_field_styled(&mut lines, label, "value", theme::bold(), 10, 35);
+            for line in lines {
+                assert_eq!(line.width(), 35);
+            }
+        }
     }
 }
