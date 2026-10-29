@@ -465,6 +465,10 @@ pub fn stderr_summary(stderr: &str) -> Option<String> {
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('@'))
+        .filter(|l| {
+            !(l.starts_with("Warning: Permanently added ")
+                && l.ends_with("to the list of known hosts."))
+        })
         .collect::<Vec<_>>()
         .join(" | ");
     if summary.is_empty() {
@@ -1139,6 +1143,24 @@ Host key verification failed.
         assert_eq!(
             result.as_deref(),
             Some("IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!")
+        );
+    }
+
+    #[test]
+    fn stderr_summary_omits_successful_host_key_save() {
+        let notice =
+            "Warning: Permanently added 'example.test' (ED25519) to the list of known hosts.\n";
+        assert_eq!(stderr_summary(notice), None);
+        assert_eq!(
+            stderr_summary(&format!(
+                "{notice}root@example.test: Permission denied (password).\n"
+            ))
+            .as_deref(),
+            Some("root@example.test: Permission denied (password).")
+        );
+        assert_eq!(
+            stderr_summary("Warning: Host key verification failed.\n").as_deref(),
+            Some("Warning: Host key verification failed.")
         );
     }
 

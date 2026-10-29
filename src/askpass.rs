@@ -60,6 +60,29 @@ pub const PASSWORD_SOURCES: &[PasswordSourceOption] = &[
     },
 ];
 
+/// Keep the full OpenSSH fingerprint prompt on the controlling terminal;
+/// stdout is reserved for the answer consumed by SSH.
+fn confirm_host_key_on_tty(prompt: &str) -> Result<()> {
+    use std::io::{BufRead, Write};
+    let mut tty = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+        .context("No terminal available to confirm the SSH host fingerprint")?;
+    write!(tty, "\n{prompt} ")?;
+    tty.flush()?;
+    let mut answer = String::new();
+    std::io::BufReader::new(tty).read_line(&mut answer)?;
+    // OpenSSH also accepts a fingerprint. Keep its exact, case-sensitive value.
+    let answer = answer.trim();
+    if answer == "yes" || (answer.starts_with("SHA256:") && prompt.contains(answer)) {
+        println!("{answer}");
+    } else {
+        println!("no");
+    }
+    Ok(())
+}
+
 /// Handle an SSH_ASKPASS invocation. Called when purple is invoked as an askpass program.
 /// Reads the password source from the host's `# purple:askpass` comment and retrieves it.
 pub fn handle(env: &crate::runtime::env::Env) -> Result<()> {
@@ -90,6 +113,16 @@ pub fn handle(env: &crate::runtime::env::Env) -> Result<()> {
     // password may answer it.
     if let Some(pin_prompt) = crate::security_key::parse_pin_prompt(&prompt) {
         return handle_pin_prompt(env, &alias, &prompt, pin_prompt);
+    }
+
+    // force-mode askpass never falls back to the terminal on failure.
+    // Host trust must be explicitly answered, never routed to a password vault.
+    if prompt.contains("yes/no") || env.var("SSH_ASKPASS_PROMPT") == Some("confirm") {
+        anyhow::ensure!(
+            !crate::askpass_env::runs_in_background(env),
+            "Host key unknown. Connect first (Enter) to trust the host."
+        );
+        return confirm_host_key_on_tty(&prompt);
     }
 
     let prompt_lower = prompt.to_ascii_lowercase();

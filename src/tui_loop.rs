@@ -609,7 +609,8 @@ fn handle_pending_connect(
                 app.record_key_use(&alias, key_activity::now_secs());
                 app.hosts_state.invalidate_render_cache();
             }
-            if code != 0 {
+            // Interactive shells return the last command status; SSH itself uses 255.
+            if connection::is_ssh_transport_failure(code) {
                 if let Some((hostname, known_hosts_path)) =
                     connection::parse_host_key_error(&cr.stderr_output)
                 {

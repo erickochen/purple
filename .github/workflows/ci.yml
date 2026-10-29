@@ -190,6 +190,13 @@ jobs:
       - name: Run smoke test
         run: ./tests/smoke_tui.sh ./target/debug/purple
 
+      - name: Check interactive SSH regressions
+        run: |
+          sudo apt-get update && sudo apt-get install -y openssh-server
+          sudo mkdir -p /run/sshd
+          python3 tests/ssh_exit_tui_smoke.py target/debug/purple
+          python3 tests/host_key_askpass_smoke.py target/debug/purple
+
   visual-regression:
     name: Visual regression
     runs-on: ubuntu-22.04
