@@ -48,7 +48,7 @@ pub fn rename_pending(e: &impl std::fmt::Display) -> String {
     format!("Bitwarden name not synchronized; retrying on the next connection: {e}")
 }
 pub fn host_renamed_pending(e: &impl std::fmt::Display) -> String {
-    format!("Host renamed; {}", rename_pending(e))
+    format!("Host saved; {}", rename_pending(e))
 }
 pub fn saving(alias: &str) -> String {
     format!("Saving the login password for {alias} in Bitwarden folder ssh/Purple.")
@@ -57,10 +57,10 @@ pub fn keychain_preserved(message: &str) -> String {
     format!("{message}. Original Keychain entry preserved.")
 }
 pub fn rename_queue_failed(e: &impl std::fmt::Display) -> String {
-    format!("Host renamed, but could not queue the Bitwarden rename: {e}")
+    format!("Host saved, but could not queue the Bitwarden rename: {e}")
 }
 pub fn rename_queued(alias: &str) -> String {
-    format!("Host renamed; synchronizing Bitwarden: {alias}")
+    format!("Host saved; synchronizing Bitwarden: {alias}")
 }
 
 pub fn operation_failed(operation: &str, code: Option<i32>) -> String {
@@ -68,3 +68,18 @@ pub fn operation_failed(operation: &str, code: Option<i32>) -> String {
         "Bitwarden {operation} failed (exit {code:?}); host binding was not written. Check CLI login, vault unlock and network access."
     )
 }
+
+/// Recovery is explicit because a network failure cannot prove creation failed.
+pub fn enrollment_recovery(journal: &std::path::Path) -> String {
+    format!(
+        "Recovery journal (if present): {}. Run bw sync and inspect the personal vault and trash. If the intended item exists, bind its UUID. Only after confirming no item was created and no enrollment is running, move this journal to a .reviewed-backup filename and retry. Never remove vault items as part of this reset.",
+        journal.display()
+    )
+}
+pub fn rename_recovery(journal: &std::path::Path) -> String {
+    format!(
+        "Pending metadata: {}. Verify the host UUID and vault ownership/name. To stop retrying after a deliberate manual change, move this file to a .reviewed-backup filename while Purple is closed; credentials and the UUID binding remain unchanged.",
+        journal.display()
+    )
+}
+pub const HOST_SYNC_MISSING: &str = "Saved host is missing; Bitwarden metadata was not changed";

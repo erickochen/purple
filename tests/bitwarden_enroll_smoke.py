@@ -60,3 +60,20 @@ print('SMOKE_AUTH_OK')
     for path in (root/'purple').rglob('*'):
         if path.is_file():assert b'test-only-password' not in path.read_bytes(),str(path)
     print('PASS: first login created one Bitwarden item via stdin, saved UUID, authenticated through Purple ASKPASS; second login reused it; no password in terminal/config/logs.')
+
+# Legacy name/search sources must keep their original connection behavior.
+with tempfile.TemporaryDirectory(prefix='purple-bw-legacy-') as temporary:
+    root = pathlib.Path(temporary); mock = root/'bin'; mock.mkdir()
+    bw = mock/'bw'
+    bw.write_text("#!/bin/sh\nif [ \"$1\" = status ]; then printf '{\"status\":\"unlocked\"}'; else printf 'legacy-test-password'; fi\n")
+    bw.chmod(0o755)
+    ssh = mock/'ssh-test'
+    ssh.write_text("#!/bin/sh\nvalue=$(\"$SSH_ASKPASS\" \"root@example.test's password: \")\n[ \"$value\" = legacy-test-password ] && printf LEGACY_OK\n")
+    ssh.chmod(0o755)
+    config=root/'config'; config.write_text('Host legacy\n HostName example.test\n User root\n # purple:askpass bw:my-server-item\n')
+    env=dict(os.environ, PATH=str(mock)+':'+os.environ['PATH'], PURPLE_SSH_COMMAND=str(ssh))
+    for category in ['CONFIG','DATA','STATE','CACHE']:env['PURPLE_'+category+'_DIR']=str(root/'purple')
+    result=subprocess.run([binary,'--config',str(config),'--connect','legacy'],env=env,capture_output=True,timeout=20)
+    assert result.returncode==0 and b'LEGACY_OK' in result.stdout, result.stderr
+    assert b'Invalid Bitwarden ID' not in result.stderr and b'legacy-test-password' not in result.stdout+result.stderr
+    print('PASS: legacy bw:item-name connects without managed-rename warnings')
