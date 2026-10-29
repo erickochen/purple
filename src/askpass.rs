@@ -60,6 +60,33 @@ pub const PASSWORD_SOURCES: &[PasswordSourceOption] = &[
     },
 ];
 
+/// OpenSSH retries use a different prompt without the initial yes/no suffix.
+fn is_host_key_prompt(prompt: &str) -> bool {
+    prompt.contains("yes/no") || prompt.starts_with("Please type 'yes'")
+}
+
+/// Never echo a partial fingerprint: OpenSSH would retry with a new prompt.
+fn host_key_answer<'a>(prompt: &str, answer: &'a str) -> &'a str {
+    let answer = answer.trim();
+    if answer.eq_ignore_ascii_case("yes") {
+        return "yes";
+    }
+    let fingerprint = prompt.split_whitespace().find_map(|word| {
+        let word = word.trim_end_matches('.');
+        let digest = word.strip_prefix("SHA256:")?;
+        (digest.len() == 43
+            && digest
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/'))
+        .then_some(word)
+    });
+    if fingerprint == Some(answer) {
+        answer
+    } else {
+        "no"
+    }
+}
+
 /// Keep the full OpenSSH fingerprint prompt on the controlling terminal;
 /// stdout is reserved for the answer consumed by SSH.
 fn confirm_host_key_on_tty(prompt: &str) -> Result<()> {
@@ -73,13 +100,7 @@ fn confirm_host_key_on_tty(prompt: &str) -> Result<()> {
     tty.flush()?;
     let mut answer = String::new();
     std::io::BufReader::new(tty).read_line(&mut answer)?;
-    // OpenSSH also accepts a fingerprint. Keep its exact, case-sensitive value.
-    let answer = answer.trim();
-    if answer == "yes" || (answer.starts_with("SHA256:") && prompt.contains(answer)) {
-        println!("{answer}");
-    } else {
-        println!("no");
-    }
+    println!("{}", host_key_answer(prompt, &answer));
     Ok(())
 }
 
@@ -117,7 +138,7 @@ pub fn handle(env: &crate::runtime::env::Env) -> Result<()> {
 
     // force-mode askpass never falls back to the terminal on failure.
     // Host trust must be explicitly answered, never routed to a password vault.
-    if prompt.contains("yes/no") || env.var("SSH_ASKPASS_PROMPT") == Some("confirm") {
+    if is_host_key_prompt(&prompt) || env.var("SSH_ASKPASS_PROMPT") == Some("confirm") {
         anyhow::ensure!(
             !crate::askpass_env::runs_in_background(env),
             "Host key unknown. Connect first (Enter) to trust the host."
@@ -1128,3 +1149,38 @@ fn retrieve_from_proton_pass(env: &crate::runtime::env::Env, spec: &str) -> Resu
 #[cfg(test)]
 #[path = "askpass_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod host_trust_tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_confirmation_requires_the_complete_digest() {
+        let fingerprint = format!("SHA256:{}", "A".repeat(43));
+        let prompt =
+            format!("ED25519 key fingerprint is {fingerprint}.\nContinue (yes/no/[fingerprint])? ");
+        assert_eq!(host_key_answer(&prompt, &fingerprint), fingerprint);
+        for input in ["SHA256:", "SHA256:AAAA", "no", "NO", "", "yes please"] {
+            assert_eq!(host_key_answer(&prompt, input), "no");
+        }
+        for input in ["yes", "Yes", "YES", " yes "] {
+            assert_eq!(host_key_answer(&prompt, input), "yes");
+        }
+        assert_eq!(
+            host_key_answer("Please type 'yes' or 'no': ", &fingerprint),
+            "no"
+        );
+    }
+
+    #[test]
+    fn trust_retries_are_never_password_prompts() {
+        for prompt in [
+            "Continue (yes/no)?",
+            "Please type 'yes', 'no' or the fingerprint: ",
+            "Please type 'yes' or 'no': ",
+        ] {
+            assert!(is_host_key_prompt(prompt));
+        }
+        assert!(!is_host_key_prompt("root@example.test's password: "));
+    }
+}

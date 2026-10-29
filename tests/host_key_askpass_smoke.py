@@ -50,7 +50,9 @@ with tempfile.TemporaryDirectory(prefix='purple-host-key-') as tmp:
         assert not known.exists() or not known.read_text().strip()
         data,sent=run(background=True);assert not sent and b'Host key verification failed' in data,data
         assert not known.exists() or not known.read_text().strip()
-        data,sent=run(b'yes\n');assert sent and known.read_text().strip(),data
+        data,sent=run(b'SHA256:\n');assert sent and b'Host key verification failed' in data,data
+        assert not known.exists() or not known.read_text().strip()
+        data,sent=run(b'Yes\n');assert sent and known.read_text().strip(),data
         data,sent=run();assert b'yes/no' not in data and b'Host key verification failed' not in data,data
         # An already trusted but different key must never enter the yes/no path.
         pub=replacement.with_suffix('.pub').read_text().split()
