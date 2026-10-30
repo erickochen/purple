@@ -1,3 +1,11 @@
+## 3.32.1 - 2026-10-30
+
+- feat: Connect to new hosts that use a saved password.
+- feat: purple shows the fingerprint and asks before it trusts a host.
+- change: Hosts you already trust connect exactly as before.
+- change: Only real connection problems show an error when a session ends.
+- Thanks to @kaestnerheisser207-web for fixing this in #169
+
 ## 3.32.0 - 2026-10-28
 
 - feat: Give purple its own SSH config file.
