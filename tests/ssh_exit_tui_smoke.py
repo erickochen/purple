@@ -15,7 +15,8 @@ for code in [0, 1, 130, 255]:
             'print("Warning: Permanently added \'test\' (ED25519) to the list of known hosts.",file=sys.stderr)\n'+
             ('print("Permission denied (password).",file=sys.stderr)\n' if code==255 else '')+f'sys.exit({code})\n')
         launcher.chmod(0o755)
-        env=dict(os.environ,TERM='xterm-256color',PURPLE_SSH_COMMAND=str(launcher))
+        # A temp HOME keeps the first-run migration away from the real ~/.purple.
+        env=dict(os.environ,HOME=str(root),TERM='xterm-256color',PURPLE_SSH_COMMAND=str(launcher))
         env.pop('TMUX',None)
         for category in ['CONFIG','DATA','STATE','CACHE']:env['PURPLE_'+category+'_DIR']=str(state)
         master,slave=pty.openpty();fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',45,240,0,0))

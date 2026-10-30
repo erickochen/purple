@@ -20,7 +20,8 @@ with tempfile.TemporaryDirectory(prefix='purple-host-key-') as tmp:
                 with socket.create_connection(('127.0.0.1',port),timeout=.1):break
             except OSError:time.sleep(.05)
         known=root/'known_hosts'
-        env=dict(os.environ,SSH_ASKPASS=binary,SSH_ASKPASS_REQUIRE='force',PURPLE_ASKPASS_MODE='1',PURPLE_HOST_ALIAS='test',PURPLE_CONFIG_PATH=str(root/'config'))
+        # A temp HOME keeps the first-run migration away from the real ~/.purple.
+        env=dict(os.environ,HOME=str(root),SSH_ASKPASS=binary,SSH_ASKPASS_REQUIRE='force',PURPLE_ASKPASS_MODE='1',PURPLE_HOST_ALIAS='test',PURPLE_CONFIG_PATH=str(root/'config'))
         for category in ['CONFIG','DATA','STATE','CACHE']:env['PURPLE_'+category+'_DIR']=str(root/'purple')
         (root/'config').write_text('Host test\n HostName 127.0.0.1\n')
         cmd=['ssh','-T','-F','/dev/null','-p',str(port),'-o',f'UserKnownHostsFile={known}','-o','GlobalKnownHostsFile=/dev/null','-o','StrictHostKeyChecking=ask','-o','ConnectTimeout=5','-o','PasswordAuthentication=no','-o','PubkeyAuthentication=no','-o','KbdInteractiveAuthentication=no','127.0.0.1','true']

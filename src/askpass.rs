@@ -60,9 +60,14 @@ pub const PASSWORD_SOURCES: &[PasswordSourceOption] = &[
     },
 ];
 
-/// OpenSSH retries use a different prompt without the initial yes/no suffix.
+/// OpenSSH ends its trust questions with `(yes/no)?`, `(yes/no):` or
+/// `(yes/no/[fingerprint])?` and retries with `Please type 'yes' ...`.
 fn is_host_key_prompt(prompt: &str) -> bool {
-    prompt.contains("yes/no") || prompt.starts_with("Please type 'yes'")
+    let question = prompt.trim_end();
+    ["(yes/no)?", "(yes/no):", "(yes/no/[fingerprint])?"]
+        .iter()
+        .any(|end| question.ends_with(end))
+        || prompt.starts_with("Please type 'yes'")
 }
 
 /// Never echo a partial fingerprint: OpenSSH would retry with a new prompt.
@@ -87,21 +92,32 @@ fn host_key_answer<'a>(prompt: &str, answer: &'a str) -> &'a str {
     }
 }
 
+/// A server can phrase its own prompt like a trust question, so control
+/// characters never reach the terminal.
+fn printable(prompt: &str) -> String {
+    prompt
+        .chars()
+        .filter(|c| *c == '\n' || !c.is_control())
+        .collect()
+}
+
 /// Keep the full OpenSSH fingerprint prompt on the controlling terminal;
-/// stdout is reserved for the answer consumed by SSH.
-fn confirm_host_key_on_tty(prompt: &str) -> Result<()> {
+/// stdout is reserved for the answer consumed by SSH. Returns whether the
+/// host was trusted.
+fn confirm_host_key_on_tty(prompt: &str) -> Result<bool> {
     use std::io::{BufRead, Write};
     let mut tty = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open("/dev/tty")
         .context("No terminal available to confirm the SSH host fingerprint")?;
-    write!(tty, "\n{prompt} ")?;
+    write!(tty, "\n{} ", printable(prompt))?;
     tty.flush()?;
     let mut answer = String::new();
     std::io::BufReader::new(tty).read_line(&mut answer)?;
-    println!("{}", host_key_answer(prompt, &answer));
-    Ok(())
+    let reply = host_key_answer(prompt, &answer);
+    println!("{reply}");
+    Ok(reply != "no")
 }
 
 /// Handle an SSH_ASKPASS invocation. Called when purple is invoked as an askpass program.
@@ -117,7 +133,7 @@ pub fn handle(env: &crate::runtime::env::Env) -> Result<()> {
         .unwrap_or_default()
         .to_string();
 
-    // Check the prompt (argv[1]) to skip passphrase and host key verification prompts
+    // The question ssh wants answered.
     let prompt = std::env::args().nth(1).unwrap_or_default();
 
     // A notice that a security key wants a touch. ssh expects no answer and
@@ -136,22 +152,31 @@ pub fn handle(env: &crate::runtime::env::Env) -> Result<()> {
         return handle_pin_prompt(env, &alias, &prompt, pin_prompt);
     }
 
-    // force-mode askpass never falls back to the terminal on failure.
-    // Host trust must be explicitly answered, never routed to a password vault.
-    if is_host_key_prompt(&prompt) || env.var("SSH_ASKPASS_PROMPT") == Some("confirm") {
-        anyhow::ensure!(
-            !crate::askpass_env::runs_in_background(env),
-            "Host key unknown. Connect first (Enter) to trust the host."
-        );
-        return confirm_host_key_on_tty(&prompt);
+    // A permission question such as ControlMaster=ask or AddKeysToAgent=ask
+    // gets a refusal. It can arrive while a session holds the terminal, and
+    // no password source may answer it.
+    if env.var("SSH_ASKPASS_PROMPT") == Some("confirm") {
+        debug!("[purple] Askpass refused a permission prompt for {alias}");
+        std::process::exit(1);
     }
 
+    // In force mode ssh reads a failed askpass as "no", so host trust is
+    // asked here on the terminal and never answered from a password source.
+    if is_host_key_prompt(&prompt) {
+        if crate::askpass_env::runs_in_background(env) {
+            debug!("[purple] Askpass refused a host key prompt for {alias} in the background");
+            anyhow::bail!(crate::messages::HOST_KEY_UNKNOWN);
+        }
+        let trusted = confirm_host_key_on_tty(&prompt)?;
+        debug!("[purple] Askpass host key prompt for {alias} answered, trusted={trusted}");
+        return Ok(());
+    }
+
+    // A key passphrase is not a password, and neither is any other yes/no
+    // question. Refusing a passphrase makes ssh move on to the next key.
     let prompt_lower = prompt.to_ascii_lowercase();
-    if prompt_lower.contains("passphrase")
-        || prompt_lower.contains("yes/no")
-        || prompt_lower.contains("(yes/no/")
-    {
-        // Not a password prompt. Exit with error so SSH falls back to interactive.
+    if prompt_lower.contains("passphrase") || prompt_lower.contains("yes/no") {
+        debug!("[purple] Askpass refused a non-password prompt for {alias}");
         std::process::exit(1);
     }
 
@@ -1178,9 +1203,27 @@ mod host_trust_tests {
             "Continue (yes/no)?",
             "Please type 'yes', 'no' or the fingerprint: ",
             "Please type 'yes' or 'no': ",
+            "Accept updated hostkeys? (yes/no): ",
         ] {
             assert!(is_host_key_prompt(prompt));
         }
-        assert!(!is_host_key_prompt("root@example.test's password: "));
+        for prompt in [
+            "root@example.test's password: ",
+            "Enter passphrase for key '/home/u/keys/yes/no/id_ed25519': ",
+        ] {
+            assert!(!is_host_key_prompt(prompt));
+        }
+    }
+
+    #[test]
+    fn trust_prompts_reach_the_terminal_without_control_characters() {
+        assert_eq!(
+            printable("(me@srv) Continue\x1b]0;owned\x07 (yes/no)?\r"),
+            "(me@srv) Continue]0;owned (yes/no)?"
+        );
+        assert_eq!(
+            printable("fingerprint is SHA256:abc.\nContinue (yes/no)? "),
+            "fingerprint is SHA256:abc.\nContinue (yes/no)? "
+        );
     }
 }

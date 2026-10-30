@@ -182,7 +182,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install Linux dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev tmux
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev tmux openssh-server
 
       - name: Build binary
         run: cargo build --locked
@@ -192,7 +192,6 @@ jobs:
 
       - name: Check interactive SSH regressions
         run: |
-          sudo apt-get update && sudo apt-get install -y openssh-server
           sudo mkdir -p /run/sshd
           python3 tests/ssh_exit_tui_smoke.py target/debug/purple
           python3 tests/host_key_askpass_smoke.py target/debug/purple

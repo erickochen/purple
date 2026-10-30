@@ -75,8 +75,16 @@ step 'RUSTDOCFLAGS="-D warnings" cargo doc --no-deps'
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 pass
 
-step "./tests/smoke_tui.sh"
+step "smoke tests (TUI, shell exit codes, host key prompt)"
 ./tests/smoke_tui.sh
+python3 tests/ssh_exit_tui_smoke.py target/debug/purple
+# The host key test starts a throwaway sshd. On Linux that also needs the
+# privilege separation directory, which CI creates before its run.
+if [[ -x /usr/sbin/sshd ]] && { [[ "$(uname)" == "Darwin" ]] || [[ -d /run/sshd ]]; }; then
+    python3 tests/host_key_askpass_smoke.py target/debug/purple
+else
+    echo -e "${RED}    NOTE: host key prompt test skipped (needs /usr/sbin/sshd, plus /run/sshd on Linux)${RESET}"
+fi
 pass
 
 step "./scripts/check-design-system.sh"
