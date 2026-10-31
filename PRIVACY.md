@@ -24,7 +24,7 @@ purple does not share data with anyone. When invoked through an MCP client (for 
 
 Outbound HTTPS only in these cases:
 
-- TUI startup: background version check to `api.github.com`, or to `github.com/erickochen/purple/releases/latest` when the API refuses (cached 1h in `~/.purple/last_version_check`). The MCP server and `.mcpb` bundle skip this check.
+- TUI startup: background version check to `api.github.com` (or `github.com/erickochen/purple/releases/latest` when the API refuses), cached 1h in `~/.purple/last_version_check`. The MCP server and `.mcpb` bundle skip this check.
 - `purple sync`: cloud APIs you configured (18 providers including AWS, GCP, Azure, Hetzner, Proxmox, OCI, NetBox).
 - `purple update`: `api.github.com` (or `github.com/erickochen/purple/releases/latest` when the API refuses) and `github.com/erickochen/purple/releases/download/`.
 - `purple vault sign`: your HashiCorp Vault server.
