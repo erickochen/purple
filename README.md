@@ -28,8 +28,12 @@ curl -fsSL getpurple.sh | sh
 ```
 
 <details>
-<summary>brew, cargo, nix, AUR or from source</summary>
+<summary>specific version, brew, cargo, nix, AUR or from source</summary>
 
+Pin a specific version with `PURPLE_VERSION`:
+```
+curl -fsSL getpurple.sh | PURPLE_VERSION=1.2.3 sh
+```
 ```
 brew install erickochen/purple/purple
 ```

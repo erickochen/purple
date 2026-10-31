@@ -42,10 +42,20 @@ main() {
             ;;
     esac
 
-    # Get latest version
-    printf "  Fetching latest release...\n"
-    version="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-        | grep '"tag_name"' | head -1 | sed 's/.*"v\(.*\)".*/\1/')"
+    # Use PURPLE_VERSION if set (e.g. 1.2.3 or v1.2.3), otherwise get latest version
+    version="${PURPLE_VERSION:-}"
+    if [ -n "$version" ]; then
+        version="${version#v}"
+        if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            printf "  \033[1m!\033[0m Invalid PURPLE_VERSION: %s (expected e.g. 1.2.3)\n" "$PURPLE_VERSION"
+            exit 1
+        fi
+        printf "  Using requested version v%s\n" "$version"
+    else
+        printf "  Fetching latest release...\n"
+        version="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+            | grep '"tag_name"' | head -1 | sed 's/.*"v\(.*\)".*/\1/')"
+    fi
 
     if [ -z "$version" ] || ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
         printf "  \033[1m!\033[0m Failed to fetch latest version.\n"
@@ -70,7 +80,11 @@ main() {
 
     # Download tarball and checksum
     printf "  Downloading...\n"
-    curl -fsSL "$url" -o "${tmp}/${tarball}"
+    if ! curl -fsSL "$url" -o "${tmp}/${tarball}"; then
+        printf "  \033[1m!\033[0m Failed to download v%s for %s.\n" "$version" "$target"
+        printf "  Check that the release exists: https://github.com/%s/releases\n\n" "$REPO"
+        exit 1
+    fi
     curl -fsSL "$sha_url" -o "${tmp}/${tarball}.sha256"
 
     # Verify checksum
