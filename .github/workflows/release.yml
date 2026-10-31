@@ -339,3 +339,19 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           REPO: ${{ github.repository }}
         run: gh workflow run aur.yml -f version="$VERSION" --repo "$REPO"
+
+  trigger-site:
+    name: Trigger site deploy
+    # The installer serves the latest published release, so the site
+    # redeploys once this release and its assets exist. Dispatched for the
+    # same GITHUB_TOKEN reason as trigger-aur.
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch site.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: gh workflow run site.yml --ref master --repo "$REPO"

@@ -75,8 +75,9 @@ step 'RUSTDOCFLAGS="-D warnings" cargo doc --no-deps'
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 pass
 
-step "smoke tests (TUI, shell exit codes, host key prompt)"
+step "smoke tests (TUI, shell exit codes, host key prompt, installer)"
 ./tests/smoke_tui.sh
+./tests/install_smoke.sh
 python3 tests/ssh_exit_tui_smoke.py target/debug/purple
 # The host key test starts a throwaway sshd. On Linux that also needs the
 # privilege separation directory, which CI creates before its run.

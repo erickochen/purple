@@ -81,7 +81,7 @@ fn parse_header(rest: &str) -> Option<(Version, Option<String>)> {
     }
 }
 
-fn classify(bullet: &str) -> (EntryKind, String) {
+pub(crate) fn classify(bullet: &str) -> (EntryKind, String) {
     let lower = bullet.to_ascii_lowercase();
     for (prefix, kind) in [
         ("feat:", EntryKind::Feature),

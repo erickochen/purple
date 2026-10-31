@@ -17,14 +17,20 @@ pub fn current_version() -> &'static str {
 const HEADLINE_MAX_BYTES: usize = 200;
 
 /// Extract a one-line headline from release notes for the TUI update badge.
-/// Takes the first non-empty content line, strips leading `- ` bullet marker,
-/// and truncates to `HEADLINE_MAX_BYTES` on a char boundary.
+/// Takes the first non-empty content line and strips the `- ` bullet marker
+/// plus the changelog `feat:`/`change:`/`fix:` prefix. Truncates to
+/// `HEADLINE_MAX_BYTES` on a char boundary.
 fn extract_headline(notes: &str) -> Option<String> {
     let line = notes
         .lines()
         .map(|l| l.trim())
         .find(|l| !l.is_empty() && !l.starts_with('#'))?;
-    let trimmed = line.strip_prefix("- ").unwrap_or(line);
+    let bullet = line.strip_prefix("- ").unwrap_or(line);
+    let (_, text) = crate::changelog::classify(bullet);
+    let trimmed = text.as_str();
+    if trimmed.is_empty() {
+        return None;
+    }
     if trimmed.len() <= HEADLINE_MAX_BYTES {
         return Some(trimmed.to_string());
     }
@@ -53,6 +59,7 @@ fn is_newer(current: &str, latest: &str) -> bool {
 }
 
 /// Release info extracted from GitHub API response.
+#[derive(Debug)]
 struct ReleaseInfo {
     version: String,
     /// Release notes body (markdown). May be empty.
@@ -79,10 +86,50 @@ fn extract_release_info(json: &serde_json::Value) -> Result<ReleaseInfo> {
     })
 }
 
+/// GitHub API endpoint for the latest release: version plus release notes.
+/// Unauthenticated calls share a limit of 60 per hour per IP address.
+const LATEST_RELEASE_API_URL: &str =
+    "https://api.github.com/repos/erickochen/purple/releases/latest";
+
+/// Web page that redirects to the latest release tag. It is not an API call,
+/// so it still answers when the API limit is used up, but it has no notes.
+const LATEST_RELEASE_PAGE_URL: &str = "https://github.com/erickochen/purple/releases/latest";
+
+/// Max bytes read from the release API response.
+const RELEASE_JSON_MAX_BYTES: u64 = 1_048_576;
+
 /// Fetch the latest release info from GitHub.
 fn check_latest_release(agent: &ureq::Agent) -> Result<ReleaseInfo> {
+    check_latest_release_at(agent, LATEST_RELEASE_API_URL, LATEST_RELEASE_PAGE_URL)
+}
+
+/// Ask the API first. When it answers with an error or an unusable body, read
+/// the version from the release page redirect instead, without notes.
+fn check_latest_release_at(
+    agent: &ureq::Agent,
+    api_url: &str,
+    page_url: &str,
+) -> Result<ReleaseInfo> {
+    let api_err = match fetch_release_from_api(agent, api_url) {
+        Ok(info) => return Ok(info),
+        Err(err) => err,
+    };
+    if is_network_failure(&api_err) {
+        return Err(api_err);
+    }
+    debug!("[external] Release API unavailable, using the release page redirect: {api_err:#}");
+    let version = fetch_version_from_release_page(agent, page_url)
+        .context("Failed to fetch latest release. GitHub may be rate-limited.")?;
+    debug!("[external] Release page redirect points to {version}");
+    Ok(ReleaseInfo {
+        version,
+        notes: String::new(),
+    })
+}
+
+fn fetch_release_from_api(agent: &ureq::Agent, api_url: &str) -> Result<ReleaseInfo> {
     let mut resp = agent
-        .get("https://api.github.com/repos/erickochen/purple/releases/latest")
+        .get(api_url)
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", &format!("purple-ssh/{}", current_version()))
         .call()
@@ -91,7 +138,7 @@ fn check_latest_release(agent: &ureq::Agent) -> Result<ReleaseInfo> {
     let mut body = Vec::new();
     resp.body_mut()
         .as_reader()
-        .take(1_048_576) // 1 MB limit for API response
+        .take(RELEASE_JSON_MAX_BYTES)
         .read_to_end(&mut body)
         .context("Failed to read release JSON")?;
 
@@ -99,6 +146,67 @@ fn check_latest_release(agent: &ureq::Agent) -> Result<ReleaseInfo> {
         serde_json::from_slice(&body).context("Failed to parse release JSON")?;
 
     extract_release_info(&json)
+}
+
+/// True when the request got no answer or the answer broke off, so a second
+/// request to GitHub would fail the same way.
+fn is_network_failure(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        if let Some(ureq_err) = cause.downcast_ref::<ureq::Error>() {
+            return is_network_ureq_error(ureq_err);
+        }
+        // Body reads report through std::io, with ureq errors wrapped inside.
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_err| {
+                matches!(
+                    io_err.kind(),
+                    std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::UnexpectedEof
+                ) || io_err
+                    .get_ref()
+                    .and_then(|inner| inner.downcast_ref::<ureq::Error>())
+                    .is_some_and(is_network_ureq_error)
+            })
+    })
+}
+
+fn is_network_ureq_error(err: &ureq::Error) -> bool {
+    matches!(
+        err,
+        ureq::Error::Io(_)
+            | ureq::Error::Timeout(_)
+            | ureq::Error::HostNotFound
+            | ureq::Error::ConnectionFailed
+    )
+}
+
+/// Read the version from the release page redirect without following it.
+fn fetch_version_from_release_page(agent: &ureq::Agent, page_url: &str) -> Result<String> {
+    let resp = agent
+        .get(page_url)
+        .header("User-Agent", &format!("purple-ssh/{}", current_version()))
+        .config()
+        .max_redirects(0)
+        .build()
+        .call()
+        .context("Failed to fetch the latest release page")?;
+    let location = resp
+        .headers()
+        .get("location")
+        .and_then(|value| value.to_str().ok())
+        .context("Latest release page did not redirect to a release")?;
+    version_from_release_url(location)
+        .with_context(|| format!("No release version in redirect to {location}"))
+}
+
+/// Version from a release tag URL such as `.../releases/tag/v1.2.3`.
+fn version_from_release_url(url: &str) -> Option<String> {
+    let (_, tag) = url.rsplit_once("/releases/tag/")?;
+    let (major, minor, patch) = parse_version(tag.strip_prefix('v').unwrap_or(tag))?;
+    Some(format!("{major}.{minor}.{patch}"))
 }
 
 /// TTL for version check cache (1 hour).
@@ -238,7 +346,7 @@ pub fn spawn_version_check(
                     }
                 }
                 Err(err) => {
-                    warn!("[external] Version check failed: {err}");
+                    warn!("[external] Version check failed: {err:#}");
                 }
             }
         });

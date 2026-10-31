@@ -151,6 +151,9 @@ jobs:
       - name: Build site worker from source
         run: node scripts/site/build.mjs
 
+      - name: Installer smoke test
+        run: ./tests/install_smoke.sh
+
   design-checks:
     name: Design / messages / keybindings
     runs-on: ubuntu-22.04

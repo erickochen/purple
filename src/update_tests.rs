@@ -119,6 +119,30 @@ fn test_extract_headline_skips_blank_lines() {
 }
 
 #[test]
+fn test_extract_headline_strips_changelog_prefix() {
+    for (notes, want) in [
+        (
+            "- feat: Connect to new hosts that use a saved password.\n- change: Other",
+            "Connect to new hosts that use a saved password.",
+        ),
+        (
+            "- change: Hosts connect as before.",
+            "Hosts connect as before.",
+        ),
+        ("- fix: Sync keeps your tags.", "Sync keeps your tags."),
+        ("- FEAT: Shouted prefix", "Shouted prefix"),
+        ("- Thanks to @someone for #1", "Thanks to @someone for #1"),
+    ] {
+        assert_eq!(extract_headline(notes), Some(want.to_string()), "{notes}");
+    }
+}
+
+#[test]
+fn test_extract_headline_prefix_only_is_none() {
+    assert_eq!(extract_headline("- feat:"), None);
+}
+
+#[test]
 fn test_extract_headline_empty() {
     assert_eq!(extract_headline(""), None);
 }
@@ -437,6 +461,221 @@ fn test_cache_backwards_compat_no_headline() {
         .unwrap();
     assert_eq!(cached.version, "99.0.0");
     assert_eq!(cached.headline, None);
+}
+
+// --- version_from_release_url tests ---
+
+#[test]
+fn test_version_from_release_url() {
+    assert_eq!(
+        version_from_release_url("https://github.com/erickochen/purple/releases/tag/v3.32.1"),
+        Some("3.32.1".to_string())
+    );
+    assert_eq!(
+        version_from_release_url("/erickochen/purple/releases/tag/3.32.1"),
+        Some("3.32.1".to_string())
+    );
+}
+
+#[test]
+fn test_version_from_release_url_rejects_other_urls() {
+    for url in [
+        "https://github.com/erickochen/purple/releases",
+        "https://github.com/login",
+        "https://github.com/erickochen/purple/releases/tag/",
+        "https://github.com/erickochen/purple/releases/tag/v3.32",
+        "https://github.com/erickochen/purple/releases/tag/v3.32.1-rc1",
+        "https://github.com/erickochen/purple/releases/tag/v3.32.1/assets",
+    ] {
+        assert_eq!(version_from_release_url(url), None, "{url}");
+    }
+}
+
+#[test]
+fn test_version_from_release_url_keeps_only_digits_and_dots() {
+    // The version ends up in download URLs, so it is rebuilt from the numbers.
+    assert_eq!(
+        version_from_release_url("/releases/tag/v1.2.+3"),
+        Some("1.2.3".to_string())
+    );
+}
+
+// --- check_latest_release_at tests (local mock server, no real network) ---
+
+const API_PATH: &str = "/repos/erickochen/purple/releases/latest";
+const PAGE_PATH: &str = "/erickochen/purple/releases/latest";
+const TAG_PATH: &str = "/erickochen/purple/releases/tag/v9.8.7";
+/// Short timeout so a broken test fails instead of hanging.
+const TEST_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn test_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(TEST_HTTP_TIMEOUT))
+        .build()
+        .new_agent()
+}
+
+fn lookup(server: &mockito::Server) -> Result<ReleaseInfo> {
+    check_latest_release_at(
+        &test_agent(),
+        &format!("{}{API_PATH}", server.url()),
+        &format!("{}{PAGE_PATH}", server.url()),
+    )
+}
+
+/// Release page mock that redirects to the v9.8.7 tag on the same server.
+/// A tag mock that expects no hits proves the redirect is read, not followed.
+fn mock_release_page(server: &mut mockito::Server) -> (mockito::Mock, mockito::Mock) {
+    let page = server
+        .mock("GET", PAGE_PATH)
+        .with_status(302)
+        .with_header("location", &format!("{}{TAG_PATH}", server.url()))
+        .create();
+    let tag = server.mock("GET", TAG_PATH).expect(0).create();
+    (page, tag)
+}
+
+#[test]
+fn test_latest_release_uses_api_when_it_answers() {
+    let mut server = mockito::Server::new();
+    let api = server
+        .mock("GET", API_PATH)
+        .with_status(200)
+        .with_body(r#"{"tag_name":"v9.8.7","body":"- Big news"}"#)
+        .create();
+    let page = server.mock("GET", PAGE_PATH).expect(0).create();
+
+    let info = lookup(&server).unwrap();
+    assert_eq!(info.version, "9.8.7");
+    assert_eq!(info.notes, "- Big news");
+    api.assert();
+    page.assert();
+}
+
+#[test]
+fn test_latest_release_falls_back_to_page_when_api_refuses() {
+    for status in [403, 429, 500] {
+        let mut server = mockito::Server::new();
+        let api = server.mock("GET", API_PATH).with_status(status).create();
+        let (page, tag) = mock_release_page(&mut server);
+
+        let info = lookup(&server).unwrap_or_else(|e| panic!("status {status}: {e:#}"));
+        assert_eq!(info.version, "9.8.7", "status {status}");
+        assert_eq!(info.notes, "", "status {status}");
+        api.assert();
+        page.assert();
+        tag.assert();
+    }
+}
+
+#[test]
+fn test_latest_release_falls_back_when_api_body_is_unusable() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("GET", API_PATH)
+        .with_status(200)
+        .with_body("<html>maintenance</html>")
+        .create();
+    let (page, tag) = mock_release_page(&mut server);
+
+    assert_eq!(lookup(&server).unwrap().version, "9.8.7");
+    page.assert();
+    tag.assert();
+}
+
+#[test]
+fn test_latest_release_fails_when_page_does_not_redirect() {
+    let mut server = mockito::Server::new();
+    server.mock("GET", API_PATH).with_status(403).create();
+    server
+        .mock("GET", PAGE_PATH)
+        .with_status(200)
+        .with_body("<html></html>")
+        .create();
+
+    let err = lookup(&server).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("did not redirect to a release"),
+        "{err:#}"
+    );
+}
+
+#[test]
+fn test_latest_release_fails_when_redirect_has_no_version() {
+    let mut server = mockito::Server::new();
+    server.mock("GET", API_PATH).with_status(403).create();
+    server
+        .mock("GET", PAGE_PATH)
+        .with_status(302)
+        .with_header("location", &format!("{}/login", server.url()))
+        .create();
+    let login = server.mock("GET", "/login").expect(0).create();
+
+    let err = lookup(&server).unwrap_err();
+    assert!(format!("{err:#}").contains("No release version"), "{err:#}");
+    login.assert();
+}
+
+#[test]
+fn test_latest_release_skips_page_when_network_is_down() {
+    let mut server = mockito::Server::new();
+    let page = server.mock("GET", PAGE_PATH).expect(0).create();
+    // Bind and drop a listener to get a local port that refuses connections.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let closed_api_url = format!("http://{}{API_PATH}", closed.local_addr().unwrap());
+    drop(closed);
+
+    let err = check_latest_release_at(
+        &test_agent(),
+        &closed_api_url,
+        &format!("{}{PAGE_PATH}", server.url()),
+    )
+    .unwrap_err();
+    assert!(is_network_failure(&err), "{err:#}");
+    page.assert();
+}
+
+// --- is_network_failure tests (error shapes ureq produces) ---
+
+#[test]
+fn test_network_failure_covers_connect_errors() {
+    for ureq_err in [
+        ureq::Error::HostNotFound,
+        ureq::Error::ConnectionFailed,
+        ureq::Error::Timeout(ureq::Timeout::Global),
+    ] {
+        let err = anyhow::Error::new(ureq_err).context("Failed to fetch latest release");
+        assert!(is_network_failure(&err), "{err:#}");
+    }
+}
+
+#[test]
+fn test_network_failure_covers_broken_body_reads() {
+    // ureq reports a body timeout as an io::Error that wraps its own error,
+    // and a dropped connection as UnexpectedEof.
+    let wrapped_timeout = std::io::Error::other(ureq::Error::Timeout(ureq::Timeout::Global));
+    let cut_off = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Peer disconnected");
+    for io_err in [wrapped_timeout, cut_off] {
+        let err = anyhow::Error::new(io_err).context("Failed to read release JSON");
+        assert!(is_network_failure(&err), "{err:#}");
+    }
+}
+
+#[test]
+fn test_network_failure_excludes_answers_from_github() {
+    let refused =
+        anyhow::Error::new(ureq::Error::StatusCode(403)).context("Failed to fetch latest release");
+    let not_json =
+        anyhow::Error::new(serde_json::from_str::<serde_json::Value>("<html>").unwrap_err())
+            .context("Failed to parse release JSON");
+    let bad_data = anyhow::Error::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "invalid chunk",
+    ))
+    .context("Failed to read release JSON");
+    for err in [refused, not_json, bad_data] {
+        assert!(!is_network_failure(&err), "{err:#}");
+    }
 }
 
 // =========================================================================

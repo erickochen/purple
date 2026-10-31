@@ -3,9 +3,12 @@ name: Deploy site
 on:
   push:
     branches: [master]
-    paths: [site/**, llms.txt, Cargo.toml, scripts/site/build.mjs, .github/workflows/site.yml]
+    # Cargo.toml is left out on purpose: a version bump reaches the site
+    # through the dispatch in release.yml, once its release is published.
+    paths: [site/**, llms.txt, scripts/site/build.mjs, .github/workflows/site.yml]
   pull_request:
     paths: [site/**, llms.txt, Cargo.toml, scripts/site/build.mjs, .github/workflows/site.yml]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,11 +31,27 @@ jobs:
     runs-on: ubuntu-latest
     name: Deploy to Bunny Edge Scripting
     needs: build
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    concurrency:
+      group: site-deploy
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
 
+      # The site always serves the latest published release, so the installer
+      # never points at a version whose assets are still building.
+      - name: Resolve latest published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          tag="$(gh release view --repo "$REPO" --json tagName --jq .tagName)"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
       - name: Generate worker.generated.ts from source
+        env:
+          PURPLE_RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: node scripts/site/build.mjs
 
       - uses: BunnyWay/actions/deploy-script@main

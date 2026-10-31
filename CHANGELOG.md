@@ -1,3 +1,13 @@
+## 3.33.0 - 2026-10-31
+
+- feat: Install and update smoothly, even on shared networks.
+- feat: The installer and `purple update` keep working when many people share one IP address.
+- feat: Pick a specific release when you install by setting `PURPLE_VERSION`.
+- change: Without `PURPLE_VERSION` you still get the latest release.
+- change: The update badge shows its headline as plain text.
+- How to pick a release: see the Installation page on the wiki.
+- Thanks to @matthew-pakulski for adding `PURPLE_VERSION` in #175
+
 ## 3.32.1 - 2026-10-30
 
 - feat: Connect to new hosts that use a saved password.

@@ -1,7 +1,6 @@
 #!/bin/sh
-# Source of truth for the install script.
-# Also embedded in worker.ts — keep both in sync.
-# CI checks for drift on every PR and push (site.yml).
+# Source of truth for the install script. scripts/site/build.mjs embeds it
+# in the site worker and fills in the latest release version.
 set -eu
 
 REPO="erickochen/purple"
@@ -42,29 +41,23 @@ main() {
             ;;
     esac
 
-    # Use PURPLE_VERSION if set (e.g. 1.2.3 or v1.2.3), otherwise get latest version
+    # The site build fills in the latest release, so there is no lookup.
+    # PURPLE_VERSION picks another release instead (1.2.3 or v1.2.3).
     version="${PURPLE_VERSION:-}"
     if [ -n "$version" ]; then
         version="${version#v}"
-        if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        if ! is_version "$version"; then
             printf "  \033[1m!\033[0m Invalid PURPLE_VERSION: %s (expected e.g. 1.2.3)\n" "$PURPLE_VERSION"
             exit 1
         fi
         printf "  Using requested version v%s\n" "$version"
     else
-        printf "  Fetching latest release...\n"
-        version="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | head -1 | sed 's/.*"v\(.*\)".*/\1/')"
-    fi
-
-    if [ -z "$version" ] || ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-        printf "  \033[1m!\033[0m Failed to fetch latest version.\n"
-        printf "  GitHub API may be rate-limited. Try again later or install via:\n\n"
-        case "$os" in
-            Darwin) printf "    brew install erickochen/purple/purple\n\n" ;;
-            *)      printf "    cargo install purple-ssh\n\n" ;;
-        esac
-        exit 1
+        version="__VERSION__"
+        if ! is_version "$version"; then
+            printf "  \033[1m!\033[0m This copy of the installer has no release version.\n"
+            printf "  Install with curl -fsSL getpurple.sh | sh or set PURPLE_VERSION.\n\n"
+            exit 1
+        fi
     fi
 
     printf "  Found v%s for %s\n" "$version" "$target"
@@ -139,6 +132,10 @@ need_cmd() {
         printf "  \033[1m!\033[0m Required command not found: %s\n" "$1"
         exit 1
     fi
+}
+
+is_version() {
+    printf '%s' "$1" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'
 }
 
 main "$@"

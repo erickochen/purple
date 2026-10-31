@@ -174,6 +174,7 @@ purple is an open-source terminal SSH manager and SSH config editor written in R
 ## Install
 
 curl -fsSL getpurple.sh | sh
+curl -fsSL getpurple.sh | PURPLE_VERSION=1.2.3 sh   # A specific release instead of the latest
 brew install erickochen/purple/purple
 cargo install purple-ssh
 nix profile install github:erickochen/purple

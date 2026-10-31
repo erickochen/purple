@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // Generate site/worker.generated.ts for deploy.
 //
-// Single source of truth: the version lives ONLY in Cargo.toml and the
-// content lives in site/page.html, site/install.sh and llms.txt (which carry
-// `__VERSION__`, `__DATE__` and `__DATE_HUMAN__` placeholders). This script
-// injects the version + build date, then embeds the three documents into the
-// worker template (site/worker.ts, which holds the server logic and empty
-// constants). The committed worker.ts is never deployed; worker.generated.ts
-// is. Run from CI (site.yml) before the Bunny deploy, or locally to preview.
+// The content lives in site/page.html, site/install.sh and llms.txt (which
+// carry `__VERSION__`, `__DATE__` and `__DATE_HUMAN__` placeholders). This
+// script injects the version + build date, then embeds the three documents
+// into the worker template (site/worker.ts, which holds the server logic and
+// empty constants). The committed worker.ts is never deployed;
+// worker.generated.ts is. Run from CI (site.yml) before the Bunny deploy, or
+// locally to preview.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -17,14 +17,29 @@ const here = dirname(fileURLToPath(import.meta.url));
 const siteDir = join(here, "..", "..", "site");
 const repoRoot = join(here, "..", "..");
 
-// Version: the single source. Matches the [package] version line, which is
-// the only line-leading `version = "..."` in Cargo.toml.
-const cargo = readFileSync(join(repoRoot, "Cargo.toml"), "utf8");
-const versionMatch = cargo.match(/^version = "([^"]+)"/m);
-if (!versionMatch) {
-    throw new Error("could not find package version in Cargo.toml");
+// The deploy passes the latest published release in PURPLE_RELEASE_VERSION,
+// so the installer never points at a release that is still building.
+const RELEASE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+
+function resolveVersion() {
+    const fromRelease = process.env.PURPLE_RELEASE_VERSION;
+    if (fromRelease !== undefined) {
+        if (!RELEASE_VERSION_PATTERN.test(fromRelease)) {
+            throw new Error(`PURPLE_RELEASE_VERSION must look like 1.2.3, got "${fromRelease}"`);
+        }
+        return { version: fromRelease, source: "latest release" };
+    }
+    // Local previews and PR checks fall back to the [package] version line,
+    // the only line-leading `version = "..."` in Cargo.toml.
+    const cargo = readFileSync(join(repoRoot, "Cargo.toml"), "utf8");
+    const versionMatch = cargo.match(/^version = "([^"]+)"/m);
+    if (!versionMatch) {
+        throw new Error("could not find package version in Cargo.toml");
+    }
+    return { version: versionMatch[1], source: "Cargo.toml" };
 }
-const version = versionMatch[1];
+
+const { version, source: versionSource } = resolveVersion();
 
 // Build date in UTC. `dateModified` reflects the last deploy; the human form
 // ("May 2026") feeds the llms.txt status line.
@@ -107,4 +122,6 @@ for (const { constant } of sources) {
 
 const outPath = join(siteDir, "worker.generated.ts");
 writeFileSync(outPath, worker);
-process.stdout.write(`worker.generated.ts written (version ${version}, ${isoDate}).\n`);
+process.stdout.write(
+    `worker.generated.ts written (version ${version} from ${versionSource}, ${isoDate}).\n`,
+);
