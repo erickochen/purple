@@ -14,9 +14,22 @@ use super::host_list::format_rtt;
 use super::theme;
 use crate::app::App;
 use crate::history::ConnectionHistory;
-use crate::ssh_config::model::ConfigElement;
+use crate::ssh_config::model::{
+    BlockStatus, ConfigElement, CriterionVerdict, HostEntry, MatchBlockEntry, MatchBlockMatch,
+    SshConfigFile, Verdict,
+};
 
 const LABEL_WIDTH: usize = design::SECTION_LABEL_W as usize;
+/// Card title for a Match block, on a host and on the block's own view.
+const MATCH_BLOCK_TITLE: &str = "MATCH BLOCK";
+/// Columns kept between a criterion and its right-aligned verdict.
+const VERDICT_GAP: usize = 2;
+/// Columns a card spends on its borders and inner padding: `│ ` and ` │`.
+const CARD_CHROME: usize = 4;
+
+/// (criteria text, status, [(criterion label, verdict label)]) for one shown block.
+#[cfg(test)]
+pub type MatchBlockSummary = (String, BlockStatus, Vec<(String, String)>);
 
 /// Testable detail panel data — what the detail panel will render.
 /// Extracted from `App` state without requiring a `Frame`.
@@ -33,6 +46,9 @@ pub struct DetailInfo {
     pub has_provider_meta: bool,
     pub has_tunnels: bool,
     pub has_containers: bool,
+    pub match_blocks: Vec<MatchBlockSummary>,
+    /// (criteria text, directive key) for every "wins over this host's own" note.
+    pub match_block_overrides: Vec<(String, String)>,
 }
 
 /// Compute detail panel information for a host without rendering.
@@ -50,7 +66,28 @@ pub fn compute_detail_info(
         resolve_proxy_chain(host, hosts)
     };
     let inherited = config.matching_patterns(&host.alias);
+    let blocks = config.matching_match_blocks(&host.alias);
+    let match_blocks = blocks
+        .iter()
+        .map(|m| {
+            let rows = verdict_rows(m)
+                .into_iter()
+                .map(|(label, verdict)| (label, verdict.to_string()))
+                .collect();
+            (m.entry.criteria_text.clone(), m.status, rows)
+        })
+        .collect();
+    let match_block_overrides = blocks
+        .iter()
+        .flat_map(|m| {
+            m.overrides_own
+                .iter()
+                .map(|k| (m.entry.criteria_text.clone(), (*k).to_string()))
+        })
+        .collect();
     DetailInfo {
+        match_blocks,
+        match_block_overrides,
         has_route: !is_proxy_loop && !host.proxy_jump.is_empty() && !chain.is_empty(),
         is_proxy_loop,
         route_hops: chain.iter().map(|(name, _, _)| name.clone()).collect(),
@@ -95,6 +132,79 @@ pub fn compute_pattern_detail_info(
         has_directives: !pattern.directives.is_empty(),
         has_tags: !pattern.tags.is_empty(),
     }
+}
+
+/// Testable info for the Match-block-selected detail view.
+#[cfg(test)]
+#[derive(Debug)]
+pub struct MatchBlockDetailInfo {
+    pub matching_aliases: Vec<String>,
+    pub may_match_aliases: Vec<String>,
+    pub has_directives: bool,
+}
+
+/// Mirrors `render_match_block_detail` without rendering.
+#[cfg(test)]
+pub fn compute_match_block_detail_info(
+    block: &MatchBlockEntry,
+    hosts: &[HostEntry],
+    config: &SshConfigFile,
+) -> MatchBlockDetailInfo {
+    let (matching_aliases, may_match_aliases) = match_block_hosts(block, hosts, config);
+    MatchBlockDetailInfo {
+        matching_aliases,
+        may_match_aliases,
+        has_directives: !block.directives.is_empty(),
+    }
+}
+
+/// Verdict label for one criterion, from the messages module.
+fn verdict_label(v: &CriterionVerdict) -> &'static str {
+    use crate::messages as m;
+    match v.verdict {
+        Verdict::Yes => m::MATCH_VERDICT_YES,
+        Verdict::No => m::MATCH_VERDICT_NO,
+        Verdict::Unknown if v.criterion.keyword == "exec" => m::MATCH_VERDICT_EXEC,
+        Verdict::Unknown => m::MATCH_VERDICT_UNKNOWN,
+    }
+}
+
+/// `(criterion as written, verdict label)` per row of a host's MATCH BLOCK card.
+fn verdict_rows(m: &MatchBlockMatch) -> Vec<(String, &'static str)> {
+    m.verdicts
+        .iter()
+        .map(|v| {
+            (
+                MatchBlockEntry::criterion_label(&v.criterion),
+                verdict_label(v),
+            )
+        })
+        .collect()
+}
+
+/// Hosts a block certainly applies to and hosts it may apply to. The config
+/// is indexed once so a large host list stays cheap to render.
+fn match_block_hosts(
+    block: &MatchBlockEntry,
+    hosts: &[HostEntry],
+    config: &SshConfigFile,
+) -> (Vec<String>, Vec<String>) {
+    let index = config.section_index();
+    let mut applies = Vec::new();
+    let mut may = Vec::new();
+    for h in hosts {
+        let status = index
+            .match_statuses(&h.alias)
+            .into_iter()
+            .find(|(order, _)| *order == block.order)
+            .map(|(_, status)| status);
+        match status {
+            Some(BlockStatus::Applies) => applies.push(h.alias.clone()),
+            Some(BlockStatus::Undecided) => may.push(h.alias.clone()),
+            _ => {}
+        }
+    }
+    (applies, may)
 }
 
 fn password_label(source: &str) -> &'static str {
@@ -193,6 +303,10 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect, spinner_tick: u64) {
         render_pattern_detail(frame, app, area, pattern);
         return;
     }
+    if let Some(block) = app.selected_match_block() {
+        render_match_block_detail(frame, app, area, block);
+        return;
+    }
 
     let host = match app.selected_host() {
         Some(h) => h,
@@ -228,7 +342,8 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect, spinner_tick: u64) {
     render_tunnels(&mut lines, app, host, box_width);
     render_snippets(&mut lines, app, box_width);
     render_containers(&mut lines, app, host, box_width, max_value_width);
-    render_pattern_matches(&mut lines, app, host, box_width, max_value_width);
+    render_pattern_matches(&mut lines, app, host, box_width);
+    render_match_blocks(&mut lines, app, host, box_width);
     render_source(&mut lines, host, box_width, max_value_width);
 
     // Stretch: give all remaining vertical space to the last section card.
@@ -735,7 +850,11 @@ fn render_vault_cert(
         };
 
         // Affordance hint computed during the if/else chain above. When
-        // set, the user can press V to remediate the cert state.
+        // set, the user can press V to remediate the cert state. On a narrow
+        // panel the hint moves to its own row under the value.
+        const SIGN_HINT: &str = "(press V to sign)";
+        let inner = box_width.saturating_sub(CARD_CHROME);
+        let hint_fits = LABEL_WIDTH + status_text.width() + 1 + SIGN_HINT.width() <= inner;
         let mut status_spans = vec![
             Span::styled(
                 format!("{:<width$}", "Status", width = LABEL_WIDTH),
@@ -743,10 +862,17 @@ fn render_vault_cert(
             ),
             Span::styled(status_text, status_style),
         ];
-        if needs_action {
-            status_spans.push(Span::styled(" (press V to sign)", theme::muted()));
+        if needs_action && hint_fits {
+            status_spans.push(Span::styled(format!(" {SIGN_HINT}"), theme::muted()));
         }
         section_line(lines, status_spans, box_width);
+        if needs_action && !hint_fits {
+            let hint = vec![
+                Span::raw(" ".repeat(LABEL_WIDTH)),
+                Span::styled(SIGN_HINT, theme::muted()),
+            ];
+            section_line(lines, hint, box_width);
+        }
 
         section_close(lines, box_width);
     }
@@ -867,7 +993,6 @@ fn render_pattern_matches(
     app: &App,
     host: &crate::ssh_config::model::HostEntry,
     box_width: usize,
-    max_value_width: usize,
 ) {
     // Inherited directives section — alias-only matching (SSH-faithful).
     // OpenSSH Host keyword matches only the alias typed on the command line.
@@ -888,10 +1013,134 @@ fn render_pattern_matches(
             section_line(lines, spans, box_width);
         }
         for (key, value) in &pattern_entry.directives {
-            section_field(lines, key, value, max_value_width, box_width);
+            push_directive_row(lines, key, value, box_width);
         }
         section_close(lines, box_width);
     }
+}
+
+/// Renders one MATCH BLOCK card per Match block that applies or may apply:
+/// a verdict per criterion, then the directives. Directives of an undecided
+/// block are muted, because ssh may or may not use them.
+fn render_match_blocks(
+    lines: &mut Vec<Line<'static>>,
+    app: &App,
+    host: &HostEntry,
+    box_width: usize,
+) {
+    let blocks = app
+        .hosts_state
+        .ssh_config()
+        .matching_match_blocks(&host.alias);
+    for m in &blocks {
+        section_open(lines, MATCH_BLOCK_TITLE, box_width);
+        for (label, verdict) in verdict_rows(m) {
+            push_verdict_row(lines, &label, verdict, box_width);
+        }
+        let undecided = m.status == BlockStatus::Undecided;
+        let value_style = if undecided {
+            theme::muted()
+        } else {
+            theme::bold()
+        };
+        let mut noted: Vec<&str> = Vec::new();
+        for (key, value) in &m.entry.directives {
+            push_directive_row_styled(lines, key, value, value_style, box_width);
+            let own = m
+                .overrides_own
+                .iter()
+                .find(|k| k.eq_ignore_ascii_case(key) && !noted.contains(k));
+            if let Some(own_key) = own {
+                noted.push(own_key);
+                let note = crate::messages::match_block_wins_over(own_key);
+                push_wrapped_muted(lines, &note, box_width);
+            }
+        }
+        if undecided {
+            push_wrapped_muted(
+                lines,
+                crate::messages::MATCH_BLOCK_UNDECIDED_HINT,
+                box_width,
+            );
+        }
+        section_close(lines, box_width);
+    }
+}
+
+/// Criterion in bold with its verdict right-aligned in muted. When both do
+/// not fit on one row, the verdict moves to its own row below.
+fn push_verdict_row(lines: &mut Vec<Line<'static>>, label: &str, verdict: &str, box_width: usize) {
+    let inner = box_width.saturating_sub(CARD_CHROME);
+    let verdict_w = verdict.width();
+    if label.width() + VERDICT_GAP + verdict_w <= inner {
+        let pad = inner - label.width() - verdict_w;
+        let spans = vec![
+            Span::styled(label.to_string(), theme::bold()),
+            Span::raw(" ".repeat(pad)),
+            Span::styled(verdict.to_string(), theme::muted()),
+        ];
+        section_line(lines, spans, box_width);
+        return;
+    }
+    let shown = super::truncate(label, inner);
+    section_line(lines, vec![Span::styled(shown, theme::bold())], box_width);
+    let verdict_shown = super::truncate(verdict, inner);
+    let pad = inner.saturating_sub(verdict_shown.width());
+    let spans = vec![
+        Span::raw(" ".repeat(pad)),
+        Span::styled(verdict_shown, theme::muted()),
+    ];
+    section_line(lines, spans, box_width);
+}
+
+/// Muted prose inside a card, wrapped on word boundaries to the inner width.
+fn push_wrapped_muted(lines: &mut Vec<Line<'static>>, text: &str, box_width: usize) {
+    let inner = box_width.saturating_sub(CARD_CHROME);
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|w| super::truncate(w, inner))
+        .collect();
+    for row in wrap_space_separated(&words, inner) {
+        let span = Span::styled(row.join(" "), theme::muted());
+        section_line(lines, vec![span], box_width);
+    }
+}
+
+fn render_match_block_detail(frame: &mut Frame, app: &App, area: Rect, block: &MatchBlockEntry) {
+    let box_width = area.width as usize;
+    let max_value_width = box_width
+        .saturating_sub(CARD_CHROME)
+        .saturating_sub(LABEL_WIDTH);
+    let inner = box_width.saturating_sub(CARD_CHROME);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    section_open(&mut lines, MATCH_BLOCK_TITLE, box_width);
+    for c in &block.criteria {
+        let label = super::truncate(&MatchBlockEntry::criterion_label(c), inner);
+        section_line(
+            &mut lines,
+            vec![Span::styled(label, theme::bold())],
+            box_width,
+        );
+    }
+    push_wrapped_muted(
+        &mut lines,
+        crate::messages::MATCH_BLOCK_READ_ONLY_HINT,
+        box_width,
+    );
+    section_close(&mut lines, box_width);
+
+    render_pat_directives(&mut lines, &block.directives, box_width);
+    render_pat_tags(&mut lines, &block.tags, box_width);
+    let (applies, may) =
+        match_block_hosts(block, app.hosts_state.list(), app.hosts_state.ssh_config());
+    render_alias_card(&mut lines, "MATCHES", &applies, box_width);
+    render_alias_card(&mut lines, "MAY MATCH", &may, box_width);
+    render_pat_source(&mut lines, &block.source_file, max_value_width, box_width);
+
+    design::stretch_last_card(&mut lines, area.height as usize, box_width);
+    let paragraph = Paragraph::new(lines).scroll((app.ui.detail_scroll(), 0));
+    frame.render_widget(paragraph, area);
 }
 
 /// Renders the source file card for hosts loaded via SSH config Include.
@@ -1015,6 +1264,17 @@ fn render_pat_directives(
 /// The keyword column is at least `LABEL_WIDTH` wide so short keys align, and
 /// always keeps one space before the value so long keywords never glue to it.
 fn push_directive_row(lines: &mut Vec<Line<'static>>, key: &str, value: &str, box_width: usize) {
+    push_directive_row_styled(lines, key, value, theme::bold(), box_width);
+}
+
+/// `push_directive_row` with a custom value style.
+fn push_directive_row_styled(
+    lines: &mut Vec<Line<'static>>,
+    key: &str,
+    value: &str,
+    value_style: ratatui::style::Style,
+    box_width: usize,
+) {
     let label_w = (key.width() + 1).max(LABEL_WIDTH);
     let value_budget = box_width.saturating_sub(4).saturating_sub(label_w);
     let display = if value_budget > 0 && value.width() > value_budget {
@@ -1024,7 +1284,7 @@ fn push_directive_row(lines: &mut Vec<Line<'static>>, key: &str, value: &str, bo
     };
     let spans = vec![
         Span::styled(format!("{key:<label_w$}"), theme::muted()),
-        Span::styled(display, theme::bold()),
+        Span::styled(display, value_style),
     ];
     section_line(lines, spans, box_width);
 }
@@ -1059,17 +1319,22 @@ fn render_pat_matches(lines: &mut Vec<Line<'static>>, pattern: &str, app: &App, 
         .filter(|h| crate::ssh_config::model::host_pattern_matches(pattern, &h.alias))
         .map(|h| h.alias.clone())
         .collect();
+    render_alias_card(lines, "MATCHES", &matching_aliases, box_width);
+}
 
-    if matching_aliases.is_empty() {
+/// A `TITLE (n)` card listing host aliases in bold; skipped when empty.
+fn render_alias_card(
+    lines: &mut Vec<Line<'static>>,
+    title: &str,
+    aliases: &[String],
+    box_width: usize,
+) {
+    if aliases.is_empty() {
         return;
     }
-    section_open(
-        lines,
-        &format!("MATCHES ({})", matching_aliases.len()),
-        box_width,
-    );
+    section_open(lines, &format!("{title} ({})", aliases.len()), box_width);
     let inner_width = box_width.saturating_sub(4);
-    for alias in &matching_aliases {
+    for alias in aliases {
         section_line(
             lines,
             vec![Span::styled(

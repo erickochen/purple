@@ -258,17 +258,22 @@ impl App {
     pub fn with_env(config: SshConfigFile, env: std::sync::Arc<crate::runtime::env::Env>) -> Self {
         let hosts = config.host_entries();
         let patterns = config.pattern_entries();
-        let display_list = Self::build_display_list_from(&config, &hosts, &patterns);
+        let match_blocks = config.match_block_entries();
+        log::debug!("[purple] Match blocks loaded: {}", match_blocks.len());
+        let display_list = Self::build_display_list_from(&config, &hosts, &patterns, &match_blocks);
 
         let initial_selection = display_list.iter().position(|item| {
             matches!(
                 item,
-                HostListItem::Host { .. } | HostListItem::Pattern { .. }
+                HostListItem::Host { .. }
+                    | HostListItem::Pattern { .. }
+                    | HostListItem::MatchBlock { .. }
             )
         });
 
         let reload = ReloadState::from_config(&env, &config);
-        let hosts_state = HostState::from_config(config, hosts, patterns, display_list);
+        let hosts_state =
+            HostState::from_config(config, hosts, patterns, match_blocks, display_list);
 
         Self {
             screen: Screen::HostList,
@@ -418,16 +423,20 @@ impl App {
         log::debug!(
             "[config] reload_hosts: pending_vault_write={had_pending_vault_write} flushed={flushed_vault_write}"
         );
-        let had_search = self.search.query.take();
+        // Read the selection while the search query is still set: in search
+        // mode the cursor indexes the search rows, not the display list.
         let selected_alias = self
             .selected_host()
             .map(|h| h.alias.clone())
             .or_else(|| self.selected_pattern().map(|p| p.pattern.clone()));
+        let selected_match = self.selected_match_block_key();
+        let had_search = self.search.query.take();
 
         self.tunnels.summaries_cache.clear();
         self.hosts_state.render_cache.invalidate();
         self.hosts_state.list = self.hosts_state.ssh_config.host_entries();
         self.hosts_state.patterns = self.hosts_state.ssh_config.pattern_entries();
+        self.hosts_state.match_blocks = self.hosts_state.ssh_config.match_block_entries();
 
         // Orphan-prune every per-host sub-state in one scoped block.
         // `valid_aliases` borrows from `self.hosts_state.list`, so the
@@ -508,6 +517,7 @@ impl App {
                 &self.hosts_state.ssh_config,
                 &self.hosts_state.list,
                 &self.hosts_state.patterns,
+                &self.hosts_state.match_blocks,
             );
         } else {
             self.apply_sort();
@@ -530,20 +540,30 @@ impl App {
             self.search.query = None;
             self.search.filtered_indices.clear();
             self.search.filtered_pattern_indices.clear();
+            self.search.filtered_match_indices.clear();
             // Fix selection for display list mode
-            if self.hosts_state.list.is_empty() && self.hosts_state.patterns.is_empty() {
+            if self.hosts_state.list.is_empty()
+                && self.hosts_state.patterns.is_empty()
+                && self.hosts_state.match_blocks.is_empty()
+            {
                 self.ui.list_state.select(None);
             } else if let Some(pos) = self.hosts_state.display_list.iter().position(|item| {
                 matches!(
                     item,
-                    HostListItem::Host { .. } | HostListItem::Pattern { .. }
+                    HostListItem::Host { .. }
+                        | HostListItem::Pattern { .. }
+                        | HostListItem::MatchBlock { .. }
                 )
             }) {
                 let current = self.ui.list_state.selected().unwrap_or(0);
                 if current >= self.hosts_state.display_list.len()
                     || !matches!(
                         self.hosts_state.display_list.get(current),
-                        Some(HostListItem::Host { .. } | HostListItem::Pattern { .. })
+                        Some(
+                            HostListItem::Host { .. }
+                                | HostListItem::Pattern { .. }
+                                | HostListItem::MatchBlock { .. }
+                        )
                     )
                 {
                     self.ui.list_state.select(Some(pos));
@@ -556,12 +576,15 @@ impl App {
         // Restore selection by alias (e.g. after SSH connect changed sort order)
         if let Some(alias) = selected_alias {
             self.select_host_by_alias(&alias);
+        } else if let Some(key) = selected_match {
+            self.select_match_block_by_key(&key);
         }
 
         log::debug!(
-            "[config] reload_hosts: hosts={} patterns={} display_items={}",
+            "[config] reload_hosts: hosts={} patterns={} match_blocks={} display_items={}",
             self.hosts_state.list.len(),
             self.hosts_state.patterns.len(),
+            self.hosts_state.match_blocks.len(),
             self.hosts_state.display_list.len(),
         );
     }

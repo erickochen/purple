@@ -1,3 +1,16 @@
+## 3.34.0 - 2026-11-03
+
+- feat: See your Match blocks and what they do for each host.
+- feat: Every Match block shows up below your patterns.
+- feat: Each host lists the Match blocks that apply, one line per condition. Conditions that depend on your machine or network say so.
+- feat: Settings from a Match block that applies show up as inherited, just like pattern settings.
+- change: Match blocks are read-only in purple. Your config file stays exactly as it is.
+- change: Provider sync leaves settings from patterns and Match blocks where you wrote them.
+- change: A new host always lands outside a Match block, even one with an Include inside.
+- change: Long settings and the Vault sign hint stay neatly inside their cards.
+- How it works: see the Host Patterns page on the wiki.
+- Thanks to @ReubenM for suggesting this in #172
+
 ## 3.33.0 - 2026-10-31
 
 - feat: Install and update smoothly, even on shared networks.

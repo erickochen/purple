@@ -84,6 +84,7 @@ pub const ACTION_SORT: &str = " sort ";
 pub const ACTION_SEARCH: &str = " search ";
 pub const ACTION_TAG: &str = " tag ";
 pub const ACTION_DETAIL: &str = " detail ";
+pub const ACTION_COMPACT: &str = " compact ";
 pub const ACTION_JUMP: &str = " jump ";
 pub const ACTION_HELP: &str = " help ";
 pub const ACTION_BULK_TAG: &str = " bulk tag ";

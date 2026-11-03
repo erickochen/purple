@@ -13,6 +13,7 @@ pub struct SearchState {
     pub(in crate::app) query: Option<String>,
     pub(in crate::app) filtered_indices: Vec<usize>,
     pub(in crate::app) filtered_pattern_indices: Vec<usize>,
+    pub(in crate::app) filtered_match_indices: Vec<usize>,
     pub(in crate::app) pre_search_selection: Option<usize>,
     /// When a group tab is active, holds the host indices visible in that group.
     /// Search results are intersected with this set to scope the search.
@@ -32,6 +33,10 @@ impl SearchState {
         &self.filtered_pattern_indices
     }
 
+    pub fn filtered_match_indices(&self) -> &[usize] {
+        &self.filtered_match_indices
+    }
+
     pub fn scope_indices(&self) -> Option<&HashSet<usize>> {
         self.scope_indices.as_ref()
     }
@@ -46,6 +51,10 @@ impl SearchState {
 
     pub fn clear_filtered_pattern_indices(&mut self) {
         self.filtered_pattern_indices.clear();
+    }
+
+    pub fn clear_filtered_match_indices(&mut self) {
+        self.filtered_match_indices.clear();
     }
 
     /// Append a char to the query string. No-op when the query is inactive.
@@ -104,17 +113,18 @@ impl App {
         self.search.query = None;
         self.search.filtered_indices.clear();
         self.search.filtered_pattern_indices.clear();
+        self.search.filtered_match_indices.clear();
         self.search.scope_indices = None;
         // Restore pre-search position (bounds-checked)
         if let Some(pos) = self.search.pre_search_selection.take() {
             if pos < self.hosts_state.display_list.len() {
                 self.ui.list_state.select(Some(pos));
-            } else if let Some(first) = self.hosts_state.display_list.iter().position(|item| {
-                matches!(
-                    item,
-                    HostListItem::Host { .. } | HostListItem::Pattern { .. }
-                )
-            }) {
+            } else if let Some(first) = self
+                .hosts_state
+                .display_list
+                .iter()
+                .position(HostListItem::is_selectable)
+            {
                 self.ui.list_state.select(Some(first));
             }
         }
@@ -137,13 +147,14 @@ impl App {
                 self.search.filtered_indices = (0..self.hosts_state.list.len()).collect();
                 self.search.filtered_pattern_indices =
                     (0..self.hosts_state.patterns.len()).collect();
+                self.search.filtered_match_indices =
+                    (0..self.hosts_state.match_blocks.len()).collect();
                 // Scope to group if active
                 if let Some(ref scope) = self.search.scope_indices {
                     self.search.filtered_indices.retain(|i| scope.contains(i));
                 }
                 if !self.ping.filter_down_only {
-                    let total = self.search.filtered_indices.len()
-                        + self.search.filtered_pattern_indices.len();
+                    let total = self.search_result_count();
                     if total == 0 {
                         self.ui.list_state.select(None);
                     } else {
@@ -161,6 +172,7 @@ impl App {
                 // No search query but down-only is active: start with all hosts
                 self.search.filtered_indices = (0..self.hosts_state.list.len()).collect();
                 self.search.filtered_pattern_indices = Vec::new();
+                self.search.filtered_match_indices = Vec::new();
                 // Scope to group if active
                 if let Some(ref scope) = self.search.scope_indices {
                     self.search.filtered_indices.retain(|i| scope.contains(i));
@@ -212,6 +224,14 @@ impl App {
                 .iter()
                 .enumerate()
                 .filter(|(_, p)| p.tags.iter().any(|t| super::eq_ci(t, tag_exact)))
+                .map(|(i, _)| i)
+                .collect();
+            self.search.filtered_match_indices = self
+                .hosts_state
+                .match_blocks
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| m.tags.iter().any(|t| super::eq_ci(t, tag_exact)))
                 .map(|(i, _)| i)
                 .collect();
         } else if let Some(tag_query) = query.strip_prefix("tag:") {
@@ -266,6 +286,18 @@ impl App {
                 })
                 .map(|(i, _)| i)
                 .collect();
+            self.search.filtered_match_indices = self
+                .hosts_state
+                .match_blocks
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| {
+                    terms
+                        .iter()
+                        .all(|term| m.tags.iter().any(|t| super::contains_ci(t, term)))
+                })
+                .map(|(i, _)| i)
+                .collect();
         } else {
             // Space-separated terms are ANDed: every term must match at least
             // one field. Split once, not per host. No terms (whitespace-only
@@ -308,6 +340,19 @@ impl App {
                 })
                 .map(|(i, _)| i)
                 .collect();
+            self.search.filtered_match_indices = self
+                .hosts_state
+                .match_blocks
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| {
+                    terms.iter().all(|term| {
+                        super::contains_ci(&m.criteria_text, term)
+                            || m.tags.iter().any(|t| super::contains_ci(t, term))
+                    })
+                })
+                .map(|(i, _)| i)
+                .collect();
         }
 
         // Scope results to the active group if set
@@ -321,17 +366,18 @@ impl App {
                 let alias = &self.hosts_state.list[idx].alias;
                 matches!(self.ping.status.get(alias), Some(PingStatus::Unreachable))
             });
-            // Patterns can't be pinged, so hide them in down-only mode
+            // Patterns and Match blocks can't be pinged, so hide them in down-only mode
             self.search.filtered_pattern_indices.clear();
+            self.search.filtered_match_indices.clear();
         }
 
         // Reset selection
-        let total_results =
-            self.search.filtered_indices.len() + self.search.filtered_pattern_indices.len();
+        let total_results = self.search_result_count();
         log::debug!(
-            "[purple] apply_filter matched: hosts={} patterns={}",
+            "[purple] apply_filter matched: hosts={} patterns={} match_blocks={}",
             self.search.filtered_indices.len(),
-            self.search.filtered_pattern_indices.len()
+            self.search.filtered_pattern_indices.len(),
+            self.search.filtered_match_indices.len()
         );
         if total_results == 0 {
             self.ui.list_state.select(None);

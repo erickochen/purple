@@ -2196,3 +2196,77 @@ fn visual_pattern_detail() {
     let actual = render_screen(&mut app);
     assert_golden("pattern_detail", &actual);
 }
+
+#[test]
+fn visual_match_block_detail() {
+    use crate::app::HostListItem;
+    let _g = setup();
+    let mut app = demo::build_demo_app();
+    let pos = app
+        .hosts_state
+        .display_list()
+        .iter()
+        .position(|item| matches!(item, HostListItem::MatchBlock { .. }));
+    assert!(
+        pos.is_some(),
+        "demo config must contain a selectable Match block"
+    );
+    app.ui.list_state_mut().select(pos);
+    let actual = render_screen(&mut app);
+    assert!(
+        actual.contains("MATCH BLOCK") && actual.contains("Read-only here."),
+        "block detail must render its header card"
+    );
+    assert_golden("match_block_detail", &actual);
+}
+
+#[test]
+fn visual_match_block_detail_may_match() {
+    use crate::app::HostListItem;
+    let _g = setup();
+    let mut app = demo::build_demo_app();
+    let pos = app
+        .hosts_state
+        .display_list()
+        .iter()
+        .rposition(|item| matches!(item, HostListItem::MatchBlock { .. }));
+    app.ui.list_state_mut().select(pos);
+    let actual = render_screen(&mut app);
+    assert!(
+        actual.contains("~ host *.example.com localuser d") && actual.contains("MAY MATCH (1)"),
+        "the full criteria and the MAY MATCH card must be on screen:\n{actual}"
+    );
+    assert_golden("match_block_detail_may_match", &actual);
+}
+
+#[test]
+fn visual_host_detail_pattern_and_match_block() {
+    // Rows to scroll so the PATTERN MATCH and MATCH BLOCK cards are in view.
+    const SCROLL_TO_INHERITED_CARDS: u16 = 36;
+    let _g = setup();
+    let mut app = demo::build_demo_app();
+    app.select_host_by_alias("pve-db-01");
+    app.ui.set_detail_scroll(SCROLL_TO_INHERITED_CARDS);
+    let actual = render_screen(&mut app);
+    assert!(
+        actual.contains("AddKeysToAgent yes") && actual.contains("MATCH BLOCK"),
+        "both inherited cards must be on screen with keys kept apart:\n{actual}"
+    );
+    assert_golden("host_detail_pattern_and_match_block", &actual);
+}
+
+#[test]
+fn visual_host_detail_match_block_undecided() {
+    // Rows to scroll so the whole MATCH BLOCK card, hint included, is in view.
+    const SCROLL_TO_CARD_END: u16 = 4;
+    let _g = setup();
+    let mut app = demo::build_demo_app();
+    app.select_host_by_alias("db-proton");
+    app.ui.set_detail_scroll(SCROLL_TO_CARD_END);
+    let actual = render_screen(&mut app);
+    assert!(
+        actual.contains("not checked here") && actual.contains("every criterion"),
+        "the undecided card and its hint must be on screen"
+    );
+    assert_golden("host_detail_match_block_undecided", &actual);
+}

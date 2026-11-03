@@ -50,6 +50,17 @@ fn serialize_host_block(elements: &[ConfigElement], alias: &str, crlf: bool) -> 
     None
 }
 
+/// Match blocks are read-only in the TUI: edit, delete and clone explain that
+/// with a toast. Returns true when the key was handled that way.
+fn refuse_match_block_edit(app: &mut App) -> bool {
+    if !app.is_match_block_selected() {
+        return false;
+    }
+    log::debug!("[purple] Match block edit refused: read-only in the TUI");
+    app.notify_warning(crate::messages::MATCH_BLOCK_READ_ONLY);
+    true
+}
+
 pub(super) fn handle_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Sender<AppEvent>) {
     match app.top_page {
         crate::app::TopPage::Tunnels => super::tunnels_overview::handle_key(app, key),
@@ -139,7 +150,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
             super::ping::refresh_selected_if_stale(app, events_tx);
         }
         KeyCode::Enter => {
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             if let Some(host) = app.selected_host() {
@@ -185,6 +196,9 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
             app.open_host_pattern_add_form();
         }
         KeyCode::Char('e') => {
+            if refuse_match_block_edit(app) {
+                return;
+            }
             if let Some(pattern) = app.selected_pattern().cloned() {
                 if pattern.source_file.is_some() {
                     app.notify_error(crate::messages::included_file_edit(&pattern.pattern));
@@ -197,6 +211,9 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
             }
         }
         KeyCode::Char('d') => {
+            if refuse_match_block_edit(app) {
+                return;
+            }
             if let Some(pattern) = app.selected_pattern() {
                 if pattern.source_file.is_some() {
                     app.notify_error(crate::messages::included_file_delete(&pattern.pattern));
@@ -219,9 +236,14 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
                 app.set_screen(Screen::ConfirmDelete { alias });
             }
         }
-        KeyCode::Char('c') => actions::clone_selected(app),
+        KeyCode::Char('c') => {
+            if refuse_match_block_edit(app) {
+                return;
+            }
+            actions::clone_selected(app);
+        }
         KeyCode::Char('y') => {
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             if let Some(host) = app.selected_host() {
@@ -243,7 +265,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
             }
         }
         KeyCode::Char('x') => {
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             if let Some(host) = app.selected_host() {
@@ -265,7 +287,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
             }
         }
         KeyCode::Char('p') => {
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             if !app.ping.status_is_empty() {
@@ -299,7 +321,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
                 }
                 return;
             }
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             if let Some(host) = app.selected_host() {
@@ -331,7 +353,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
         }
         KeyCode::Char('g') => actions::cycle_group_by(app),
         KeyCode::Char('i') => {
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             if let Some(index) = app.selected_host_index() {
@@ -362,7 +384,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
         }
         KeyCode::Char('m') => actions::open_theme_picker(app),
         KeyCode::Char('T') => {
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             if let Some(host) = app.selected_host() {
@@ -414,7 +436,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
         // Space and Ctrl+Space both toggle the multi-select set; without
         // this ordering the char arm would capture Space first.
         KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             if let Some(idx) = app.selected_host_index() {
@@ -425,7 +447,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
             // Plain Space mirrors Ctrl+Space so users familiar with
             // ranger/k9s/mutt's muscle memory get the same mark toggle
             // without a modifier. Ctrl+Space still works.
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             if let Some(idx) = app.selected_host_index() {
@@ -434,7 +456,7 @@ pub(super) fn handle_main_key(app: &mut App, key: KeyEvent, events_tx: &mpsc::Se
         }
         KeyCode::Char('r') => actions::run_snippet_on_selection(app),
         KeyCode::Char('R') => {
-            if app.is_pattern_selected() {
+            if app.is_non_host_selected() {
                 return;
             }
             let aliases: Vec<String> = app

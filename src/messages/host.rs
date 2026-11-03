@@ -98,6 +98,21 @@ pub fn included_file_clone(name: &str) -> String {
     format!("{} is in an included file. Clone it there.", name)
 }
 
+/// Group header above the Match rows in the host list.
+pub const MATCH_BLOCKS_GROUP: &str = "Match blocks";
+pub const MATCH_BLOCK_READ_ONLY: &str =
+    "Match blocks are read-only here. Edit them in the config file.";
+pub const MATCH_BLOCK_READ_ONLY_HINT: &str = "Read-only here. Edit it in the config file.";
+pub const MATCH_VERDICT_YES: &str = "yes";
+pub const MATCH_VERDICT_NO: &str = "no";
+pub const MATCH_VERDICT_UNKNOWN: &str = "not checked here";
+pub const MATCH_VERDICT_EXEC: &str = "runs a command, not checked here";
+pub const MATCH_BLOCK_UNDECIDED_HINT: &str = "Applies only when every criterion matches.";
+
+pub fn match_block_wins_over(key: &str) -> String {
+    format!("Wins over this host's own {key} (earlier in file).")
+}
+
 pub fn included_host_lives_in(alias: &str, path: &impl std::fmt::Display) -> String {
     format!("{} lives in {}. Edit it there.", alias, path)
 }

@@ -3321,6 +3321,38 @@ fn test_edit_host_from_form_sets_askpass_in_config() {
 }
 
 #[test]
+fn edit_host_rollback_after_failed_save_keeps_inherited_values_out() {
+    // The config path sits under a regular file, so the save always fails.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let blocker = dir.path().join("not-a-dir");
+    std::fs::write(&blocker, "").expect("write blocker");
+    let content = "Host web\n  HostName 1\n\n\
+                   Match originalhost web\n  User root\n  IdentityFile ~/.ssh/id_web\n\n\
+                   Host *\n  ProxyJump gw\n";
+    let config = SshConfigFile {
+        elements: SshConfigFile::parse_content(content),
+        path: blocker.join("config"),
+        crlf: false,
+        bom: false,
+    };
+    let mut app = App::new(config);
+    assert_eq!(
+        app.hosts_state.list[0].user, "root",
+        "inherited in the view"
+    );
+    let raw = app
+        .hosts_state
+        .ssh_config
+        .raw_host_entry("web")
+        .expect("own block");
+    app.forms.host = HostForm::from_entry(&raw, Default::default());
+    app.forms.host.hostname = "2".to_string();
+    let result = app.edit_host_from_form("web");
+    assert!(result.is_err(), "the save must fail for this test");
+    assert_eq!(app.hosts_state.ssh_config.serialize(), content);
+}
+
+#[test]
 fn test_edit_host_sets_vault_ssh_and_certificate_file() {
     let content = "Host myserver\n  HostName 10.0.0.1\n";
     let dir = std::env::temp_dir().join("purple_test_edit_vault_ssh_set");
@@ -10006,4 +10038,271 @@ fn config_path_display_collapses_home_and_keeps_demo_default() {
         Arc::new(crate::runtime::env::Env::empty()),
     );
     assert_eq!(no_home.config_path_display(), "/srv/ssh_config");
+}
+
+const MATCH_CONFIG: &str = "\
+Host web1
+  HostName 1.1.1.1
+  # purple:tags production
+
+Host 10.0.0.*
+  User debian
+
+Match originalhost web1
+  User root
+  # purple:tags lab
+
+Match all
+  ServerAliveInterval 30
+";
+
+fn header_pos(app: &App, text: &str) -> usize {
+    app.hosts_state
+        .display_list
+        .iter()
+        .position(|i| matches!(i, HostListItem::GroupHeader(s) if s == text))
+        .unwrap_or_else(|| panic!("no header {text}"))
+}
+
+fn match_rows(app: &App) -> Vec<usize> {
+    app.hosts_state
+        .display_list
+        .iter()
+        .filter_map(|i| match i {
+            HostListItem::MatchBlock { index } => Some(*index),
+            _ => None,
+        })
+        .collect()
+}
+
+fn first_match_pos(app: &App) -> usize {
+    app.hosts_state
+        .display_list
+        .iter()
+        .position(|i| matches!(i, HostListItem::MatchBlock { .. }))
+        .expect("a Match row")
+}
+
+#[test]
+fn match_blocks_group_follows_patterns_in_config_order() {
+    let app = make_app(MATCH_CONFIG);
+    assert!(header_pos(&app, "Match blocks") > header_pos(&app, "Patterns"));
+    assert_eq!(match_rows(&app), vec![0, 1]);
+    assert_eq!(app.hosts_state.match_blocks().len(), 2);
+}
+
+#[test]
+fn match_blocks_group_follows_patterns_when_sorted() {
+    let mut app = make_app(MATCH_CONFIG);
+    app.hosts_state.sort_mode = SortMode::AlphaAlias;
+    app.apply_sort();
+    assert!(header_pos(&app, "Match blocks") > header_pos(&app, "Patterns"));
+    assert_eq!(match_rows(&app), vec![0, 1]);
+    let list = &app.hosts_state.display_list;
+    let last_header = list
+        .iter()
+        .rposition(|i| matches!(i, HostListItem::GroupHeader(_)))
+        .expect("a header");
+    let is_match_header = matches!(
+        &list[last_header],
+        HostListItem::GroupHeader(s) if s == "Match blocks"
+    );
+    assert!(is_match_header);
+}
+
+#[test]
+fn match_blocks_group_absent_without_match_blocks() {
+    let app = make_app("Host a\n  HostName 1\n");
+    assert!(match_rows(&app).is_empty());
+    let has_header = app
+        .hosts_state
+        .display_list
+        .iter()
+        .any(|i| matches!(i, HostListItem::GroupHeader(s) if s == "Match blocks"));
+    assert!(!has_header);
+}
+
+#[test]
+fn match_block_tags_comment_is_not_a_group_header() {
+    let app = make_app("Match all\n  User root\n  # purple:tags lab\nHost a\n  HostName 1\n");
+    let headers: Vec<&str> = app
+        .hosts_state
+        .display_list
+        .iter()
+        .filter_map(|i| match i {
+            HostListItem::GroupHeader(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(headers, vec!["Match blocks"]);
+}
+
+#[test]
+fn match_block_rows_are_selectable_and_detected() {
+    let mut app = make_app(MATCH_CONFIG);
+    let pos = first_match_pos(&app);
+    app.ui.list_state.select(Some(pos));
+    assert!(app.is_match_block_selected());
+    assert!(app.is_non_host_selected());
+    assert!(!app.is_pattern_selected());
+    assert!(app.selected_host().is_none());
+    let text = app.selected_match_block().map(|m| m.criteria_text.as_str());
+    assert_eq!(text, Some("originalhost web1"));
+    app.select_next();
+    let text = app.selected_match_block().map(|m| m.criteria_text.as_str());
+    assert_eq!(text, Some("all"));
+    app.select_next();
+    assert!(
+        app.selected_host().is_some(),
+        "wraps to the first host, never a header"
+    );
+}
+
+#[test]
+fn search_filters_match_blocks_by_criteria_text_and_tag() {
+    let mut app = make_app(MATCH_CONFIG);
+    for (query, expected) in [
+        ("originalhost", vec![0usize]),
+        ("tag:lab", vec![0]),
+        ("tag=lab", vec![0]),
+        ("all", vec![1]),
+        ("nothing-here", vec![]),
+    ] {
+        app.search.set_query(Some(query.to_string()));
+        app.apply_filter();
+        let got = app.search.filtered_match_indices();
+        assert_eq!(got, expected.as_slice(), "{query}");
+    }
+}
+
+#[test]
+fn search_mode_selection_reaches_match_rows_after_patterns() {
+    let mut app = make_app(MATCH_CONFIG);
+    app.search.set_query(Some(String::new()));
+    app.apply_filter();
+    let hosts = app.search.filtered_indices().len();
+    let patterns = app.search.filtered_pattern_indices().len();
+    assert_eq!(app.search_result_count(), hosts + patterns + 2);
+    app.ui.list_state.select(Some(hosts + patterns));
+    assert!(app.is_match_block_selected());
+    assert_eq!(app.selected_match_block().map(|m| m.order), Some(2));
+    assert!(!app.is_pattern_selected());
+    app.ui.list_state.select(Some(hosts + patterns - 1));
+    assert!(app.is_pattern_selected());
+    assert!(!app.is_match_block_selected());
+}
+
+#[test]
+fn down_only_filter_hides_match_blocks() {
+    let mut app = make_app(MATCH_CONFIG);
+    app.ping.set_filter_down_only(true);
+    app.search.set_query(Some(String::new()));
+    app.apply_filter();
+    assert!(app.search.filtered_match_indices().is_empty());
+}
+
+#[test]
+fn tag_group_filter_keeps_match_blocks_with_that_tag() {
+    let mut app = make_app(MATCH_CONFIG);
+    app.hosts_state.group_by = GroupBy::Tag("lab".to_string());
+    app.hosts_state.group_filter = Some("lab".to_string());
+    app.apply_sort();
+    assert_eq!(match_rows(&app), vec![0]);
+    assert!(app.hosts_state.group_tab_order.contains(&"lab".to_string()));
+}
+
+#[test]
+fn apply_sort_restores_selected_match_block() {
+    let mut app = make_app(MATCH_CONFIG);
+    let pos = app
+        .hosts_state
+        .display_list
+        .iter()
+        .rposition(|i| matches!(i, HostListItem::MatchBlock { .. }))
+        .expect("a Match row");
+    app.ui.list_state.select(Some(pos));
+    app.hosts_state.sort_mode = SortMode::AlphaAlias;
+    app.apply_sort();
+    let text = app.selected_match_block().map(|m| m.criteria_text.as_str());
+    assert_eq!(text, Some("all"));
+}
+
+#[test]
+fn apply_sort_restores_the_second_of_two_identical_match_blocks() {
+    let mut app =
+        make_app("Host all\n  HostName 1\n\nMatch all\n  User a\n\nMatch all\n  User b\n");
+    let pos = app
+        .hosts_state
+        .display_list
+        .iter()
+        .rposition(|i| matches!(i, HostListItem::MatchBlock { .. }))
+        .expect("a Match row");
+    app.ui.list_state.select(Some(pos));
+    let before = app.selected_match_block().map(|m| m.order);
+    app.hosts_state.sort_mode = SortMode::AlphaAlias;
+    app.apply_sort();
+    assert_eq!(app.selected_match_block().map(|m| m.order), before);
+    assert!(
+        app.selected_host().is_none(),
+        "a host named all is not picked"
+    );
+}
+
+#[test]
+fn reload_hosts_in_search_mode_restores_the_row_under_the_cursor() {
+    // The search rows differ from the display list rows, so the selection
+    // must be read while the query is still active.
+    let mut app = make_app(
+        "Host alpha\n  HostName 1\n\nHost prod-web\n  HostName 2\n\nHost prod-db\n  HostName 3\n\n\
+         Match originalhost prod-*\n  User root\n",
+    );
+    app.search.set_query(Some("prod".to_string()));
+    app.apply_filter();
+    app.ui.list_state.select(Some(1));
+    assert_eq!(
+        app.selected_host().map(|h| h.alias.as_str()),
+        Some("prod-db")
+    );
+    app.reload_hosts();
+    assert_eq!(
+        app.selected_host().map(|h| h.alias.as_str()),
+        Some("prod-db")
+    );
+    let match_row = app.search_result_count() - 1;
+    app.ui.list_state.select(Some(match_row));
+    assert!(app.is_match_block_selected());
+    app.reload_hosts();
+    assert!(
+        app.is_match_block_selected(),
+        "the Match row stays selected"
+    );
+}
+
+#[test]
+fn reload_hosts_keeps_the_match_block_when_a_section_above_goes() {
+    let mut app = make_app(
+        "Host a\n  HostName 1\n\nHost b\n  HostName 2\n\n\
+         Match originalhost x\n  User x\n\nMatch originalhost y\n  User y\n",
+    );
+    let pos = first_match_pos(&app);
+    app.ui.list_state.select(Some(pos));
+    app.hosts_state.ssh_config.delete_host("a");
+    app.reload_hosts();
+    let text = app.selected_match_block().map(|m| m.criteria_text.as_str());
+    assert_eq!(text, Some("originalhost x"));
+}
+
+#[test]
+fn reload_hosts_restores_selected_match_block_in_search_mode() {
+    let mut app = make_app(MATCH_CONFIG);
+    app.search.set_query(Some("all".to_string()));
+    app.apply_filter();
+    let hosts = app.search.filtered_indices().len();
+    let patterns = app.search.filtered_pattern_indices().len();
+    app.ui.list_state.select(Some(hosts + patterns));
+    assert!(app.is_match_block_selected());
+    app.reload_hosts();
+    let text = app.selected_match_block().map(|m| m.criteria_text.as_str());
+    assert_eq!(text, Some("all"));
+    assert_eq!(app.hosts_state.match_blocks().len(), 2);
 }

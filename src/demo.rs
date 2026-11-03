@@ -312,6 +312,14 @@ Host pve-*
   ControlPersist 10m
   SetEnv TERM=xterm-256color
   LogLevel INFO
+
+Match originalhost pve-*
+  IdentityFile ~/.ssh/id_pve
+  Compression yes
+
+Match host *.example.com localuser dba
+  User dba
+  IdentityFile ~/.ssh/id_dba
 ";
 
 const DEMO_SNIPPETS: &str = "\

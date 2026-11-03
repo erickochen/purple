@@ -35,13 +35,14 @@ fn fuzzy_host_rows(app: &App, query: &str) -> Vec<HostListItem> {
         .collect()
 }
 
-/// Alias for a Host/Pattern row; `None` for a group header.
+/// Alias for a Host/Pattern row; `None` for a group header or a Match row,
+/// which names no host.
 pub(crate) fn row_alias(app: &App, row: &HostListItem) -> Option<String> {
     match row {
         HostListItem::Host { index } | HostListItem::Pattern { index } => {
             app.hosts_state.list().get(*index).map(|h| h.alias.clone())
         }
-        HostListItem::GroupHeader(_) => None,
+        HostListItem::GroupHeader(_) | HostListItem::MatchBlock { .. } => None,
     }
 }
 

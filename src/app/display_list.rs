@@ -6,7 +6,9 @@ use std::collections::HashMap;
 
 use super::{GroupBy, HostListItem, SortMode};
 use crate::app::App;
-use crate::ssh_config::model::{ConfigElement, HostEntry, PatternEntry, SshConfigFile};
+use crate::ssh_config::model::{
+    ConfigElement, HostEntry, MatchBlockEntry, PatternEntry, SshConfigFile,
+};
 
 impl App {
     /// Build the display list with group headers from comments above host blocks.
@@ -17,6 +19,7 @@ impl App {
         config: &SshConfigFile,
         hosts: &[HostEntry],
         patterns: &[PatternEntry],
+        match_blocks: &[MatchBlockEntry],
     ) -> Vec<HostListItem> {
         let mut display_list = Vec::new();
         let mut host_index = 0;
@@ -27,10 +30,8 @@ impl App {
                 ConfigElement::GlobalLine(line) => {
                     let trimmed = line.trim();
                     if let Some(rest) = trimmed.strip_prefix('#') {
-                        let text = rest.trim();
-                        let text = text.strip_prefix("purple:group ").unwrap_or(text);
-                        if !text.is_empty() {
-                            pending_comment = Some(text.to_string());
+                        if let Some(header) = Self::comment_header(rest) {
+                            pending_comment = Some(header);
                         }
                     } else if trimmed.is_empty() {
                         // Blank line breaks the comment-to-host association
@@ -82,8 +83,19 @@ impl App {
                 "append_pattern_items and collect_pattern_entries traversal mismatch"
             );
         }
+        Self::append_match_block_items(match_blocks.len(), &mut display_list);
 
         display_list
+    }
+
+    /// Append the Match blocks group below the patterns, in reading order.
+    fn append_match_block_items(count: usize, display_list: &mut Vec<HostListItem>) {
+        if count == 0 {
+            return;
+        }
+        let header = crate::messages::MATCH_BLOCKS_GROUP.to_string();
+        display_list.push(HostListItem::GroupHeader(header));
+        display_list.extend((0..count).map(|index| HostListItem::MatchBlock { index }));
     }
 
     fn append_pattern_items(
@@ -109,6 +121,17 @@ impl App {
                 ConfigElement::GlobalLine(_) => {}
             }
         }
+    }
+
+    /// Group header text for a comment line (text after `#`). purple metadata
+    /// such as `purple:tags` in a Match block is not a header; `purple:group` is.
+    fn comment_header(rest: &str) -> Option<String> {
+        let text = rest.trim();
+        if text.starts_with("purple:") && !text.starts_with("purple:group ") {
+            return None;
+        }
+        let text = text.strip_prefix("purple:group ").unwrap_or(text);
+        (!text.is_empty()).then(|| text.to_string())
     }
 
     /// Extract a trailing comment from a block's directives.
@@ -171,10 +194,8 @@ impl App {
                 ConfigElement::GlobalLine(line) => {
                     let trimmed = line.trim();
                     if let Some(rest) = trimmed.strip_prefix('#') {
-                        let text = rest.trim();
-                        let text = text.strip_prefix("purple:group ").unwrap_or(text);
-                        if !text.is_empty() {
-                            pending_comment = Some(text.to_string());
+                        if let Some(header) = Self::comment_header(rest) {
+                            pending_comment = Some(header);
                         }
                     } else {
                         pending_comment = None;
@@ -221,11 +242,12 @@ impl App {
             self.hosts_state.group_by,
             self.hosts_state.list.len()
         );
-        // Preserve currently selected host or pattern across sort changes
+        // Preserve the selected host, pattern or Match block across sort changes
         let selected_alias = self
             .selected_host()
             .map(|h| h.alias.clone())
             .or_else(|| self.selected_pattern().map(|p| p.pattern.clone()));
+        let selected_match = self.selected_match_block_key();
 
         // Multi-select indices become visually misleading after reorder
         self.hosts_state.multi_select.clear();
@@ -239,6 +261,7 @@ impl App {
                 &self.hosts_state.ssh_config,
                 &self.hosts_state.list,
                 &self.hosts_state.patterns,
+                &self.hosts_state.match_blocks,
             );
         } else if self.hosts_state.sort_mode == SortMode::Original
             && !matches!(self.hosts_state.group_by, GroupBy::None)
@@ -310,12 +333,11 @@ impl App {
             self.hosts_state.display_list = self.group_indices(&indices);
         }
 
-        // Append pattern group at the bottom (sorted/grouped paths skip
-        // build_display_list_from which already handles this)
-        if (self.hosts_state.sort_mode != SortMode::Original
-            || !matches!(self.hosts_state.group_by, GroupBy::None))
-            && !self.hosts_state.patterns.is_empty()
-        {
+        // Append the pattern and Match block groups at the bottom (sorted and
+        // grouped paths skip build_display_list_from, which already does this)
+        let rebuilt_by_sort = self.hosts_state.sort_mode != SortMode::Original
+            || !matches!(self.hosts_state.group_by, GroupBy::None);
+        if rebuilt_by_sort && !self.hosts_state.patterns.is_empty() {
             self.hosts_state
                 .display_list
                 .push(HostListItem::GroupHeader("Patterns".to_string()));
@@ -323,6 +345,12 @@ impl App {
             Self::append_pattern_items(
                 &self.hosts_state.ssh_config.elements,
                 &mut pattern_index,
+                &mut self.hosts_state.display_list,
+            );
+        }
+        if rebuilt_by_sort {
+            Self::append_match_block_items(
+                self.hosts_state.match_blocks.len(),
                 &mut self.hosts_state.display_list,
             );
         }
@@ -336,7 +364,9 @@ impl App {
                     HostListItem::GroupHeader(text) => {
                         current_group = Some(text.as_str());
                     }
-                    HostListItem::Host { .. } | HostListItem::Pattern { .. } => {
+                    HostListItem::Host { .. }
+                    | HostListItem::Pattern { .. }
+                    | HostListItem::MatchBlock { .. } => {
                         if let Some(group) = current_group {
                             *self
                                 .hosts_state
@@ -361,6 +391,11 @@ impl App {
                 }
                 for pattern in &self.hosts_state.patterns {
                     for tag in &pattern.tags {
+                        *tag_counts.entry(tag.clone()).or_insert(0) += 1;
+                    }
+                }
+                for block in &self.hosts_state.match_blocks {
+                    for tag in &block.tags {
                         *tag_counts.entry(tag.clone()).or_insert(0) += 1;
                     }
                 }
@@ -414,6 +449,13 @@ impl App {
                                 filtered.push(item);
                             }
                         }
+                        HostListItem::MatchBlock { index } => {
+                            if let Some(block) = self.hosts_state.match_blocks.get(*index)
+                                && block.tags.iter().any(|t| t == filter)
+                            {
+                                filtered.push(item);
+                            }
+                        }
                     }
                 }
             } else {
@@ -436,10 +478,16 @@ impl App {
             self.hosts_state.display_list = filtered;
         }
 
-        // Restore selection by alias, fall back to first host
+        // Restore selection by alias or Match block, fall back to first host
         if let Some(alias) = selected_alias {
             self.select_host_by_alias(&alias);
             if self.selected_host().is_some() || self.selected_pattern().is_some() {
+                return;
+            }
+        }
+        if let Some(key) = selected_match {
+            self.select_match_block_by_key(&key);
+            if self.selected_match_block().is_some() {
                 return;
             }
         }
@@ -451,7 +499,9 @@ impl App {
         if let Some(pos) = self.hosts_state.display_list.iter().position(|item| {
             matches!(
                 item,
-                HostListItem::Host { .. } | HostListItem::Pattern { .. }
+                HostListItem::Host { .. }
+                    | HostListItem::Pattern { .. }
+                    | HostListItem::MatchBlock { .. }
             )
         }) {
             self.ui.list_state.select(Some(pos));

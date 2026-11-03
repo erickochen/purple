@@ -1,6 +1,104 @@
 use super::build_update_label;
 use crate::app::GroupBy;
 
+/// Plain text of a pattern or Match row with no tags.
+fn config_row_text(name: &str, hostname: &str, cols: &super::Columns) -> String {
+    let row = super::ConfigBlockRow {
+        prefix: ratatui::text::Span::raw("~ "),
+        name,
+        hostname,
+        tags: &[],
+    };
+    super::config_block_spans(&row, cols)
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect()
+}
+
+#[test]
+fn long_config_row_name_uses_the_empty_address_room() {
+    use unicode_width::UnicodeWidthStr;
+    let cols = super::Columns::compute(10, 15, 0, 8, 5, 200, false);
+    let long_name = "host *.example.com localuser dba";
+    let long = config_row_text(long_name, "", &cols);
+    let short = config_row_text("all", "", &cols);
+    assert!(long.contains(long_name), "{long:?}");
+    assert_eq!(long.width(), short.width(), "TAGS and LAST stay in place");
+}
+
+#[test]
+fn long_config_row_name_in_detail_mode_runs_into_the_flex_gap() {
+    use unicode_width::UnicodeWidthStr;
+    let cols = super::Columns::compute(10, 15, 0, 8, 5, 90, true);
+    let long_name = "host *.example.com localuser dba";
+    let long = config_row_text(long_name, "", &cols);
+    let short = config_row_text("all", "", &cols);
+    assert!(long.contains(long_name), "{long:?}");
+    assert_eq!(long.width(), short.width());
+}
+
+#[test]
+fn config_row_with_a_hostname_keeps_its_name_column() {
+    let cols = super::Columns::compute(10, 15, 0, 8, 5, 200, false);
+    let text = config_row_text("web-* db-* api-*", "gw.example", &cols);
+    assert!(
+        text.contains('…'),
+        "the name stays in its own column: {text:?}"
+    );
+    assert!(text.contains("gw.example"));
+}
+
+#[test]
+fn config_row_name_that_fits_keeps_the_old_layout() {
+    let cols = super::Columns::compute(10, 15, 0, 8, 5, 200, false);
+    let row = super::ConfigBlockRow {
+        prefix: ratatui::text::Span::raw("* "),
+        name: "pve-*",
+        hostname: "",
+        tags: &[],
+    };
+    let spans = super::config_block_spans(&row, &cols);
+    let name_span = format!("{:<width$}", "pve-*", width = cols.alias);
+    assert_eq!(spans[2].content, name_span);
+}
+
+#[test]
+fn very_long_config_row_name_is_cut_with_one_gap_before_tags() {
+    use unicode_width::UnicodeWidthStr;
+    let tags = vec!["prod".to_string()];
+    let spans_text = |name: &str, cols: &super::Columns| -> String {
+        let row = super::ConfigBlockRow {
+            prefix: ratatui::text::Span::raw("~ "),
+            name,
+            hostname: "",
+            tags: &tags,
+        };
+        super::config_block_spans(&row, cols)
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect()
+    };
+    let long_name = "exec \"test -f ~/.vpn-up && nc -z gateway.internal 22\" host *.example.com";
+    for detail_mode in [false, true] {
+        let cols = super::Columns::compute(10, 15, 0, 8, 5, 90, detail_mode);
+        assert!(cols.tags > 0, "the layout keeps a TAGS column");
+        let text = spans_text(long_name, &cols);
+        let short = spans_text("all", &cols);
+        assert_eq!(text.width(), short.width(), "TAGS and LAST stay aligned");
+        let cut = text.find('…').expect("the name is cut");
+        let after = &text[cut + '…'.len_utf8()..];
+        let spaces = after.chars().take_while(|c| *c == ' ').count();
+        assert!(spaces >= cols.gap, "a gap stays before TAGS: {text:?}");
+        assert!(after.trim_start().starts_with("prod"), "{text:?}");
+        let column = |t: &str| t.find("prod").map(|i| t[..i].width());
+        assert_eq!(
+            column(&text),
+            column(&short),
+            "TAGS start in the same column"
+        );
+    }
+}
+
 #[test]
 fn label_fits_fully() {
     let label = build_update_label("2.7.0", Some("New feature"), "purple update", 80);

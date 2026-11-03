@@ -22,8 +22,9 @@ fuzz_target!(|data: &[u8]| {
     // 2. Serialize must not panic.
     let serialized = config.serialize();
 
-    // 3. host_entries must not panic.
+    // 3. host_entries and the Match block view must not panic.
     let _ = config.host_entries();
+    let _ = config.match_block_entries();
 
     // 4. Idempotency: serialize(parse(serialize(parse(input)))) == serialize(parse(input))
     let reparsed = purple_ssh::ssh_config::model::SshConfigFile {
@@ -79,16 +80,41 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 
-    // 6. Add host
-    let mut config_add = config.clone();
+    // 6. Add host. Adding one host must leave every other host's own
+    //    directives and every Match block exactly as they were.
+    let new_alias = "fuzz-new-host";
+    let mut config_add = reparsed.clone();
     config_add.add_host(&purple_ssh::ssh_config::model::HostEntry {
-        alias: "fuzz-new-host".to_string(),
+        alias: new_alias.to_string(),
         hostname: "10.0.0.99".to_string(),
         user: "fuzzer".to_string(),
         port: 22,
         ..Default::default()
     });
-    let _ = config_add.serialize();
+    let added = config_add.serialize();
+    if !reparsed.has_host(new_alias) {
+        let after = purple_ssh::ssh_config::model::SshConfigFile {
+            elements: purple_ssh::ssh_config::model::SshConfigFile::parse_content(&added),
+            path: PathBuf::from("/tmp/fuzz_config"),
+            crlf: added.contains("\r\n"),
+            bom: added.starts_with('\u{FEFF}'),
+        };
+        let own = |c: &purple_ssh::ssh_config::model::SshConfigFile| {
+            c.own_host_entries()
+                .into_iter()
+                .filter(|h| h.alias != new_alias)
+                .map(|h| (h.alias, h.hostname, h.user, h.port, h.identity_file, h.proxy_jump))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(own(&reparsed), own(&after), "add_host changed another host");
+        let blocks = |c: &purple_ssh::ssh_config::model::SshConfigFile| {
+            c.match_block_entries()
+                .into_iter()
+                .map(|m| (m.criteria_text, m.directives))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(blocks(&reparsed), blocks(&after), "add_host changed a Match block");
+    }
 
     // 7. Tags, provider, askpass, meta must not panic.
     for entry in &entries {

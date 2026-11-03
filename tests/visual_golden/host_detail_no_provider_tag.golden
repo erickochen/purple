@@ -1,7 +1,7 @@
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
 │  purple       hosts      tunnels      containers      snippets      keys                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭ 36 ── ●27 ✖3 ○3 ─────────────────────────────────────────╮╭─ prod-eu2 ───────────────────────────╮
+╭ 38 ── ●27 ✖3 ○3 ─────────────────────────────────────────╮╭─ prod-eu2 ───────────────────────────╮
 │     NAME                             TAGS          LAST▾ ││ ops@195.144.107.62:22                │
 │──────────────────────────────────────────────────────────││ ● online (36ms)  checked just now    │
 │   ● bastion-ams ⇄                    production     <1m  │╰──────────────────────────────────────╯
@@ -24,9 +24,9 @@
 │   ● do-work-worker-ams               worker         18h  │╰──────────────────────────────────────╯
 │   ● do-work-ci-runner ↗              ci             19h  │╭─ VAULT SSH ──────────────────────────╮
 │   ● do-personal-blog                 personal       20h  ││ Role          admin                  │
-│   ● do-personal-mail                 personal       21h  ││ Status        Not signed (press V to s
-│   ● pve-web-01                       web            22h  │╰──────────────────────────────────────╯
-╰──────────────────────────────────────────── getpurple.sh ╯╭─ SNIPPETS ───────────────────────────╮
+│   ● do-personal-mail                 personal       21h  ││ Status        Not signed             │
+│   ● pve-web-01                       web            22h  ││               (press V to sign)      │
+╰──────────────────────────────────────────── getpurple.sh ╯╰──────────────────────────────────────╯
  Enter  connect    /  search    #  tag    v  compact    :  jump                              ?  more
 ---STYLES---
 (0,0) fg=Reset bg=Reset mod=DIM
@@ -1858,19 +1858,6 @@
 (83,26) fg=Reset bg=Reset mod=DIM
 (84,26) fg=Reset bg=Reset mod=DIM
 (85,26) fg=Reset bg=Reset mod=DIM
-(86,26) fg=Reset bg=Reset mod=DIM
-(87,26) fg=Reset bg=Reset mod=DIM
-(88,26) fg=Reset bg=Reset mod=DIM
-(89,26) fg=Reset bg=Reset mod=DIM
-(90,26) fg=Reset bg=Reset mod=DIM
-(91,26) fg=Reset bg=Reset mod=DIM
-(92,26) fg=Reset bg=Reset mod=DIM
-(93,26) fg=Reset bg=Reset mod=DIM
-(94,26) fg=Reset bg=Reset mod=DIM
-(95,26) fg=Reset bg=Reset mod=DIM
-(96,26) fg=Reset bg=Reset mod=DIM
-(97,26) fg=Reset bg=Reset mod=DIM
-(98,26) fg=Reset bg=Reset mod=DIM
 (99,26) fg=Reset bg=Reset mod=DIM
 (0,27) fg=Reset bg=Reset mod=DIM
 (2,27) fg=Reset bg=Reset mod=BOLD
@@ -1897,20 +1884,6 @@
 (59,27) fg=Reset bg=Reset mod=DIM
 (60,27) fg=Reset bg=Reset mod=DIM
 (61,27) fg=Reset bg=Reset mod=DIM
-(62,27) fg=Reset bg=Reset mod=DIM
-(63,27) fg=Reset bg=Reset mod=DIM
-(64,27) fg=Reset bg=Reset mod=DIM
-(65,27) fg=Reset bg=Reset mod=DIM
-(66,27) fg=Reset bg=Reset mod=DIM
-(67,27) fg=Reset bg=Reset mod=DIM
-(68,27) fg=Reset bg=Reset mod=DIM
-(69,27) fg=Reset bg=Reset mod=DIM
-(70,27) fg=Reset bg=Reset mod=DIM
-(71,27) fg=Reset bg=Reset mod=DIM
-(72,27) fg=Reset bg=Reset mod=DIM
-(73,27) fg=Reset bg=Reset mod=DIM
-(74,27) fg=Reset bg=Reset mod=DIM
-(75,27) fg=Reset bg=Reset mod=DIM
 (76,27) fg=Reset bg=Reset mod=DIM
 (77,27) fg=Reset bg=Reset mod=DIM
 (78,27) fg=Reset bg=Reset mod=DIM
@@ -1928,12 +1901,6 @@
 (90,27) fg=Reset bg=Reset mod=DIM
 (91,27) fg=Reset bg=Reset mod=DIM
 (92,27) fg=Reset bg=Reset mod=DIM
-(93,27) fg=Reset bg=Reset mod=DIM
-(94,27) fg=Reset bg=Reset mod=DIM
-(95,27) fg=Reset bg=Reset mod=DIM
-(96,27) fg=Reset bg=Reset mod=DIM
-(97,27) fg=Reset bg=Reset mod=DIM
-(98,27) fg=Reset bg=Reset mod=DIM
 (99,27) fg=Reset bg=Reset mod=DIM
 (0,28) fg=Reset bg=Reset mod=DIM
 (1,28) fg=Reset bg=Reset mod=DIM
@@ -1998,14 +1965,14 @@
 (60,28) fg=Reset bg=Reset mod=DIM
 (61,28) fg=Reset bg=Reset mod=DIM
 (62,28) fg=Reset bg=Reset mod=DIM
-(63,28) fg=Reset bg=Reset mod=BOLD|DIM
-(64,28) fg=Reset bg=Reset mod=BOLD|DIM
-(65,28) fg=Reset bg=Reset mod=BOLD|DIM
-(66,28) fg=Reset bg=Reset mod=BOLD|DIM
-(67,28) fg=Reset bg=Reset mod=BOLD|DIM
-(68,28) fg=Reset bg=Reset mod=BOLD|DIM
-(69,28) fg=Reset bg=Reset mod=BOLD|DIM
-(70,28) fg=Reset bg=Reset mod=BOLD|DIM
+(63,28) fg=Reset bg=Reset mod=DIM
+(64,28) fg=Reset bg=Reset mod=DIM
+(65,28) fg=Reset bg=Reset mod=DIM
+(66,28) fg=Reset bg=Reset mod=DIM
+(67,28) fg=Reset bg=Reset mod=DIM
+(68,28) fg=Reset bg=Reset mod=DIM
+(69,28) fg=Reset bg=Reset mod=DIM
+(70,28) fg=Reset bg=Reset mod=DIM
 (71,28) fg=Reset bg=Reset mod=DIM
 (72,28) fg=Reset bg=Reset mod=DIM
 (73,28) fg=Reset bg=Reset mod=DIM

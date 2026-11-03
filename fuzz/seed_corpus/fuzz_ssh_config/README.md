@@ -19,6 +19,9 @@ Covered features:
   an LF-normalizing editor)
 - `08_empty_and_comments.conf` — global comments, blank separators, single
   host
+- `13_match_criteria.conf`: Match criteria with negation, comma lists, a
+  quoted exec, the `=` and glued `host=` forms, an inline comment and a tab
+  indent
 
 ## Running the fuzzer
 

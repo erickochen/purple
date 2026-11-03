@@ -985,3 +985,185 @@ fn long_directive_keyword_keeps_a_space_before_value() {
         "long keyword must keep a space before its value, got: {row:?}"
     );
 }
+
+#[test]
+fn detail_match_blocks_lists_applying_and_undecided_with_verdicts() {
+    let config = parse_config(
+        "Host db\n  Hostname db1.example.com\n  User dba\n\n\
+         Match host *.example.com localuser dba\n  IdentityFile ~/.ssh/id_dba\n\n\
+         Match originalhost db\n  User root\n\n\
+         Match originalhost web-*\n  User web\n",
+    );
+    let hosts = config.host_entries();
+    let info = compute_detail_info(&hosts[0], &hosts, &config);
+    assert_eq!(info.match_blocks.len(), 2, "the web-* block is skipped");
+    assert_eq!(info.match_blocks[0].0, "host *.example.com localuser dba");
+    assert_eq!(info.match_blocks[0].1, BlockStatus::Undecided);
+    assert_eq!(
+        info.match_blocks[0].2,
+        vec![
+            ("host *.example.com".to_string(), "yes".to_string()),
+            ("localuser dba".to_string(), "not checked here".to_string()),
+        ]
+    );
+    assert_eq!(info.match_blocks[1].1, BlockStatus::Applies);
+    assert!(
+        info.match_block_overrides.is_empty(),
+        "the blocks sit below the host"
+    );
+}
+
+#[test]
+fn detail_match_block_above_host_notes_the_override() {
+    let config = parse_config("Match all\n  User root\n\nHost db\n  Hostname 1\n  User dba\n");
+    let hosts = config.host_entries();
+    let info = compute_detail_info(&hosts[0], &hosts, &config);
+    let expected = vec![("all".to_string(), "User".to_string())];
+    assert_eq!(info.match_block_overrides, expected);
+}
+
+#[test]
+fn detail_exec_verdict_names_the_command_risk() {
+    let config = parse_config(
+        "Host a\n  Hostname 1\n\n\
+         Match originalhost a exec \"test -f ~/.vpn\"\n  ProxyJump gw\n",
+    );
+    let hosts = config.host_entries();
+    let info = compute_detail_info(&hosts[0], &hosts, &config);
+    assert_eq!(
+        info.match_blocks[0].2[1],
+        (
+            "exec \"test -f ~/.vpn\"".to_string(),
+            "runs a command, not checked here".to_string()
+        )
+    );
+}
+
+#[test]
+fn match_block_detail_counts_matches_and_may_match() {
+    let config = parse_config(
+        "Host a\n  Hostname 1\n\nHost b\n  Hostname 2\n\nHost c\n  Hostname 3\n\n\
+         Match originalhost a,b localuser x\n  User root\n\n\
+         Match originalhost c\n  User c\n",
+    );
+    let hosts = config.host_entries();
+    let blocks = config.match_block_entries();
+    let info = compute_match_block_detail_info(&blocks[0], &hosts, &config);
+    assert!(info.matching_aliases.is_empty());
+    assert_eq!(info.may_match_aliases, vec!["a", "b"]);
+    assert!(info.has_directives);
+    let info = compute_match_block_detail_info(&blocks[1], &hosts, &config);
+    assert_eq!(info.matching_aliases, vec!["c"]);
+    assert!(info.may_match_aliases.is_empty());
+}
+
+/// Rows of the detail panel whose right border was overwritten by content.
+fn overflowing_rows(app: &crate::app::App, width: u16) -> Vec<String> {
+    use ratatui::backend::TestBackend;
+    // Tall enough that no card is scrolled out of view.
+    const PANEL_HEIGHT: u16 = 200;
+    let backend = TestBackend::new(width, PANEL_HEIGHT);
+    let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+    let mut bad = Vec::new();
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            render(frame, app, area, 0);
+            let buf = frame.buffer_mut();
+            for y in 0..buf.area.height {
+                let first = buf[(0, y)].symbol().to_string();
+                let last = buf[(width - 1, y)].symbol().to_string();
+                let in_card = ["│", "╭", "╰"].contains(&first.as_str());
+                if in_card && !["│", "╮", "╯"].contains(&last.as_str()) {
+                    let row: String = (0..width).map(|x| buf[(x, y)].symbol()).collect();
+                    bad.push(row);
+                }
+            }
+        })
+        .expect("draw");
+    bad
+}
+
+#[test]
+fn every_detail_panel_row_stays_inside_its_card_for_every_demo_row() {
+    // The two panel widths the host list uses.
+    const PANEL_WIDTHS: [u16; 2] = [40, 46];
+    let _guard = crate::demo_flag::GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut app = crate::demo::build_demo_app();
+    let rows = app.hosts_state.display_list().len();
+    let mut failures = Vec::new();
+    for pos in 0..rows {
+        if !app.hosts_state.display_list()[pos].is_selectable() {
+            continue;
+        }
+        app.ui.list_state_mut().select(Some(pos));
+        for width in PANEL_WIDTHS {
+            failures.extend(overflowing_rows(&app, width));
+        }
+    }
+    crate::demo_flag::disable();
+    assert!(
+        failures.is_empty(),
+        "rows run through the border:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn host_pattern_match_card_keeps_long_keys_apart_and_inside_the_border() {
+    let config = parse_config(
+        "Host web\n  Hostname 1\n\n\
+         Host w*\n  PubkeyAcceptedAlgorithms ssh-ed25519,rsa-sha2-512\n  AddKeysToAgent yes\n",
+    );
+    let app = crate::app::App::new(config);
+    let host = app.hosts_state.list()[0].clone();
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    render_pattern_matches(&mut lines, &app, &host, 40);
+    let rows: Vec<String> = lines.iter().map(line_plain).collect();
+    assert!(
+        rows.iter().any(|r| r.contains("AddKeysToAgent yes")),
+        "{rows:#?}"
+    );
+    assert!(
+        rows.iter()
+            .any(|r| r.contains("PubkeyAcceptedAlgorithms ssh-")),
+        "{rows:#?}"
+    );
+    for r in &rows {
+        assert_eq!(r.width(), 40, "every row stays inside the card: {r:?}");
+    }
+}
+
+#[test]
+fn verdict_row_fits_on_one_line_or_moves_the_verdict_below() {
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    push_verdict_row(&mut lines, "host *.prod", "yes", 40);
+    assert_eq!(lines.len(), 1);
+    let row = line_plain(&lines[0]);
+    assert!(
+        row.contains("host *.prod") && row.trim_end().ends_with("yes │"),
+        "{row:?}"
+    );
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let label = "exec \"test -f ~/.vpn-up && nc -z gw 22\"";
+    push_verdict_row(&mut lines, label, "runs a command, not checked here", 40);
+    assert_eq!(lines.len(), 2, "the verdict moves to its own row");
+    for line in &lines {
+        assert_eq!(line_plain(line).width(), 40, "rows stay inside the card");
+    }
+}
+
+#[test]
+fn wrapped_muted_text_never_overflows_the_card() {
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let note = crate::messages::match_block_wins_over("ProxyCommand");
+    push_wrapped_muted(&mut lines, &note, 40);
+    assert!(lines.len() > 1, "a long note wraps");
+    for line in &lines {
+        assert_eq!(line_plain(line).width(), 40);
+    }
+    let joined: Vec<String> = lines.iter().map(line_plain).collect();
+    assert!(joined.join(" ").contains("(earlier in file)."));
+}

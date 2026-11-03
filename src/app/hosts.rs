@@ -154,11 +154,11 @@ impl App {
                 })
                 .unwrap_or_default()
         } else {
+            // The rollback below writes these fields back, so take the host's
+            // own block, never the inherited view.
             self.hosts_state
-                .list
-                .iter()
-                .find(|h| h.alias == old_alias)
-                .cloned()
+                .ssh_config
+                .raw_host_entry(old_alias)
                 .unwrap_or_default()
         };
         self.hosts_state.ssh_config.update_host(old_alias, &entry);
@@ -511,9 +511,45 @@ impl App {
                             return;
                         }
                     }
-                    HostListItem::GroupHeader(_) => {}
+                    HostListItem::MatchBlock { .. } | HostListItem::GroupHeader(_) => {}
                 }
             }
+        }
+    }
+
+    /// Select the Match block row `key` names, if it is still there.
+    pub fn select_match_block_by_key(&mut self, key: &super::selection::MatchBlockKey) {
+        let target = self
+            .hosts_state
+            .match_blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| {
+                m.source_file == key.source_file && m.criteria_text == key.criteria_text
+            })
+            .nth(key.nth)
+            .map(|(i, _)| i);
+        let Some(target) = target else {
+            return;
+        };
+        if self.search.query.is_some() {
+            let offset =
+                self.search.filtered_indices.len() + self.search.filtered_pattern_indices.len();
+            let hit = self
+                .search
+                .filtered_match_indices
+                .iter()
+                .position(|&i| i == target);
+            if let Some(i) = hit {
+                self.ui.list_state.select(Some(offset + i));
+            }
+            return;
+        }
+        let hit = self.hosts_state.display_list.iter().position(
+            |item| matches!(item, HostListItem::MatchBlock { index } if *index == target),
+        );
+        if let Some(pos) = hit {
+            self.ui.list_state.select(Some(pos));
         }
     }
 

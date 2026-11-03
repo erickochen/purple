@@ -513,7 +513,7 @@ impl SshConfigFile {
     /// Check if a line is a `Match ...` line (block boundary).
     /// Recognizes `Match foo`, `Match=foo` and `Match = foo` per OpenSSH's
     /// strdelim() rule that any keyword can use `=` as separator.
-    fn is_match_line(trimmed: &str) -> bool {
+    pub(crate) fn is_match_line(trimmed: &str) -> bool {
         let bytes = trimmed.as_bytes();
         // "match" is 5 ASCII bytes; byte 5 must be whitespace or '=' (or absent
         // for the bare `Match` keyword, which OpenSSH itself doesn't accept,
@@ -529,7 +529,7 @@ impl SshConfigFile {
     /// Matches OpenSSH behavior: keyword ends at first whitespace or `=`.
     /// An `=` in the value portion (e.g. `IdentityFile ~/.ssh/id=prod`) is
     /// NOT treated as a separator.
-    fn parse_directive(trimmed: &str) -> Option<(String, String)> {
+    pub(crate) fn parse_directive(trimmed: &str) -> Option<(String, String)> {
         // Find end of keyword: first whitespace or '='
         let key_end = trimmed.find(|c: char| c.is_whitespace() || c == '=')?;
         let key = &trimmed[..key_end];
@@ -610,7 +610,7 @@ pub fn detect_crlf_majority(content: &str) -> bool {
 
 /// Strip an inline comment (`# ...` preceded by whitespace) from a parsed value,
 /// respecting double-quoted strings.
-fn strip_inline_comment(value: &str) -> &str {
+pub(crate) fn strip_inline_comment(value: &str) -> &str {
     let bytes = value.as_bytes();
     let mut in_quote = false;
     for i in 0..bytes.len() {

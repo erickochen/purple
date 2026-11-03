@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use ratatui::text::Span;
 
 use crate::app::ping::PingStatus;
-use crate::ssh_config::model::{ConfigElement, HostEntry, PatternEntry, SshConfigFile};
+use crate::ssh_config::model::{
+    ConfigElement, HostEntry, MatchBlockEntry, PatternEntry, SshConfigFile,
+};
 use crate::ui::theme;
 
 /// Host, group, sort and view state grouped off the `App` god-struct. Holds
@@ -15,6 +17,7 @@ pub struct HostState {
     pub(in crate::app) ssh_config: SshConfigFile,
     pub(in crate::app) list: Vec<HostEntry>,
     pub(in crate::app) patterns: Vec<PatternEntry>,
+    pub(in crate::app) match_blocks: Vec<MatchBlockEntry>,
     pub(in crate::app) display_list: Vec<HostListItem>,
     pub(in crate::app) render_cache: HostListRenderCache,
     pub(in crate::app) undo_stack: Vec<DeletedHost>,
@@ -32,17 +35,20 @@ pub struct HostState {
 }
 
 impl HostState {
-    /// Construct from a loaded config and pre-resolved host/pattern lists.
+    /// Construct from a loaded config and pre-resolved host, pattern and
+    /// Match block lists.
     pub fn from_config(
         ssh_config: SshConfigFile,
         hosts: Vec<HostEntry>,
         patterns: Vec<PatternEntry>,
+        match_blocks: Vec<MatchBlockEntry>,
         display_list: Vec<HostListItem>,
     ) -> Self {
         Self {
             ssh_config,
             list: hosts,
             patterns,
+            match_blocks,
             display_list,
             render_cache: HostListRenderCache::default(),
             undo_stack: Vec::new(),
@@ -112,6 +118,14 @@ impl HostState {
 
     pub fn patterns_mut(&mut self) -> &mut Vec<PatternEntry> {
         &mut self.patterns
+    }
+
+    pub fn match_blocks(&self) -> &Vec<MatchBlockEntry> {
+        &self.match_blocks
+    }
+
+    pub fn match_blocks_mut(&mut self) -> &mut Vec<MatchBlockEntry> {
+        &mut self.match_blocks
     }
 
     pub fn display_list(&self) -> &Vec<HostListItem> {
@@ -226,6 +240,7 @@ impl Default for HostState {
             },
             list: Vec::new(),
             patterns: Vec::new(),
+            match_blocks: Vec::new(),
             display_list: Vec::new(),
             render_cache: HostListRenderCache::default(),
             undo_stack: Vec::new(),
@@ -246,6 +261,14 @@ pub enum HostListItem {
     GroupHeader(String),
     Host { index: usize },
     Pattern { index: usize },
+    MatchBlock { index: usize },
+}
+
+impl HostListItem {
+    /// Rows the cursor can land on; group headers are skipped.
+    pub fn is_selectable(&self) -> bool {
+        !matches!(self, HostListItem::GroupHeader(_))
+    }
 }
 
 /// View mode for the host list.
@@ -469,6 +492,7 @@ mod tests {
         let s = HostState::default();
         assert!(s.list.is_empty());
         assert!(s.patterns.is_empty());
+        assert!(s.match_blocks.is_empty());
         assert!(s.display_list.is_empty());
         assert!(s.undo_stack.is_empty());
         assert!(s.multi_select.is_empty());

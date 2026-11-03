@@ -168,6 +168,8 @@ fn build_list_item(
                 None => ListItem::new(Line::default()),
             }
         }
+        // The picker lists hosts only; a Match row names no host.
+        HostListItem::MatchBlock { .. } => ListItem::new(Line::default()),
     }
 }
 

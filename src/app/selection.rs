@@ -10,8 +10,18 @@ use super::{
     ProxyJumpCandidate, Screen,
 };
 use crate::app::App;
-use crate::ssh_config::model::{HostEntry, PatternEntry};
+use crate::ssh_config::model::{HostEntry, MatchBlockEntry, PatternEntry};
 use crate::ssh_keys;
+
+/// Identifies a Match block across a reload: its file, its criteria text and
+/// which of the blocks sharing that text it is. Positions shift whenever a
+/// section above it is added or removed, so they are not part of the key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatchBlockKey {
+    pub(crate) source_file: Option<std::path::PathBuf>,
+    pub(crate) criteria_text: String,
+    pub(crate) nth: usize,
+}
 
 impl App {
     /// Transition to a new screen. Logs the transition at debug level for
@@ -140,12 +150,63 @@ impl App {
         )
     }
 
+    /// The selected Match block, if the cursor is on one. In search mode the
+    /// Match rows follow the host rows and the pattern rows.
+    pub fn selected_match_block(&self) -> Option<&MatchBlockEntry> {
+        let sel = self.ui.list_state.selected()?;
+        if self.search.query.is_some() {
+            let offset =
+                self.search.filtered_indices.len() + self.search.filtered_pattern_indices.len();
+            return sel
+                .checked_sub(offset)
+                .and_then(|i| self.search.filtered_match_indices.get(i))
+                .and_then(|&i| self.hosts_state.match_blocks.get(i));
+        }
+        match self.hosts_state.display_list.get(sel) {
+            Some(HostListItem::MatchBlock { index }) => self.hosts_state.match_blocks.get(*index),
+            _ => None,
+        }
+    }
+
+    pub fn is_match_block_selected(&self) -> bool {
+        self.selected_match_block().is_some()
+    }
+
+    /// A key for the selected Match block that survives a reload, see
+    /// `MatchBlockKey`.
+    pub fn selected_match_block_key(&self) -> Option<MatchBlockKey> {
+        let sel = self.selected_match_block()?;
+        let nth = self
+            .hosts_state
+            .match_blocks
+            .iter()
+            .filter(|m| m.source_file == sel.source_file && m.criteria_text == sel.criteria_text)
+            .take_while(|m| m.order != sel.order)
+            .count();
+        Some(MatchBlockKey {
+            source_file: sel.source_file.clone(),
+            criteria_text: sel.criteria_text.clone(),
+            nth,
+        })
+    }
+
+    /// A pattern or a Match block: rows that take no host action.
+    pub fn is_non_host_selected(&self) -> bool {
+        self.is_pattern_selected() || self.is_match_block_selected()
+    }
+
+    /// Rows in search mode: hosts, then patterns, then Match blocks.
+    pub fn search_result_count(&self) -> usize {
+        self.search.filtered_indices.len()
+            + self.search.filtered_pattern_indices.len()
+            + self.search.filtered_match_indices.len()
+    }
+
     /// Move selection up, skipping group headers.
     pub fn select_prev(&mut self) {
         self.ui.detail_scroll = 0;
         if self.search.query.is_some() {
-            let total =
-                self.search.filtered_indices.len() + self.search.filtered_pattern_indices.len();
+            let total = self.search_result_count();
             super::cycle_selection(&mut self.ui.list_state, total, false);
         } else {
             self.select_prev_in_display_list();
@@ -156,8 +217,7 @@ impl App {
     pub fn select_next(&mut self) {
         self.ui.detail_scroll = 0;
         if self.search.query.is_some() {
-            let total =
-                self.search.filtered_indices.len() + self.search.filtered_pattern_indices.len();
+            let total = self.search_result_count();
             super::cycle_selection(&mut self.ui.list_state, total, true);
         } else {
             self.select_next_in_display_list();
@@ -173,10 +233,7 @@ impl App {
         // Find next selectable item after current (always skip headers)
         for offset in 1..=len {
             let idx = (current + offset) % len;
-            if matches!(
-                &self.hosts_state.display_list[idx],
-                HostListItem::Host { .. } | HostListItem::Pattern { .. }
-            ) {
+            if self.hosts_state.display_list[idx].is_selectable() {
                 self.ui.list_state.select(Some(idx));
                 return;
             }
@@ -192,10 +249,7 @@ impl App {
         // Find prev selectable item before current (always skip headers)
         for offset in 1..=len {
             let idx = (current + len - offset) % len;
-            if matches!(
-                &self.hosts_state.display_list[idx],
-                HostListItem::Host { .. } | HostListItem::Pattern { .. }
-            ) {
+            if self.hosts_state.display_list[idx].is_selectable() {
                 self.ui.list_state.select(Some(idx));
                 return;
             }
@@ -210,8 +264,7 @@ impl App {
         const PAGE_SIZE: usize = 10;
         let before = self.ui.list_state.selected();
         if self.search.query.is_some() {
-            let total =
-                self.search.filtered_indices.len() + self.search.filtered_pattern_indices.len();
+            let total = self.search_result_count();
             super::page_down(&mut self.ui.list_state, total, PAGE_SIZE);
         } else {
             let current = self.ui.list_state.selected().unwrap_or(0);
@@ -219,10 +272,7 @@ impl App {
             let mut items_skipped = 0;
             let len = self.hosts_state.display_list.len();
             for i in (current + 1)..len {
-                if matches!(
-                    self.hosts_state.display_list[i],
-                    HostListItem::Host { .. } | HostListItem::Pattern { .. }
-                ) {
+                if self.hosts_state.display_list[i].is_selectable() {
                     target = i;
                     items_skipped += 1;
                     if items_skipped >= PAGE_SIZE {
@@ -246,18 +296,14 @@ impl App {
         const PAGE_SIZE: usize = 10;
         let before = self.ui.list_state.selected();
         if self.search.query.is_some() {
-            let total =
-                self.search.filtered_indices.len() + self.search.filtered_pattern_indices.len();
+            let total = self.search_result_count();
             super::page_up(&mut self.ui.list_state, total, PAGE_SIZE);
         } else {
             let current = self.ui.list_state.selected().unwrap_or(0);
             let mut target = current;
             let mut items_skipped = 0;
             for i in (0..current).rev() {
-                if matches!(
-                    self.hosts_state.display_list[i],
-                    HostListItem::Host { .. } | HostListItem::Pattern { .. }
-                ) {
+                if self.hosts_state.display_list[i].is_selectable() {
                     target = i;
                     items_skipped += 1;
                     if items_skipped >= PAGE_SIZE {

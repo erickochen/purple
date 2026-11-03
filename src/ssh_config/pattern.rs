@@ -2,10 +2,7 @@
 //!
 //! Implements `Host` keyword wildcard semantics: `*`, `?`, `[charset]`,
 //! `[!charset]`/`[^charset]`, `[a-z]` ranges and `!pattern` negation.
-//! All functions here are pure; they own no state and depend only on
-//! `PatternEntry` from the model module.
-
-use super::model::PatternEntry;
+//! All functions here are pure and own no state.
 
 /// Does this pattern contain any SSH wildcard metacharacters?
 pub fn is_host_pattern(pattern: &str) -> bool {
@@ -168,6 +165,58 @@ pub fn host_pattern_matches(host_pattern: &str, alias: &str) -> bool {
     any_positive_match
 }
 
+/// Match `text` against a comma-separated pattern list, the form `Match`
+/// criteria use. A matching `!` entry excludes, otherwise one hit is enough.
+/// Only `*` and `?` are wildcards here, as in OpenSSH. `fold_case` compares
+/// ASCII case-insensitively, which ssh does for host names.
+pub fn pattern_list_matches(list: &str, text: &str, fold_case: bool) -> bool {
+    let text = if fold_case {
+        text.to_ascii_lowercase()
+    } else {
+        text.to_string()
+    };
+    let mut any_positive = false;
+    for pat in list.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let pat = if fold_case {
+            pat.to_ascii_lowercase()
+        } else {
+            pat.to_string()
+        };
+        if let Some(neg) = pat.strip_prefix('!') {
+            if wildcard_match(neg, &text) {
+                return false;
+            }
+        } else if wildcard_match(&pat, &text) {
+            any_positive = true;
+        }
+    }
+    any_positive
+}
+
+/// `*` and `?` matching with star backtracking. No character classes.
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    let pat: Vec<char> = pattern.chars().collect();
+    let txt: Vec<char> = text.chars().collect();
+    let (mut pi, mut ti) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while ti < txt.len() {
+        if pi < pat.len() && pat[pi] == '*' {
+            star = Some((pi, ti));
+            pi += 1;
+        } else if pi < pat.len() && (pat[pi] == '?' || pat[pi] == txt[ti]) {
+            pi += 1;
+            ti += 1;
+        } else if let Some((spi, sti)) = star {
+            pi = spi + 1;
+            ti = sti + 1;
+            star = Some((spi, sti + 1));
+        } else {
+            return false;
+        }
+    }
+    pat[pi..].iter().all(|&c| c == '*')
+}
+
 /// Returns true if any hop in a (possibly comma-separated) ProxyJump value
 /// matches the given alias. Strips optional `user@` prefix and `:port`
 /// suffix from each hop before comparing. Handles IPv6 bracket notation
@@ -187,22 +236,23 @@ pub fn proxy_jump_contains_self(proxy_jump: &str, alias: &str) -> bool {
     })
 }
 
-/// Apply first-match-wins inheritance from a pattern to mutable field refs.
-/// Only fills fields that are still empty. Self-referencing ProxyJump values
-/// are assigned (SSH would do the same) so the UI can warn about the loop.
-pub(super) fn apply_first_match_fields(
+/// Fill the fields that are still empty from one source, first match wins.
+/// A self-referencing ProxyJump is assigned on purpose so the UI can warn.
+pub(super) fn apply_first_match_values(
     proxy_jump: &mut String,
     user: &mut String,
     identity_file: &mut String,
-    p: &PatternEntry,
+    src_proxy_jump: &str,
+    src_user: &str,
+    src_identity_file: &str,
 ) {
-    if proxy_jump.is_empty() && !p.proxy_jump.is_empty() {
-        proxy_jump.clone_from(&p.proxy_jump);
+    if proxy_jump.is_empty() && !src_proxy_jump.is_empty() {
+        src_proxy_jump.clone_into(proxy_jump);
     }
-    if user.is_empty() && !p.user.is_empty() {
-        user.clone_from(&p.user);
+    if user.is_empty() && !src_user.is_empty() {
+        src_user.clone_into(user);
     }
-    if identity_file.is_empty() && !p.identity_file.is_empty() {
-        identity_file.clone_from(&p.identity_file);
+    if identity_file.is_empty() && !src_identity_file.is_empty() {
+        src_identity_file.clone_into(identity_file);
     }
 }

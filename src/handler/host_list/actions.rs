@@ -166,7 +166,7 @@ pub(crate) fn initiate_bulk_vault_sign(app: &mut App) {
 /// `F` — open the file browser overlay for the selected host. Spawns a
 /// background thread to fetch the remote home directory.
 pub(super) fn open_file_browser(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
-    if app.is_pattern_selected() {
+    if app.is_non_host_selected() {
         return;
     }
     if app.demo_mode {
@@ -244,7 +244,7 @@ pub(super) fn open_file_browser(app: &mut App, events_tx: &mpsc::Sender<AppEvent
 /// containers overview tab and the host-list `C` shortcut share one
 /// implementation.
 pub(super) fn open_container_overlay(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
-    if app.is_pattern_selected() {
+    if app.is_non_host_selected() {
         return;
     }
     let Some(host) = app.selected_host() else {
@@ -452,6 +452,7 @@ pub(super) fn toggle_down_filter(app: &mut App) {
             app.search.set_query(None);
             app.search.clear_filtered_indices();
             app.search.clear_filtered_pattern_indices();
+            app.search.clear_filtered_match_indices();
         } else {
             app.apply_filter();
         }
@@ -505,7 +506,7 @@ pub(super) fn ping_all_hosts(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) 
 /// host under the cursor). Surfaces a stale-host warning and opens the snippet
 /// picker; warns when nothing is selected.
 pub(super) fn run_snippet_on_selection(app: &mut App) {
-    if app.is_pattern_selected() {
+    if app.is_non_host_selected() {
         return;
     }
     let (aliases, stale_hint): (Vec<String>, Option<String>) =

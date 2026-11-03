@@ -202,7 +202,7 @@ pub struct InheritedHints {
     pub identity_file: Option<(String, String)>,
 }
 
-use super::pattern::apply_first_match_fields;
+use super::pattern::apply_first_match_values;
 /// Returns true if the host pattern contains wildcards, character classes,
 /// negation or whitespace-separated multi-patterns (*, ?, [], !, space/tab).
 /// These are SSH match patterns, not concrete hosts.
@@ -211,8 +211,326 @@ use super::pattern::apply_first_match_fields;
 // the model_tests file mounted below.
 #[allow(unused_imports)]
 pub use super::pattern::{
-    host_pattern_matches, is_host_pattern, proxy_jump_contains_self, ssh_pattern_match,
+    host_pattern_matches, is_host_pattern, pattern_list_matches, proxy_jump_contains_self,
+    ssh_pattern_match,
 };
+
+#[allow(unused_imports)]
+pub use super::match_block::{
+    BlockStatus, CriterionVerdict, EvalContext, MatchBlockEntry, MatchBlockMatch, MatchCriterion,
+    Verdict,
+};
+use super::match_block::{
+    FIRST_WINS_KEYS, Section, evaluate, expand_hostname_tokens, walk_sections,
+};
+
+/// One block a host inherits from, in reading order.
+#[derive(Debug, Clone)]
+pub enum InheritSource {
+    Pattern(PatternEntry),
+    Match(MatchBlockEntry),
+}
+
+impl InheritSource {
+    /// `(label, proxy_jump, user, identity_file)`: the label is the pattern
+    /// text or `Match <criteria>`, as the edit form shows it.
+    fn inherited_fields(&self) -> (String, &str, &str, &str) {
+        match self {
+            InheritSource::Pattern(p) => {
+                (p.pattern.clone(), &p.proxy_jump, &p.user, &p.identity_file)
+            }
+            InheritSource::Match(m) => {
+                (m.display_label(), &m.proxy_jump, &m.user, &m.identity_file)
+            }
+        }
+    }
+}
+
+/// Everything the file says about one alias, in reading order.
+#[derive(Debug, Clone, Default)]
+pub struct AliasResolution {
+    /// Pattern blocks that match plus Match blocks that apply.
+    pub sources: Vec<InheritSource>,
+    /// Match blocks that apply or may apply. Skipped blocks are left out.
+    pub match_blocks: Vec<MatchBlockMatch>,
+    /// True when the first `ProxyCommand` ssh reads for this alias is not `none`.
+    pub has_proxy_command: bool,
+}
+
+/// A value ssh resolves top to bottom: the first setter wins. Once an
+/// undecided block may have set it, nothing below can be trusted.
+#[derive(Default)]
+struct Tracked {
+    value: Option<String>,
+    uncertain: bool,
+}
+
+impl Tracked {
+    fn offer(&mut self, v: &str) {
+        if self.value.is_none() && !self.uncertain && !v.is_empty() {
+            self.value = Some(v.to_string());
+        }
+    }
+
+    fn mark_uncertain(&mut self, v: &str) {
+        if self.value.is_none() && !v.is_empty() {
+            self.uncertain = true;
+        }
+    }
+
+    fn known(&self) -> Option<&str> {
+        if self.uncertain {
+            None
+        } else {
+            self.value.as_deref()
+        }
+    }
+}
+
+/// What one section contributes when an alias is resolved.
+enum IndexedKind<'a> {
+    /// A `Host` line with wildcards, negation or several names.
+    Pattern(PatternEntry),
+    /// A `Host` line naming exactly one host.
+    Concrete(&'a HostBlock),
+    Match(MatchBlockEntry),
+}
+
+struct IndexedSection<'a> {
+    order: usize,
+    kind: IndexedKind<'a>,
+    /// `Some(reaches)` when the section states a `ProxyCommand`.
+    proxy_command: Option<bool>,
+}
+
+/// Host and Match sections indexed once, so resolving every alias in a large
+/// config walks only the patterns, the Match blocks and the host's own block.
+pub struct SectionIndex<'a> {
+    /// Pattern and Match sections in reading order.
+    shared: Vec<IndexedSection<'a>>,
+    /// Concrete host blocks by alias, each list in reading order.
+    concrete: std::collections::HashMap<&'a str, Vec<IndexedSection<'a>>>,
+}
+
+/// First value of `key` in a block, empty when it is not set.
+fn first_value<'b>(block: &'b HostBlock, key: &str) -> &'b str {
+    block
+        .directives
+        .iter()
+        .find(|d| !d.is_non_directive && d.key.eq_ignore_ascii_case(key))
+        .map_or("", |d| d.value.as_str())
+}
+
+/// `Some(reaches)` for the first `ProxyCommand` in a block; `none` does not reach.
+fn block_proxy_command(block: &HostBlock) -> Option<bool> {
+    block
+        .directives
+        .iter()
+        .find(|d| !d.is_non_directive && d.key.eq_ignore_ascii_case("ProxyCommand"))
+        .map(|d| !d.value.trim().eq_ignore_ascii_case("none"))
+}
+
+/// The alias a concrete `Host` line names, quotes removed as OpenSSH does.
+fn unquoted_alias(host_pattern: &str) -> &str {
+    let t = host_pattern.trim();
+    if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
+        &t[1..t.len() - 1]
+    } else {
+        t
+    }
+}
+
+impl<'a> SectionIndex<'a> {
+    fn build(elements: &'a [ConfigElement]) -> Self {
+        let mut index = SectionIndex {
+            shared: Vec::new(),
+            concrete: std::collections::HashMap::new(),
+        };
+        let mut order = 0;
+        walk_sections(elements, None, &mut order, &mut |s| match s {
+            Section::Host {
+                order,
+                block,
+                source_file,
+            } => {
+                let proxy_command = block_proxy_command(block);
+                if is_host_pattern(&block.host_pattern) {
+                    let mut p = block.to_pattern_entry();
+                    p.source_file = source_file.map(std::path::Path::to_path_buf);
+                    index.shared.push(IndexedSection {
+                        order,
+                        kind: IndexedKind::Pattern(p),
+                        proxy_command,
+                    });
+                    return;
+                }
+                let raw = block.host_pattern.as_str();
+                let unquoted = unquoted_alias(raw);
+                let keys = if unquoted == raw {
+                    vec![raw]
+                } else {
+                    vec![raw, unquoted]
+                };
+                for key in keys {
+                    index.concrete.entry(key).or_default().push(IndexedSection {
+                        order,
+                        kind: IndexedKind::Concrete(block),
+                        proxy_command,
+                    });
+                }
+            }
+            Section::Match {
+                order,
+                raw_line,
+                body,
+                source_file,
+                parent,
+            } => {
+                let entry = MatchBlockEntry::from_section(raw_line, &body, order, source_file)
+                    .with_parent(parent);
+                index.shared.push(IndexedSection {
+                    order,
+                    proxy_command: entry.proxy_command_reaches,
+                    kind: IndexedKind::Match(entry),
+                });
+            }
+        });
+        index
+    }
+
+    /// Walk the sections for `alias` in reading order: which patterns match,
+    /// which Match blocks apply or may apply and what HostName and User ssh
+    /// would have resolved at each Match line.
+    pub fn resolve(&self, alias: &str) -> AliasResolution {
+        self.walk_alias(alias, true).0
+    }
+
+    /// `(order, status)` for every Match block that applies or may apply to
+    /// `alias`. Cheaper than `resolve` because nothing is cloned.
+    pub fn match_statuses(&self, alias: &str) -> Vec<(usize, BlockStatus)> {
+        self.walk_alias(alias, false).1
+    }
+
+    fn walk_alias(&self, alias: &str, keep: bool) -> (AliasResolution, Vec<(usize, BlockStatus)>) {
+        let own: &[IndexedSection<'a>] = self.concrete.get(alias).map_or(&[], Vec::as_slice);
+        let mut res = AliasResolution::default();
+        let mut statuses = Vec::new();
+        let mut hostname = Tracked::default();
+        let mut user = Tracked::default();
+        let mut proxy_command: Option<bool> = None;
+        let mut seen_host = false;
+        let (mut si, mut oi) = (0, 0);
+        loop {
+            let section = match (self.shared.get(si), own.get(oi)) {
+                (Some(s), Some(o)) if s.order < o.order => {
+                    si += 1;
+                    s
+                }
+                (_, Some(o)) => {
+                    oi += 1;
+                    o
+                }
+                (Some(s), None) => {
+                    si += 1;
+                    s
+                }
+                (None, None) => break,
+            };
+            let applies = match &section.kind {
+                IndexedKind::Concrete(block) => {
+                    seen_host = true;
+                    hostname.offer(first_value(block, "HostName"));
+                    user.offer(first_value(block, "User"));
+                    true
+                }
+                IndexedKind::Pattern(p) => {
+                    if !host_pattern_matches(&p.pattern, alias) {
+                        continue;
+                    }
+                    hostname.offer(&p.hostname);
+                    user.offer(&p.user);
+                    if keep {
+                        res.sources.push(InheritSource::Pattern(p.clone()));
+                    }
+                    true
+                }
+                IndexedKind::Match(entry) => {
+                    let host_now = if hostname.uncertain {
+                        None
+                    } else {
+                        let raw = hostname.value.as_deref().unwrap_or(alias);
+                        Some(expand_hostname_tokens(raw, alias))
+                    };
+                    let ctx = EvalContext {
+                        alias,
+                        hostname: host_now.as_deref(),
+                        user: user.known(),
+                    };
+                    let (verdicts, own_status) = evaluate(&entry.criteria, &ctx);
+                    // A block brought in by an Include inside another Match
+                    // block is read only while that block applies.
+                    let status = match entry.parent {
+                        None => own_status,
+                        Some(p) => {
+                            let parent = statuses.iter().find(|(o, _)| *o == p).map(|(_, s)| *s);
+                            match (parent, own_status) {
+                                (None | Some(BlockStatus::Skipped), _) => BlockStatus::Skipped,
+                                (Some(BlockStatus::Undecided), BlockStatus::Applies) => {
+                                    BlockStatus::Undecided
+                                }
+                                (_, own) => own,
+                            }
+                        }
+                    };
+                    match status {
+                        BlockStatus::Applies => {
+                            hostname.offer(&entry.hostname);
+                            user.offer(&entry.user);
+                            if keep {
+                                res.sources.push(InheritSource::Match(entry.clone()));
+                            }
+                        }
+                        // An undecided block never feeds inheritance. Blocks
+                        // below it still do: that is the value ssh uses when
+                        // the condition fails. Later criteria lose certainty.
+                        BlockStatus::Undecided => {
+                            hostname.mark_uncertain(&entry.hostname);
+                            user.mark_uncertain(&entry.user);
+                        }
+                        BlockStatus::Skipped => continue,
+                    }
+                    statuses.push((entry.order, status));
+                    if !keep {
+                        continue;
+                    }
+                    let overrides_own = match own.first() {
+                        Some(IndexedSection {
+                            kind: IndexedKind::Concrete(block),
+                            ..
+                        }) if status == BlockStatus::Applies && !seen_host => FIRST_WINS_KEYS
+                            .into_iter()
+                            .filter(|key| entry.sets(key) && !first_value(block, key).is_empty())
+                            .collect(),
+                        _ => Vec::new(),
+                    };
+                    res.match_blocks.push(MatchBlockMatch {
+                        entry: entry.clone(),
+                        verdicts,
+                        status,
+                        before_host: !seen_host,
+                        overrides_own,
+                    });
+                    status == BlockStatus::Applies
+                }
+            };
+            if applies && proxy_command.is_none() {
+                proxy_command = section.proxy_command;
+            }
+        }
+        res.has_proxy_command = proxy_command.unwrap_or(false);
+        (res, statuses)
+    }
+}
 
 /// True if a `CertificateFile` directive value points at purple's managed
 /// certificate directory. Recognises both tilde-prefixed and absolute paths
@@ -243,6 +561,15 @@ impl SshConfigFile {
         let mut entries = Vec::new();
         Self::collect_host_entries(&self.elements, &mut entries);
         self.apply_pattern_inheritance(&mut entries);
+        entries
+    }
+
+    /// Host entries as their own blocks state them, without pattern or Match
+    /// inheritance. Write paths use these so an inherited value never lands
+    /// in a host block as if the user had written it there.
+    pub fn own_host_entries(&self) -> Vec<HostEntry> {
+        let mut entries = Vec::new();
+        Self::collect_host_entries(&self.elements, &mut entries);
         entries
     }
 
@@ -277,43 +604,24 @@ impl SshConfigFile {
         None
     }
 
-    /// Apply SSH first-match-wins pattern inheritance to host entries.
-    /// Matches patterns against the alias only (SSH-faithful: `Host` patterns
-    /// match the token typed on the command line, not the resolved `Hostname`).
+    /// Apply SSH first-match-wins inheritance from patterns and from Match
+    /// blocks that certainly apply. Patterns match the alias only, as ssh does.
+    /// The first `ProxyCommand` in reading order decides `has_proxy_command`,
+    /// the host's own block included, because ssh gives it no precedence.
     fn apply_pattern_inheritance(&self, entries: &mut [HostEntry]) {
-        // Patterns are pre-collected once. Host entries never contain pattern
-        // aliases: collect_host_entries skips is_host_pattern blocks.
-        let all_patterns = self.pattern_entries();
-        // Every ProxyCommand in the file, in the order ssh reads them. A
-        // ProxyCommand reaches a machine of its own, so whichever block
-        // states one first decides whether this host has a bastion in front
-        // of it. The host's own block is in there beside the patterns,
-        // because ssh gives it no precedence: an opt-out written as
-        // `ProxyCommand none` only takes effect above the pattern it opts
-        // out of.
-        let mut proxy_commands = Vec::new();
-        Self::collect_proxy_commands(&self.elements, &mut proxy_commands);
+        let index = self.section_index();
         for entry in entries.iter_mut() {
-            entry.has_proxy_command = proxy_commands
-                .iter()
-                .find(|(pattern, _)| host_pattern_matches(pattern, &entry.alias))
-                .map(|(_, reaches_a_machine)| *reaches_a_machine)
-                .unwrap_or(false);
-            if !entry.proxy_jump.is_empty()
-                && !entry.user.is_empty()
-                && !entry.identity_file.is_empty()
-            {
-                continue;
-            }
-            for p in &all_patterns {
-                if !host_pattern_matches(&p.pattern, &entry.alias) {
-                    continue;
-                }
-                apply_first_match_fields(
+            let resolution = index.resolve(&entry.alias);
+            entry.has_proxy_command = resolution.has_proxy_command;
+            for source in &resolution.sources {
+                let (_, pj, u, idf) = source.inherited_fields();
+                apply_first_match_values(
                     &mut entry.proxy_jump,
                     &mut entry.user,
                     &mut entry.identity_file,
-                    p,
+                    pj,
+                    u,
+                    idf,
                 );
                 if !entry.proxy_jump.is_empty()
                     && !entry.user.is_empty()
@@ -325,23 +633,21 @@ impl SshConfigFile {
         }
     }
 
-    /// Compute pattern-provided field hints for a host alias. Returns first-match
-    /// values and their source patterns for ProxyJump, User and IdentityFile.
-    /// These are returned regardless of whether the host has its own values for
-    /// those fields. The caller (form rendering) decides visibility based on
-    /// whether the field is empty. Matches by alias only (SSH-faithful).
+    /// First-match hints for ProxyJump, User and IdentityFile with the source
+    /// label the form shows: the pattern text or `Match <criteria>`. Returned
+    /// whether or not the host sets the field itself; the form decides.
     pub fn inherited_hints(&self, alias: &str) -> InheritedHints {
-        let patterns = self.matching_patterns(alias);
         let mut hints = InheritedHints::default();
-        for p in &patterns {
-            if hints.proxy_jump.is_none() && !p.proxy_jump.is_empty() {
-                hints.proxy_jump = Some((p.proxy_jump.clone(), p.pattern.clone()));
+        for source in &self.resolve_alias(alias).sources {
+            let (label, pj, u, idf) = source.inherited_fields();
+            if hints.proxy_jump.is_none() && !pj.is_empty() {
+                hints.proxy_jump = Some((pj.to_string(), label.clone()));
             }
-            if hints.user.is_none() && !p.user.is_empty() {
-                hints.user = Some((p.user.clone(), p.pattern.clone()));
+            if hints.user.is_none() && !u.is_empty() {
+                hints.user = Some((u.to_string(), label.clone()));
             }
-            if hints.identity_file.is_none() && !p.identity_file.is_empty() {
-                hints.identity_file = Some((p.identity_file.clone(), p.pattern.clone()));
+            if hints.identity_file.is_none() && !idf.is_empty() {
+                hints.identity_file = Some((idf.to_string(), label));
             }
             if hints.proxy_jump.is_some() && hints.user.is_some() && hints.identity_file.is_some() {
                 break;
@@ -357,35 +663,39 @@ impl SshConfigFile {
         entries
     }
 
-    /// Collect every `ProxyCommand` declaration in the file, in reading
-    /// order: the block's host pattern paired with whether its value
-    /// reaches a machine of its own. `none` is the opt-out spelling and
-    /// pairs with false. Concrete blocks and patterns go in the same list
-    /// because ssh reads them the same way, taking the first value it
-    /// obtains for the keyword.
-    fn collect_proxy_commands(elements: &[ConfigElement], out: &mut Vec<(String, bool)>) {
-        for e in elements {
-            match e {
-                ConfigElement::HostBlock(block) => {
-                    if let Some(d) = block
-                        .directives
-                        .iter()
-                        .find(|d| d.key.eq_ignore_ascii_case("ProxyCommand"))
-                    {
-                        out.push((
-                            block.host_pattern.clone(),
-                            !d.value.trim().eq_ignore_ascii_case("none"),
-                        ));
-                    }
-                }
-                ConfigElement::Include(include) => {
-                    for file in &include.resolved_files {
-                        Self::collect_proxy_commands(&file.elements, out);
-                    }
-                }
-                _ => {}
+    /// Every Match block in reading order, includes expanded.
+    pub fn match_block_entries(&self) -> Vec<MatchBlockEntry> {
+        let mut out = Vec::new();
+        let mut order = 0;
+        walk_sections(&self.elements, None, &mut order, &mut |s| {
+            if let Section::Match {
+                order,
+                raw_line,
+                body,
+                source_file,
+                parent,
+            } = s
+            {
+                let entry = MatchBlockEntry::from_section(raw_line, &body, order, source_file);
+                out.push(entry.with_parent(parent));
             }
-        }
+        });
+        out
+    }
+
+    /// Index the Host and Match sections once, for resolving many aliases.
+    pub fn section_index(&self) -> SectionIndex<'_> {
+        SectionIndex::build(&self.elements)
+    }
+
+    /// Everything the file says about one alias. See `SectionIndex::resolve`.
+    pub fn resolve_alias(&self, alias: &str) -> AliasResolution {
+        self.section_index().resolve(alias)
+    }
+
+    /// Match blocks that apply or may apply to `alias`, in reading order.
+    pub fn matching_match_blocks(&self, alias: &str) -> Vec<MatchBlockMatch> {
+        self.resolve_alias(alias).match_blocks
     }
 
     fn collect_pattern_entries(elements: &[ConfigElement], entries: &mut Vec<PatternEntry>) {
@@ -762,7 +1072,50 @@ impl SshConfigFile {
             }
         }
         // Don't return position 0: that means everything is patterns (or patterns at top)
-        first_pattern_pos.filter(|&pos| pos > 0)
+        let pos = first_pattern_pos.filter(|&pos| pos > 0)?;
+        Some(self.outside_match_body(pos))
+    }
+
+    /// Move an insert position forward when it would split a Match block's
+    /// body, which happens when an Include sits inside that block. A new Host
+    /// line there would take over the directive lines below it, so the insert
+    /// moves to just after the last of them. Blank and comment lines stay put.
+    fn outside_match_body(&self, pos: usize) -> usize {
+        let starts_section = |e: &ConfigElement| match e {
+            ConfigElement::HostBlock(_) => true,
+            ConfigElement::GlobalLine(line) => Self::is_match_line(line.trim()),
+            ConfigElement::Include(_) => false,
+        };
+        if self.elements.get(pos).is_none_or(starts_section) {
+            return pos;
+        }
+        let in_match_body = self.elements[..pos]
+            .iter()
+            .rev()
+            .find(|e| starts_section(e))
+            .is_some_and(|e| matches!(e, ConfigElement::GlobalLine(_)));
+        if !in_match_body {
+            return pos;
+        }
+        let end = self.elements[pos..]
+            .iter()
+            .position(starts_section)
+            .map_or(self.elements.len(), |offset| pos + offset);
+        let last_directive = (pos..end).rev().find(|&i| match &self.elements[i] {
+            ConfigElement::GlobalLine(line) => {
+                let t = line.trim();
+                !t.is_empty() && !t.starts_with('#')
+            }
+            _ => false,
+        });
+        let Some(last) = last_directive else {
+            return pos;
+        };
+        let safe = last + 1;
+        log::debug!(
+            "[purple] add_host: insert moved from {pos} to {safe} to keep a Match body intact"
+        );
+        safe
     }
 
     /// Check if the last element already ends with a blank line.

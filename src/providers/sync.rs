@@ -98,9 +98,11 @@ pub fn sync_provider(
             .or_insert_with(|| alias.clone());
     }
 
-    // Build alias -> HostEntry lookup once (avoids quadratic host_entries() calls)
+    // Build alias -> HostEntry lookup once. Own-block values only: an update
+    // writes these fields back, so an inherited User, IdentityFile or
+    // ProxyJump must never appear here.
     let entries_map: HashMap<String, HostEntry> = config
-        .host_entries()
+        .own_host_entries()
         .into_iter()
         .map(|e| (e.alias.clone(), e))
         .collect();

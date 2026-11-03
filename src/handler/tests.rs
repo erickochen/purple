@@ -14228,3 +14228,52 @@ fn stopping_a_tunnel_drops_the_pin_on_trial_for_it() {
             .is_empty()
     );
 }
+
+const MATCH_ROW_CONFIG: &str = "Host web\n  HostName 1\n\n\
+                                Match originalhost web\n  User root\n";
+
+fn select_match_row(app: &mut App) {
+    let pos = app
+        .hosts_state
+        .display_list()
+        .iter()
+        .position(|i| matches!(i, crate::app::HostListItem::MatchBlock { .. }))
+        .expect("a Match row");
+    app.ui.list_state_mut().select(Some(pos));
+}
+
+#[test]
+fn match_row_edit_delete_clone_toast_read_only() {
+    for code in [KeyCode::Char('e'), KeyCode::Char('d'), KeyCode::Char('c')] {
+        let mut app = make_app(MATCH_ROW_CONFIG);
+        select_match_row(&mut app);
+        let (tx, _rx) = mpsc::channel();
+        super::host_list::handle_main_key(&mut app, key(code), &tx);
+        assert_status_contains(&app, crate::messages::MATCH_BLOCK_READ_ONLY);
+        let stayed = matches!(app.screen, Screen::HostList);
+        assert!(stayed, "{code:?} must not open a screen");
+    }
+}
+
+#[test]
+fn match_row_host_keys_do_nothing() {
+    let mut app = make_app(MATCH_ROW_CONFIG);
+    select_match_row(&mut app);
+    let (tx, _rx) = mpsc::channel();
+    for code in [
+        KeyCode::Enter,
+        KeyCode::Char('y'),
+        KeyCode::Char('x'),
+        KeyCode::Char('i'),
+        KeyCode::Char('t'),
+        KeyCode::Char('T'),
+        KeyCode::Char(' '),
+    ] {
+        super::host_list::handle_main_key(&mut app, key(code), &tx);
+        assert!(app.ui.pending_connect().is_none(), "{code:?}");
+        assert!(app.status_center.toast().is_none(), "{code:?}");
+        assert!(app.tags.input().is_none(), "{code:?}");
+        assert!(app.hosts_state.multi_select().is_empty(), "{code:?}");
+        assert!(matches!(app.screen, Screen::HostList), "{code:?}");
+    }
+}

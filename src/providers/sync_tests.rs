@@ -7649,3 +7649,59 @@ fn test_sync_keeps_a_directive_the_provider_writes_and_withdraws_at_once() {
         "the directive was written and then taken straight back out:\n{out}"
     );
 }
+
+/// Sync an IP change for `do-web-1` and return the config text after it.
+fn sync_ip_change_over(content: &str, section_user: &str) -> String {
+    let mut config = SshConfigFile {
+        elements: SshConfigFile::parse_content(content),
+        path: test_config_path(),
+        crlf: false,
+        bom: false,
+    };
+    let section = ProviderSection {
+        user: section_user.to_string(),
+        ..make_section()
+    };
+    let remote = vec![ProviderHost::new(
+        "123".to_string(),
+        "web-1".to_string(),
+        "9.9.9.9".to_string(),
+        Vec::new(),
+    )];
+    sync_provider(
+        &mut config,
+        &MockProvider,
+        &remote,
+        &section,
+        false,
+        false,
+        false,
+    );
+    config.serialize()
+}
+
+const INHERITING_HOST: &str =
+    "Host do-web-1\n  HostName 1.2.3.4\n  # purple:provider digitalocean:123\n\n";
+
+#[test]
+fn sync_never_writes_values_inherited_from_a_match_block() {
+    let rest =
+        "Match originalhost do-*\n  User deploy\n  IdentityFile ~/.ssh/id_do\n  ProxyJump gw\n";
+    let content = format!("{INHERITING_HOST}{rest}");
+    for section_user in ["", "root"] {
+        let out = sync_ip_change_over(&content, section_user);
+        let expected = content.replace("1.2.3.4", "9.9.9.9");
+        assert_eq!(out, expected, "section user {section_user:?}");
+    }
+}
+
+#[test]
+fn sync_never_writes_values_inherited_from_a_pattern() {
+    let rest = "Host do-*\n  User deploy\n  IdentityFile ~/.ssh/id_do\n  ProxyJump gw\n";
+    let content = format!("{INHERITING_HOST}{rest}");
+    for section_user in ["", "root"] {
+        let out = sync_ip_change_over(&content, section_user);
+        let expected = content.replace("1.2.3.4", "9.9.9.9");
+        assert_eq!(out, expected, "section user {section_user:?}");
+    }
+}

@@ -5397,3 +5397,499 @@ fn set_host_directive_strips_newline_injection() {
     assert!(!out.contains("\nHost injected"), "got:\n{out}");
     assert_eq!(reparsed.host_directive("victim", "IdentityFile"), None);
 }
+
+#[test]
+fn pattern_list_matches_comma_list_with_exclusion() {
+    assert!(pattern_list_matches("*.prod,*.lab", "db1.prod", false));
+    assert!(!pattern_list_matches("*.prod,!db1.*", "db1.prod", false));
+    assert!(!pattern_list_matches("!db1.*", "db1.prod", false));
+    assert!(!pattern_list_matches("", "anything", false));
+    assert!(pattern_list_matches(" web-* , api-* ", "api-3", false));
+    assert!(pattern_list_matches("w?b-*", "web-1", false));
+    assert!(pattern_list_matches("*", "", false));
+    assert!(!pattern_list_matches("a*b", "acbd", false));
+    assert!(
+        pattern_list_matches("*a", "*xa", false),
+        "a literal star in the text"
+    );
+    assert!(pattern_list_matches("a*b*c", "axbyc", false));
+}
+
+#[test]
+fn pattern_list_matches_folds_case_only_when_asked() {
+    assert!(pattern_list_matches(
+        "*.example.com",
+        "Web.Example.COM",
+        true
+    ));
+    assert!(!pattern_list_matches("!*.PROD", "a.prod", false));
+    assert!(!pattern_list_matches(
+        "*.example.com",
+        "Web.Example.COM",
+        false
+    ));
+    assert!(!pattern_list_matches("Root", "root", false));
+}
+
+#[test]
+fn pattern_list_matches_has_no_character_classes() {
+    // OpenSSH treats `[` literally in Match criteria (verified with ssh -G).
+    assert!(!pattern_list_matches("web[12]", "web1", false));
+    assert!(pattern_list_matches("web[12]", "web[12]", false));
+}
+
+#[test]
+fn match_block_entries_lists_blocks_in_order_with_bodies() {
+    let cfg = parse_str(
+        "Host a\n  HostName 1\n\n\
+         Match originalhost a\n  User x\n  # purple:tags t1\n\n\
+         Match all\n  Port 2\n\n\
+         Host b\n  HostName 2\n",
+    );
+    let blocks = cfg.match_block_entries();
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0].criteria_text, "originalhost a");
+    assert_eq!(blocks[0].user, "x");
+    assert_eq!(blocks[0].tags, vec!["t1"]);
+    assert_eq!(blocks[0].order, 1);
+    assert_eq!(blocks[1].criteria_text, "all");
+    assert_eq!(
+        blocks[1].directives,
+        vec![("Port".to_string(), "2".to_string())]
+    );
+    assert_eq!(blocks[1].order, 2);
+}
+
+#[test]
+fn matching_match_blocks_skips_no_and_keeps_undecided() {
+    let cfg = parse_str(
+        "Host web\n  HostName web.prod\n\n\
+         Match originalhost web localuser deploy\n  User deploy\n\n\
+         Match originalhost db-*\n  User dba\n\n\
+         Match all\n  ServerAliveInterval 30\n",
+    );
+    let m = cfg.matching_match_blocks("web");
+    assert_eq!(m.len(), 2, "the db-* block is skipped");
+    assert_eq!(m[0].status, BlockStatus::Undecided);
+    assert_eq!(m[0].verdicts[0].verdict, Verdict::Yes);
+    assert_eq!(m[0].verdicts[1].verdict, Verdict::Unknown);
+    assert!(!m[0].before_host);
+    assert_eq!(m[1].status, BlockStatus::Applies);
+}
+
+#[test]
+fn matching_match_blocks_host_criterion_sees_hostname_from_block_and_pattern() {
+    let cfg = parse_str(
+        "Host *.lab\n  HostName lab.example.com\n\n\
+         Host db\n  HostName db1.example.com\n\n\
+         Host node.lab\n\n\
+         Match host *.example.com\n  User root\n",
+    );
+    assert_eq!(
+        cfg.matching_match_blocks("db")[0].status,
+        BlockStatus::Applies
+    );
+    assert_eq!(
+        cfg.matching_match_blocks("node.lab")[0].status,
+        BlockStatus::Applies,
+        "HostName inherited from the pattern"
+    );
+}
+
+#[test]
+fn matching_match_blocks_host_criterion_expands_percent_h() {
+    let cfg = parse_str(
+        "Host web1\n  HostName %h.example.com\n\n\
+         Match host web1.example.com\n  User root\n\n\
+         Match host web1\n  Port 2\n",
+    );
+    let m = cfg.matching_match_blocks("web1");
+    assert_eq!(m.len(), 1, "the block matching the bare alias is skipped");
+    assert_eq!(m[0].entry.criteria_text, "host web1.example.com");
+    assert_eq!(m[0].status, BlockStatus::Applies);
+}
+
+#[test]
+fn matching_match_blocks_host_without_hostname_uses_alias() {
+    let cfg = parse_str("Host web-1\n\nMatch host web-*\n  User root\n");
+    assert_eq!(
+        cfg.matching_match_blocks("web-1")[0].status,
+        BlockStatus::Applies
+    );
+}
+
+#[test]
+fn matching_match_blocks_undecided_hostname_makes_later_host_unknown() {
+    let cfg = parse_str(
+        "Host a\n\n\
+         Match originalhost a localuser x\n  HostName a.example.com\n\n\
+         Match host *.example.com\n  User root\n",
+    );
+    let m = cfg.matching_match_blocks("a");
+    assert_eq!(m[1].status, BlockStatus::Undecided);
+    assert_eq!(m[1].verdicts[0].verdict, Verdict::Unknown);
+}
+
+#[test]
+fn matching_match_blocks_excluding_pattern_never_feeds_the_context() {
+    let cfg = parse_str(
+        "Host a\n\n\
+         Host * !a\n  HostName other.example.com\n\n\
+         Match host *.example.com\n  User root\n",
+    );
+    assert!(
+        cfg.matching_match_blocks("a").is_empty(),
+        "the pattern excludes a, so HostName stays the alias"
+    );
+}
+
+#[test]
+fn matching_match_blocks_before_host_is_set_for_blocks_above_the_host() {
+    let cfg = parse_str("Match all\n  User root\n\nHost a\n  User eric\n");
+    assert!(cfg.matching_match_blocks("a")[0].before_host);
+}
+
+#[test]
+fn matching_match_blocks_user_criterion_reads_user_set_above() {
+    let cfg = parse_str(
+        "Host a\n  User root\n\n\
+         Match user root\n  IdentityFile ~/.ssh/id_root\n\n\
+         Host b\n\n\
+         Match user root\n  IdentityFile ~/.ssh/id_root\n",
+    );
+    assert_eq!(
+        cfg.matching_match_blocks("a")[0].status,
+        BlockStatus::Applies
+    );
+    assert_eq!(
+        cfg.matching_match_blocks("b")[0].status,
+        BlockStatus::Undecided,
+        "no User set, so it is the local account"
+    );
+}
+
+#[test]
+fn host_entries_inherit_from_applying_match_block_only() {
+    let cfg = parse_str(
+        "Host web\n  HostName 1\n\n\
+         Match originalhost web\n  User root\n\n\
+         Match originalhost web localuser x\n  IdentityFile ~/.ssh/undecided\n",
+    );
+    let h = &cfg.host_entries()[0];
+    assert_eq!(h.user, "root");
+    assert_eq!(
+        h.identity_file, "",
+        "undecided blocks never feed inheritance"
+    );
+}
+
+#[test]
+fn host_entries_merge_patterns_and_match_blocks_in_file_order() {
+    let cfg = parse_str(
+        "Host web\n  HostName 1\n\n\
+         Match originalhost web\n  User from-match\n\n\
+         Host *\n  User from-pattern\n  IdentityFile ~/.ssh/id\n",
+    );
+    let h = &cfg.host_entries()[0];
+    assert_eq!(
+        h.user, "from-match",
+        "the Match block comes first in the file"
+    );
+    assert_eq!(h.identity_file, "~/.ssh/id");
+}
+
+#[test]
+fn host_entries_proxy_command_from_applying_match_block_counts() {
+    let cfg = parse_str(
+        "Host web\n  HostName 1\n\n\
+         Match originalhost web\n  ProxyCommand ssh -W %h:%p gw\n\n\
+         Host db\n  HostName 2\n\n\
+         Match originalhost db\n  ProxyCommand none\n\n\
+         Host *\n  ProxyCommand ssh -W %h:%p gw\n",
+    );
+    let hosts = cfg.host_entries();
+    assert!(hosts[0].has_proxy_command);
+    assert!(!hosts[1].has_proxy_command, "the Match opt-out comes first");
+}
+
+#[test]
+fn host_entries_undecided_match_block_proxy_command_is_ignored() {
+    let cfg = parse_str(
+        "Host web\n  HostName 1\n\n\
+         Match originalhost web localuser x\n  ProxyCommand ssh -W %h:%p gw\n",
+    );
+    assert!(!cfg.host_entries()[0].has_proxy_command);
+}
+
+#[test]
+fn host_entries_proxy_command_keeps_own_block_and_pattern_order() {
+    let cfg = parse_str(
+        "Host *\n  ProxyCommand none\n\n\
+         Host web\n  ProxyCommand ssh -W %h:%p gw\n\n\
+         Host db\n  ProxyCommand ssh -W %h:%p gw\n\n\
+         Host db*\n  ProxyCommand none\n",
+    );
+    let hosts = cfg.host_entries();
+    assert!(!hosts[0].has_proxy_command, "Host * is read first");
+    assert!(!hosts[1].has_proxy_command, "Host * is read first");
+    let cfg = parse_str(
+        "Host web\n  ProxyCommand ssh -W %h:%p gw\n\n\
+         Host *\n  ProxyCommand none\n",
+    );
+    assert!(cfg.host_entries()[0].has_proxy_command, "own block first");
+}
+
+#[test]
+fn inherited_hints_label_match_block_sources() {
+    let cfg = parse_str(
+        "Host web\n  HostName 1\n\n\
+         Match originalhost web\n  User root\n",
+    );
+    let hints = cfg.inherited_hints("web");
+    let expected = Some(("root".to_string(), "Match originalhost web".to_string()));
+    assert_eq!(hints.user, expected);
+}
+
+#[test]
+fn match_block_in_included_file_carries_source() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let inc = dir.path().join("extra");
+    std::fs::write(&inc, "Match all\n  User root\n").expect("write include");
+    let main = dir.path().join("config");
+    let content = format!("Include {}\nHost a\n  HostName 1\n", inc.display());
+    std::fs::write(&main, content).expect("write config");
+    let env = crate::runtime::env::Env::for_test(dir.path());
+    let cfg = SshConfigFile::parse_with_env(&main, &env).expect("parse");
+    let blocks = cfg.match_block_entries();
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].source_file.as_deref(), Some(inc.as_path()));
+    assert_eq!(cfg.host_entries()[0].user, "root");
+}
+
+#[test]
+fn match_blocks_round_trip_unchanged() {
+    let content = "Host a\n  HostName 1\n\n\
+                   Match=host *.prod,!*.lab exec \"test -f ~/.vpn\"\n\
+                   \tProxyJump bastion\n  # purple:tags prod\n\n\
+                   Match all\n  ServerAliveInterval 60\n";
+    let cfg = parse_str(content);
+    assert_eq!(cfg.serialize(), content);
+}
+
+#[test]
+fn add_host_never_lands_inside_a_match_block_body() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let inc = dir.path().join("extra");
+    std::fs::write(&inc, "Host from-include\n  HostName 9\n").expect("write include");
+    let main = dir.path().join("config");
+    let content = format!(
+        "Host a\n  HostName 1\n\nMatch all\n  Include {}\n  User root\n\nHost *\n  ServerAliveInterval 30\n",
+        inc.display()
+    );
+    std::fs::write(&main, &content).expect("write config");
+    let env = crate::runtime::env::Env::for_test(dir.path());
+    let mut cfg = SshConfigFile::parse_with_env(&main, &env).expect("parse");
+    cfg.add_host(&HostEntry {
+        alias: "new".to_string(),
+        hostname: "2".to_string(),
+        ..Default::default()
+    });
+    let out = cfg.serialize();
+    let expected = format!(
+        "Host a\n  HostName 1\n\nMatch all\n  Include {}\n  User root\n\n\
+         Host new\n  HostName 2\n\nHost *\n  ServerAliveInterval 30\n",
+        inc.display()
+    );
+    assert_eq!(out, expected, "the Match body must stay whole");
+    let reparsed = parse_str(&out);
+    let own = reparsed.own_host_entries();
+    let new_host = own.iter().find(|h| h.alias == "new").expect("new host");
+    assert_eq!(
+        new_host.user, "",
+        "the Match body must not move into the new host"
+    );
+    assert_eq!(
+        reparsed.host_entries()[0].user,
+        "root",
+        "Match all still applies to a"
+    );
+}
+
+#[test]
+fn add_host_after_an_include_in_a_match_block_keeps_comments_with_the_pattern() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let inc = dir.path().join("extra");
+    std::fs::write(&inc, "Host from-include\n  HostName 9\n").expect("write include");
+    let main = dir.path().join("config");
+    let content = format!(
+        "Host a\n  HostName 1\n\nMatch all\n  Include {}\n\n# defaults\nHost *\n  User x\n",
+        inc.display()
+    );
+    std::fs::write(&main, &content).expect("write config");
+    let env = crate::runtime::env::Env::for_test(dir.path());
+    let mut cfg = SshConfigFile::parse_with_env(&main, &env).expect("parse");
+    cfg.add_host(&HostEntry {
+        alias: "new".to_string(),
+        hostname: "2".to_string(),
+        ..Default::default()
+    });
+    let out = cfg.serialize();
+    assert!(
+        out.contains("# defaults\nHost *"),
+        "the comment stays with Host *:\n{out}"
+    );
+    assert!(out.contains("Host new\n  HostName 2\n"), "{out}");
+}
+
+/// Parse `main` with `files` written next to it, Include lines resolved.
+fn parse_with_files(main: &str, files: &[(&str, &str)]) -> (tempfile::TempDir, SshConfigFile) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dir_text = dir.path().display().to_string();
+    for (name, text) in files {
+        let text = text.replace("$DIR", &dir_text);
+        std::fs::write(dir.path().join(name), text).expect("write include");
+    }
+    let path = dir.path().join("config");
+    let main = main.replace("$DIR", &dir_text);
+    std::fs::write(&path, main).expect("write config");
+    let env = crate::runtime::env::Env::for_test(dir.path());
+    let cfg = SshConfigFile::parse_with_env(&path, &env).expect("parse");
+    (dir, cfg)
+}
+
+#[test]
+fn nested_match_block_is_skipped_while_its_parent_does_not_apply() {
+    // ssh -G b does not apply Port 2 here: the include is never read for b.
+    let (_dir, cfg) = parse_with_files(
+        "Host a\n\nHost b\n\nMatch originalhost a\n  Include $DIR/f\n  User z\n",
+        &[("f", "Match originalhost b\n  Port 2\n  User fromb\n")],
+    );
+    assert!(cfg.matching_match_blocks("b").is_empty());
+    let hosts = cfg.host_entries();
+    let b = hosts.iter().find(|h| h.alias == "b").expect("b");
+    assert_eq!(b.user, "", "nothing from the nested block");
+    let a = hosts.iter().find(|h| h.alias == "a").expect("a");
+    assert_eq!(a.user, "z", "the parent resumes after its Include");
+}
+
+#[test]
+fn nested_match_block_under_an_undecided_parent_is_undecided() {
+    let (_dir, cfg) = parse_with_files(
+        "Host a\n\nMatch originalhost a localuser x\n  Include $DIR/f\n",
+        &[("f", "Match originalhost a\n  User q\n")],
+    );
+    let m = cfg.matching_match_blocks("a");
+    assert_eq!(m.len(), 2);
+    assert_eq!(m[1].entry.parent, Some(m[0].entry.order));
+    assert_eq!(m[1].status, BlockStatus::Undecided);
+    assert_eq!(cfg.host_entries()[0].user, "");
+}
+
+#[test]
+fn match_body_reads_lines_after_a_nested_include() {
+    let (_dir, cfg) = parse_with_files(
+        "Host a\n\nMatch originalhost a\n  Include $DIR/f\n",
+        &[("f", "Include $DIR/g\nUser zz\n"), ("g", "Port 9\n")],
+    );
+    let blocks = cfg.match_block_entries();
+    let keys: Vec<&str> = blocks[0]
+        .directives
+        .iter()
+        .map(|(k, _)| k.as_str())
+        .collect();
+    assert_eq!(keys, vec!["Port", "User"]);
+    assert_eq!(cfg.host_entries()[0].user, "zz");
+}
+
+#[test]
+fn section_index_match_statuses_agree_with_resolve() {
+    let cfg = parse_str(
+        "Host a\n  HostName 1\n\nHost b\n  HostName 2\n\n\
+         Match originalhost a\n  User root\n\n\
+         Match originalhost b localuser x\n  User x\n",
+    );
+    let index = cfg.section_index();
+    for alias in ["a", "b"] {
+        let full: Vec<(usize, BlockStatus)> = index
+            .resolve(alias)
+            .match_blocks
+            .iter()
+            .map(|m| (m.entry.order, m.status))
+            .collect();
+        assert_eq!(index.match_statuses(alias), full, "{alias}");
+    }
+}
+
+#[test]
+fn undecided_block_leaves_the_fallback_value_below_it() {
+    let cfg = parse_str(
+        "Host a\n  HostName 1\n\n\
+         Match originalhost a exec \"test -f /vpn\"\n  ProxyJump none\n\n\
+         Host *\n  ProxyJump bastion\n",
+    );
+    let h = &cfg.host_entries()[0];
+    assert_eq!(
+        h.proxy_jump, "bastion",
+        "the value ssh uses when the exec fails"
+    );
+    let m = cfg.matching_match_blocks("a");
+    assert_eq!(m[0].status, BlockStatus::Undecided);
+}
+
+#[test]
+fn add_host_before_a_match_line_or_pattern_keeps_its_old_position() {
+    let content = "Host a\n  HostName 1\n\nMatch all\n  User root\n\n# Defaults\nHost *\n  ServerAliveInterval 30\n";
+    let mut cfg = parse_str(content);
+    cfg.add_host(&HostEntry {
+        alias: "new".to_string(),
+        hostname: "2".to_string(),
+        ..Default::default()
+    });
+    let out = cfg.serialize();
+    assert!(
+        out.starts_with("Host a\n  HostName 1\n\nHost new\n  HostName 2\n\nMatch all\n"),
+        "without an Include the host still goes above the Match block:\n{out}"
+    );
+    assert!(
+        out.contains("Match all\n  User root\n\n# Defaults\nHost *"),
+        "{out}"
+    );
+}
+
+#[test]
+fn matching_match_blocks_overrides_own_lists_first_wins_keys_set_by_both() {
+    let cfg = parse_str(
+        "Match all\n  User root\n  IdentityFile ~/.ssh/id_all\n  Port 2222\n\n\
+         Host db\n  User dba\n  IdentityFile ~/.ssh/id_db\n\n\
+         Match all\n  HostName late\n",
+    );
+    let m = cfg.matching_match_blocks("db");
+    assert_eq!(
+        m[0].overrides_own,
+        vec!["User"],
+        "IdentityFile is cumulative"
+    );
+    assert!(
+        m[1].overrides_own.is_empty(),
+        "the block sits below the host"
+    );
+}
+
+#[test]
+fn matching_match_blocks_overrides_own_ignores_inherited_values() {
+    let cfg = parse_str(
+        "Match all\n  User root\n\n\
+         Host db\n  HostName 1\n\n\
+         Host *\n  User other\n",
+    );
+    assert_eq!(cfg.host_entries()[0].user, "root");
+    assert!(cfg.matching_match_blocks("db")[0].overrides_own.is_empty());
+}
+
+#[test]
+fn matching_match_blocks_overrides_own_needs_an_applying_block() {
+    let cfg = parse_str("Match all localuser x\n  User root\n\nHost db\n  User dba\n");
+    let m = cfg.matching_match_blocks("db");
+    assert_eq!(m[0].status, BlockStatus::Undecided);
+    assert!(m[0].overrides_own.is_empty());
+}

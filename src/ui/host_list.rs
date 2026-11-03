@@ -376,7 +376,9 @@ pub fn render(frame: &mut Frame, app: &mut App, spinner_tick: u64, detail_progre
         super::render_footer_with_status(frame, chunks[3], tag_footer_spans(), app);
     } else {
         render_display_list(frame, app, list_area, spinner_tick);
-        let spans = if app.is_pattern_selected() {
+        let spans = if app.is_match_block_selected() {
+            match_block_footer_spans(target_detail)
+        } else if app.is_pattern_selected() {
             pattern_footer_spans(target_detail)
         } else {
             footer_spans(
@@ -507,7 +509,7 @@ fn render_display_list(
         .hosts_state
         .display_list()
         .iter()
-        .filter(|i| matches!(i, HostListItem::Host { .. } | HostListItem::Pattern { .. }))
+        .filter(|i| i.is_selectable())
         .count();
     let mut title_spans = vec![Span::styled(format!(" {} ", visible_count), theme::bold())];
     if app.tags.input().is_some() {
@@ -789,6 +791,13 @@ fn render_display_list(
                     items.push(ListItem::new(Line::from(Span::raw(""))));
                 }
             }
+            HostListItem::MatchBlock { index } => {
+                if let Some(block) = app.hosts_state.match_blocks().get(*index) {
+                    items.push(build_match_block_item(block, &cols));
+                } else {
+                    items.push(ListItem::new(Line::from(Span::raw(""))));
+                }
+            }
         }
     }
 
@@ -805,9 +814,10 @@ fn render_search_list(
     area: ratatui::layout::Rect,
     spinner_tick: u64,
 ) {
-    let total_results =
-        app.search.filtered_indices().len() + app.search.filtered_pattern_indices().len();
-    let total = app.hosts_state.list().len() + app.hosts_state.patterns().len();
+    let total_results = app.search_result_count();
+    let total = app.hosts_state.list().len()
+        + app.hosts_state.patterns().len()
+        + app.hosts_state.match_blocks().len();
     let title = Line::from(vec![Span::styled(
         format!(" search: {}/{} ", total_results, total),
         theme::bold(),
@@ -820,8 +830,7 @@ fn render_search_list(
 
     let url_label = Line::from(Span::styled(" getpurple.sh ", theme::muted()));
 
-    if app.search.filtered_indices().is_empty() && app.search.filtered_pattern_indices().is_empty()
-    {
+    if total_results == 0 {
         // Compound multi-span title: use `search_block_line`.
         let mut block =
             design::search_block_line(title).title_bottom(url_label.clone().right_aligned());
@@ -849,7 +858,25 @@ fn render_search_list(
             .iter()
             .filter_map(|&i| app.hosts_state.list().get(i))
     };
-    let alias_w = filtered_hosts().map(|h| h.alias.width()).max().unwrap_or(8);
+    // Pattern and Match rows share the NAME column, so their names count too.
+    let pattern_names = app
+        .search
+        .filtered_pattern_indices()
+        .iter()
+        .filter_map(|&i| app.hosts_state.patterns().get(i))
+        .map(|p| p.pattern.width());
+    let match_names = app
+        .search
+        .filtered_match_indices()
+        .iter()
+        .filter_map(|&i| app.hosts_state.match_blocks().get(i))
+        .map(|m| m.criteria_text.width());
+    let alias_w = filtered_hosts()
+        .map(|h| h.alias.width())
+        .chain(pattern_names)
+        .chain(match_names)
+        .max()
+        .unwrap_or(8);
     let host_w = filtered_hosts()
         .map(composite_host_width)
         .max()
@@ -896,9 +923,7 @@ fn render_search_list(
     );
 
     let query = app.search.query();
-    let mut items: Vec<ListItem> = Vec::with_capacity(
-        app.search.filtered_indices().len() + app.search.filtered_pattern_indices().len(),
-    );
+    let mut items: Vec<ListItem> = Vec::with_capacity(total_results);
     for &idx in app.search.filtered_indices().iter() {
         if let Some(host) = app.hosts_state.list().get(idx) {
             let tunnel_active = app.tunnels.active_contains(&host.alias);
@@ -920,6 +945,11 @@ fn render_search_list(
     for &idx in app.search.filtered_pattern_indices().iter() {
         if let Some(pattern) = app.hosts_state.patterns().get(idx) {
             items.push(build_pattern_item(pattern, &cols));
+        }
+    }
+    for &idx in app.search.filtered_match_indices().iter() {
+        if let Some(block) = app.hosts_state.match_blocks().get(idx) {
+            items.push(build_match_block_item(block, &cols));
         }
     }
 
@@ -1231,28 +1261,89 @@ fn push_history_column<'a>(
     ));
 }
 
+/// Prefix for a pattern row, in the brand accent.
+const PATTERN_ROW_PREFIX: &str = "* ";
+/// Prefix for a Match row. The tilde reads as conditional.
+const MATCH_ROW_PREFIX: &str = "~ ";
+
 fn build_pattern_item<'a>(
     pattern: &'a crate::ssh_config::model::PatternEntry,
     cols: &Columns,
 ) -> ListItem<'a> {
-    let gap = " ".repeat(cols.gap);
-    let mut spans: Vec<Span> = Vec::with_capacity(12);
+    let row = ConfigBlockRow {
+        prefix: Span::styled(PATTERN_ROW_PREFIX, theme::accent_bold()),
+        name: &pattern.pattern,
+        hostname: &pattern.hostname,
+        tags: &pattern.tags,
+    };
+    build_config_block_item(&row, cols)
+}
 
-    // NAME column: marker(2) + status area used as "* "(2) + alias at full width.
-    // This matches host item layout: marker(2) + status(2) + alias(cols.alias).
-    let pattern_trunc = super::truncate(&pattern.pattern, cols.alias);
+fn build_match_block_item<'a>(
+    block: &'a crate::ssh_config::model::MatchBlockEntry,
+    cols: &Columns,
+) -> ListItem<'a> {
+    let row = ConfigBlockRow {
+        prefix: Span::styled(MATCH_ROW_PREFIX, theme::muted()),
+        name: &block.criteria_text,
+        hostname: &block.hostname,
+        tags: &block.tags,
+    };
+    build_config_block_item(&row, cols)
+}
+
+/// A list row for a config block that is not a host: a pattern or a Match block.
+struct ConfigBlockRow<'r> {
+    prefix: Span<'static>,
+    name: &'r str,
+    hostname: &'r str,
+    tags: &'r [String],
+}
+
+fn build_config_block_item<'a>(row: &ConfigBlockRow<'_>, cols: &Columns) -> ListItem<'a> {
+    ListItem::new(Line::from(config_block_spans(row, cols)))
+}
+
+fn config_block_spans(row: &ConfigBlockRow<'_>, cols: &Columns) -> Vec<Span<'static>> {
+    let gap = " ".repeat(cols.gap);
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(12);
+
+    // NAME column: marker(2) + status area used as the prefix(2) + name at full
+    // width. This matches host item layout: marker(2) + status(2) + alias.
     spans.push(Span::styled("  ", theme::muted())); // marker area (2 chars)
-    spans.push(Span::styled("* ", theme::accent_bold())); // brand-accent prefix for pattern rows
+    spans.push(row.prefix.clone());
+
+    // Without a hostname the ADDRESS column stays empty, so a long name runs on
+    // into it and the flexible gap. One gap stays free before TAGS.
+    let address_room = if cols.host > 0 {
+        cols.gap + cols.host
+    } else {
+        0
+    };
+    let free_width = cols.alias + address_room + cols.flex_gap;
+    if row.hostname.is_empty() && row.name.width() > cols.alias {
+        let budget = free_width.saturating_sub(cols.gap).max(cols.alias);
+        let name = super::truncate(row.name, budget);
+        let pad = free_width.saturating_sub(name.width());
+        spans.push(Span::styled(name, theme::muted()));
+        if pad > 0 {
+            spans.push(Span::raw(" ".repeat(pad)));
+        }
+        push_config_block_tail(&mut spans, row, cols);
+        return spans;
+    }
+
+    let name_trunc = super::truncate(row.name, cols.alias);
     spans.push(Span::styled(
-        format!("{:<width$}", pattern_trunc, width = cols.alias),
+        format!("{:<width$}", name_trunc, width = cols.alias),
         theme::muted(),
     ));
 
     // ADDRESS column: hostname if present, else empty (hidden in detail_mode)
     if cols.host > 0 {
         spans.push(Span::raw(gap.clone()));
-        let host_display = if !pattern.hostname.is_empty() {
-            super::truncate(&pattern.hostname, cols.host)
+        let host_display = if !row.hostname.is_empty() {
+            super::truncate(row.hostname, cols.host)
         } else {
             String::new()
         };
@@ -1269,17 +1360,25 @@ fn build_pattern_item<'a>(
     if cols.flex_gap > 0 {
         spans.push(Span::raw(" ".repeat(cols.flex_gap)));
     }
+    push_config_block_tail(&mut spans, row, cols);
+    spans
+}
+
+/// TAGS and LAST columns of a pattern or Match row.
+fn push_config_block_tail(
+    spans: &mut Vec<Span<'static>>,
+    row: &ConfigBlockRow<'_>,
+    cols: &Columns,
+) {
     if cols.tags > 0 {
-        build_pattern_tag_column(&mut spans, pattern, cols.tags);
+        build_user_tag_column(spans, row.tags, cols.tags);
         if cols.history > 0 {
-            spans.push(Span::raw(gap));
+            spans.push(Span::raw(" ".repeat(cols.gap)));
         }
     }
     if cols.history > 0 {
         spans.push(Span::raw(" ".repeat(cols.history)));
     }
-
-    ListItem::new(Line::from(spans))
 }
 
 /// Render styled tags into spans within a fixed column width, with +N overflow.
@@ -1326,17 +1425,9 @@ fn render_tag_spans(spans: &mut Vec<Span<'_>>, all_tags: &[(String, Style)], wid
     }
 }
 
-/// Build tag spans for a pattern entry.
-fn build_pattern_tag_column(
-    spans: &mut Vec<Span<'_>>,
-    pattern: &crate::ssh_config::model::PatternEntry,
-    width: usize,
-) {
-    let all_tags: Vec<(String, Style)> = pattern
-        .tags
-        .iter()
-        .map(|t| (t.clone(), theme::muted()))
-        .collect();
+/// Muted tag spans for a pattern or Match row.
+fn build_user_tag_column(spans: &mut Vec<Span<'_>>, tags: &[String], width: usize) {
+    let all_tags: Vec<(String, Style)> = tags.iter().map(|t| (t.clone(), theme::muted())).collect();
     render_tag_spans(spans, &all_tags, width);
 }
 
@@ -1385,13 +1476,14 @@ fn render_search_bar(frame: &mut Frame, app: &App, area: ratatui::layout::Rect) 
     let total = if let Some(scope) = app.search.scope_indices() {
         scope.len()
     } else {
-        app.hosts_state.list().len() + app.hosts_state.patterns().len()
+        app.hosts_state.list().len()
+            + app.hosts_state.patterns().len()
+            + app.hosts_state.match_blocks().len()
     };
     let match_info = if query.is_empty() {
         String::new()
     } else {
-        let count =
-            app.search.filtered_indices().len() + app.search.filtered_pattern_indices().len();
+        let count = app.search_result_count();
         format!(" ({} of {})", count, total)
     };
     let scope_span = match &app.hosts_state.group_filter() {
@@ -1428,7 +1520,7 @@ fn footer_spans(
     }
 
     let view_label = if detail_active {
-        " compact "
+        fl::ACTION_COMPACT
     } else {
         fl::ACTION_DETAIL
     };
@@ -1449,13 +1541,27 @@ fn footer_spans(
 fn pattern_footer_spans(detail_active: bool) -> Vec<Span<'static>> {
     use crate::messages::footer as fl;
     let view_label = if detail_active {
-        " compact "
+        fl::ACTION_COMPACT
     } else {
         fl::ACTION_DETAIL
     };
     design::Footer::new()
         .action("/", fl::ACTION_SEARCH)
         .action("#", fl::ACTION_TAG)
+        .action("v", view_label)
+        .into_spans()
+}
+
+/// A Match row is read-only, so it offers no tag action.
+fn match_block_footer_spans(detail_active: bool) -> Vec<Span<'static>> {
+    use crate::messages::footer as fl;
+    let view_label = if detail_active {
+        fl::ACTION_COMPACT
+    } else {
+        fl::ACTION_DETAIL
+    };
+    design::Footer::new()
+        .action("/", fl::ACTION_SEARCH)
         .action("v", view_label)
         .into_spans()
 }
