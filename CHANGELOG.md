@@ -1,3 +1,13 @@
+## 3.34.1 - 2026-11-03
+
+- feat: Browse remote folders owned by LDAP or AD users.
+- feat: Folders with broken symlinks list everything else as usual.
+- feat: File names keep their leading and trailing spaces.
+- change: Hosts that force a terminal list folders like any other.
+- fix: Device files and small files on macOS hosts show the right details.
+- How it works: see the File Explorer page on the wiki.
+- Thanks to @ReubenM for reporting this in #179
+
 ## 3.34.0 - 2026-11-03
 
 - feat: See what your Match blocks do for each host.

@@ -793,6 +793,9 @@ fn read_pipe_capped<R: io::Read>(reader: R, alias: &str, stream: &str) -> String
 /// fetches (container listings, file browser listings, captured snippet
 /// output) pass `true`. Direct CLI use passes `false` so users retain normal
 /// host-key trust-on-first-use behavior and ssh's own prompt.
+///
+/// `no_pty` passes `-T`, so a host with `RequestTTY force` cannot give a
+/// command whose output purple parses a pseudo-terminal.
 #[allow(clippy::too_many_arguments)]
 fn base_ssh_command(
     alias: &str,
@@ -804,6 +807,7 @@ fn base_ssh_command(
     has_active_tunnel: bool,
     non_interactive: bool,
     trust_new_host_key: bool,
+    no_pty: bool,
     security_key: &crate::security_key::SecurityKeyRun,
 ) -> Command {
     let mut cmd = Command::new("ssh");
@@ -815,6 +819,10 @@ fn base_ssh_command(
         .arg("ControlMaster=no")
         .arg("-o")
         .arg("ControlPath=none");
+
+    if no_pty {
+        cmd.arg("-T");
+    }
 
     if non_interactive {
         let strict = if trust_new_host_key {
@@ -863,6 +871,7 @@ fn build_snippet_command(ctx: &crate::ssh_context::SshContext<'_>, command: &str
         ctx.has_tunnel,
         true,
         ctx.trust_new_host_key,
+        false,
         ctx.security_key,
     );
     cmd.stdin(Stdio::null())
@@ -1174,6 +1183,24 @@ pub fn run_snippet_ctx(
     command: &str,
     capture: bool,
 ) -> anyhow::Result<SnippetResult> {
+    run_ctx(ctx, command, capture, false)
+}
+
+/// Run a command whose output purple parses, with stdout and stderr
+/// captured. ssh gets `-T`, so a forced pty cannot reformat that output.
+pub fn run_parsed_ctx(
+    ctx: &crate::ssh_context::SshContext<'_>,
+    command: &str,
+) -> anyhow::Result<SnippetResult> {
+    run_ctx(ctx, command, true, true)
+}
+
+fn run_ctx(
+    ctx: &crate::ssh_context::SshContext<'_>,
+    command: &str,
+    capture: bool,
+    no_pty: bool,
+) -> anyhow::Result<SnippetResult> {
     let alias = ctx.alias;
     // Renew the Vault SSH cert before connecting so container listing,
     // inspect, logs, actions and file-browser operations get a fresh cert
@@ -1190,6 +1217,7 @@ pub fn run_snippet_ctx(
         ctx.has_tunnel,
         capture,
         ctx.trust_new_host_key,
+        no_pty,
         ctx.security_key,
     );
 

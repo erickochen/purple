@@ -1235,10 +1235,27 @@ fn base_ssh_args_with(
     non_interactive: bool,
     trust_new_host_key: bool,
 ) -> Vec<String> {
-    use std::path::Path;
-    let cmd = base_ssh_command(
+    args_of(&base_ssh_for_test(
+        std::path::Path::new("/tmp/cfg"),
+        askpass,
+        session_password,
+        non_interactive,
+        trust_new_host_key,
+        false,
+    ))
+}
+
+fn base_ssh_for_test(
+    config_path: &std::path::Path,
+    askpass: Option<&str>,
+    session_password: Option<&str>,
+    non_interactive: bool,
+    trust_new_host_key: bool,
+    no_pty: bool,
+) -> std::process::Command {
+    base_ssh_command(
         "host1",
-        Path::new("/tmp/cfg"),
+        config_path,
         "true",
         askpass,
         session_password,
@@ -1246,11 +1263,71 @@ fn base_ssh_args_with(
         false,
         non_interactive,
         trust_new_host_key,
+        no_pty,
         &crate::security_key::NO_SECURITY_KEY,
-    );
+    )
+}
+
+fn args_of(cmd: &std::process::Command) -> Vec<String> {
     cmd.get_args()
         .map(|a| a.to_string_lossy().into_owned())
         .collect()
+}
+
+#[test]
+fn base_ssh_no_pty_passes_dash_t_before_the_alias_separator() {
+    let args = args_of(&base_ssh_for_test(
+        std::path::Path::new("/tmp/cfg"),
+        None,
+        None,
+        true,
+        false,
+        true,
+    ));
+    let sep = args.iter().position(|a| a == "--").expect("-- present");
+    let t = args.iter().position(|a| a == "-T").expect("-T present");
+    assert!(t < sep, "got: {args:?}");
+}
+
+#[test]
+fn base_ssh_leaves_the_pty_to_the_config_by_default() {
+    let args = base_ssh_args_with(None, None, true, false);
+    assert!(!args.iter().any(|a| a == "-T"), "got: {args:?}");
+}
+
+#[test]
+fn base_ssh_no_pty_wins_over_a_forced_tty_in_the_config() {
+    // `ssh -G` prints the settings ssh would use without connecting.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = dir.path().join("config");
+    std::fs::write(&config, "Host host1\n  RequestTTY force\n").expect("write config");
+    let run = |no_pty: bool| {
+        let args = args_of(&base_ssh_for_test(&config, None, None, true, false, no_pty));
+        std::process::Command::new("ssh")
+            .arg("-G")
+            .args(&args)
+            .output()
+    };
+    let requesttty = |out: std::process::Output| {
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .find(|l| l.starts_with("requesttty "))
+            .map(str::to_string)
+    };
+    let with_t = match run(true) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("skipping: ssh binary unavailable");
+            return;
+        }
+        Ok(out) if String::from_utf8_lossy(&out.stderr).contains("No user exists for uid") => {
+            eprintln!("skipping: this uid has no passwd entry");
+            return;
+        }
+        other => other.expect("run ssh -G"),
+    };
+    assert_eq!(requesttty(with_t).as_deref(), Some("requesttty false"));
+    let without_t = run(false).expect("run ssh -G");
+    assert_eq!(requesttty(without_t).as_deref(), Some("requesttty force"));
 }
 
 fn has_opt(args: &[String], value: &str) -> bool {

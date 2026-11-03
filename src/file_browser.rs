@@ -135,69 +135,186 @@ pub fn sort_entries(entries: &mut [FileEntry], sort: BrowserSort) {
     }
 }
 
-/// Parse `ls -lhAL` output into FileEntry list.
-/// With -L, symlinks are dereferenced so their target type is shown directly.
-/// Recognizes directories via 'd' permission prefix. Skips the "total" line.
-/// Broken symlinks are omitted by ls -L (they cannot be transferred anyway).
-pub fn parse_ls_output(output: &str, show_hidden: bool, sort: BrowserSort) -> Vec<FileEntry> {
-    let mut entries = Vec::new();
-    for line in output.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with("total ") {
-            continue;
+/// Exit code GNU `ls` uses when some entries failed. BusyBox and BSD `ls`
+/// also use it for a folder they cannot open.
+const LS_PARTIAL_EXIT: i32 = 1;
+
+/// How `ls -L` reports a broken symlink under `LC_ALL=C`: a missing target,
+/// a loop as glibc and musl word it, or a target below a regular file.
+const BROKEN_LINK_ERRORS: [&str; 4] = [
+    "No such file or directory",
+    "Too many levels of symbolic links",
+    "Symbolic link loop",
+    "Not a directory",
+];
+
+/// The remote listing command. `-n` prints numeric owner and group, so names
+/// with spaces cannot shift the columns. The env prefix pins the name and
+/// date format GNU `ls` would otherwise take from the remote environment.
+fn remote_listing_command(remote_path: &str) -> String {
+    format!(
+        "LC_ALL=C QUOTING_STYLE=literal TIME_STYLE=locale ls -lnhAL {}",
+        shell_escape(remote_path)
+    )
+}
+
+/// Whether an `ls` run produced a listing worth showing. A partial run counts
+/// when an entry parsed, or when ls read the directory and only broken
+/// symlinks failed, which is how a folder of dangling links looks.
+fn listing_is_usable(exit_code: Option<i32>, stdout: &str, stderr: &str) -> bool {
+    match exit_code {
+        Some(0) => true,
+        Some(LS_PARTIAL_EXIT) => {
+            stdout.lines().any(|line| parse_ls_line(line).is_some())
+                || (stdout.lines().any(|line| line.starts_with("total "))
+                    && only_broken_links(stderr))
         }
-        // ls -l format: permissions links owner group size month day time name
-        // Split on whitespace runs, taking 9 fields (last gets the rest including spaces)
-        let mut parts: Vec<&str> = Vec::with_capacity(9);
-        let mut rest = line;
-        for _ in 0..8 {
-            rest = rest.trim_start();
-            if rest.is_empty() {
-                break;
-            }
-            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
-            parts.push(&rest[..end]);
-            rest = &rest[end..];
-        }
-        rest = rest.trim_start();
-        if !rest.is_empty() {
-            parts.push(rest);
-        }
-        if parts.len() < 9 {
-            continue;
-        }
-        let permissions = parts[0];
-        let is_dir = permissions.starts_with('d');
-        let name = parts[8];
-        // Skip empty names
-        if name.is_empty() {
-            continue;
-        }
-        if !show_hidden && name.starts_with('.') {
-            continue;
-        }
-        // Parse human-readable size (e.g. "1.1K", "4.0M", "512")
-        let size = if is_dir {
-            None
-        } else {
-            Some(parse_human_size(parts[4]))
-        };
-        // Parse date from month/day/time-or-year (parts[5..=7])
-        let modified = parse_ls_date(parts[5], parts[6], parts[7]);
-        entries.push(FileEntry {
-            name: name.to_string(),
-            is_dir,
-            size,
-            modified,
-        });
+        _ => false,
     }
+}
+
+/// Whether every error `ls` printed is about a broken symlink. Lines from
+/// anything else, such as a remote rc file, are ignored.
+fn only_broken_links(stderr: &str) -> bool {
+    let mut errors = stderr
+        .lines()
+        .filter(|line| line.starts_with("ls:"))
+        .peekable();
+    // uutils wraps the text in a debug dump of the error.
+    errors.peek().is_some()
+        && errors.all(|line| {
+            let line = line.trim_end();
+            BROKEN_LINK_ERRORS
+                .iter()
+                .any(|e| line.ends_with(e) || line.contains(&format!("message: \"{e}\"")))
+        })
+}
+
+/// Parse `ls -lnhAL` output into FileEntry list.
+/// With -L, symlinks are dereferenced so their target type is shown directly.
+/// Broken symlinks are left out (they cannot be transferred anyway).
+pub fn parse_ls_output(output: &str, show_hidden: bool, sort: BrowserSort) -> Vec<FileEntry> {
+    let mut entries: Vec<FileEntry> = output
+        .lines()
+        .filter_map(parse_ls_line)
+        .filter(|entry| show_hidden || !entry.name.starts_with('.'))
+        .collect();
     sort_entries(&mut entries, sort);
     entries
 }
 
-/// Parse a human-readable size string like "1.1K", "4.0M", "512" into bytes.
+/// Parse one `ls -l` entry line: mode, links, owner, group, size, month,
+/// day, time or year, then the name after a single space. Returns None for
+/// the `total` line, any other non-entry line and a broken symlink.
+fn parse_ls_line(line: &str) -> Option<FileEntry> {
+    let mut rest = line;
+    let mode = next_field(&mut rest)?;
+    if let Some(kind) = unstatable_kind(mode) {
+        return parse_unstatable(kind, rest);
+    }
+    // `-L` shows a link it can follow as its target's type, so type `l` is
+    // a broken link.
+    if !is_mode_field(mode) || mode.starts_with('l') {
+        return None;
+    }
+    for _ in 0..FIELDS_BEFORE_SIZE {
+        next_field(&mut rest)?;
+    }
+    let size = next_field(&mut rest)?;
+    // Device files print `major, minor` where the size would be.
+    if size.ends_with(',') {
+        next_field(&mut rest)?;
+    }
+    let month = next_field(&mut rest)?;
+    let day = next_field(&mut rest)?;
+    let time_or_year = next_field(&mut rest)?;
+    let name = entry_name(rest)?;
+    let is_dir = mode.starts_with('d');
+    let is_device = mode.starts_with(['b', 'c']);
+    Some(FileEntry {
+        name: name.to_string(),
+        is_dir,
+        size: if is_dir || is_device {
+            None
+        } else {
+            Some(parse_human_size(size))
+        },
+        modified: parse_ls_date(month, day, time_or_year),
+    })
+}
+
+/// The type of an entry ls could not stat, which GNU prints as a mode of
+/// `?` marks such as `d?????????`. It adds one more `?` when another entry
+/// carries an ACL or SELinux label.
+fn unstatable_kind(mode: &str) -> Option<u8> {
+    let bytes = mode.as_bytes();
+    let fits = (MODE_FIELD_LEN..=MODE_FIELD_LEN + 1).contains(&bytes.len());
+    (fits && bytes[1..].iter().all(|b| *b == b'?')).then_some(bytes[0])
+}
+
+/// An entry ls could not stat keeps its name with no size or date, so it
+/// stays visible. A broken symlink is left out, and so is an entry of
+/// unknown type, which is how a broken symlink looks on some filesystems.
+fn parse_unstatable(kind: u8, mut rest: &str) -> Option<FileEntry> {
+    if matches!(kind, b'l' | b'?') {
+        return None;
+    }
+    for _ in 0..UNSTATABLE_FIELDS {
+        if next_field(&mut rest)? != "?" {
+            return None;
+        }
+    }
+    let name = entry_name(rest)?;
+    Some(FileEntry {
+        name: name.to_string(),
+        is_dir: kind == b'd',
+        size: None,
+        modified: None,
+    })
+}
+
+/// Links, owner, group, size and date each print as one `?` for an entry ls
+/// could not stat.
+const UNSTATABLE_FIELDS: usize = 5;
+
+/// The name after the single space that ends the date.
+fn entry_name(rest: &str) -> Option<&str> {
+    rest.strip_prefix(' ').filter(|name| !name.is_empty())
+}
+
+/// Take the next whitespace-separated field off the front of `rest`.
+fn next_field<'a>(rest: &mut &'a str) -> Option<&'a str> {
+    let trimmed = rest.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+    *rest = &trimmed[end..];
+    Some(&trimmed[..end])
+}
+
+/// Whether a field reads as an `ls -l` mode like `drwxr-xr-x`. The type may
+/// be any letter (Solaris doors are `D`) and `l` may mark a Solaris lock.
+fn is_mode_field(field: &str) -> bool {
+    let bytes = field.as_bytes();
+    bytes.len() >= MODE_FIELD_LEN
+        && (bytes[0] == b'-' || bytes[0].is_ascii_alphabetic())
+        && bytes[1..MODE_FIELD_LEN]
+            .iter()
+            .all(|b| b"rwxsStTl-".contains(b))
+}
+
+/// Length of the type character plus the nine permission characters.
+const MODE_FIELD_LEN: usize = 10;
+
+/// Links, owner and group sit between the mode and the size.
+const FIELDS_BEFORE_SIZE: usize = 3;
+
+/// Parse a human-readable size like "1.1K", "4.0M", "512" or BSD's "512B"
+/// into bytes.
 fn parse_human_size(s: &str) -> u64 {
     let s = s.trim();
+    let s = s.strip_suffix('B').unwrap_or(s);
     if s.is_empty() {
         return 0;
     }
@@ -370,7 +487,7 @@ fn shell_escape(path: &str) -> String {
 
 /// Get the remote home directory via `pwd`.
 pub fn get_remote_home(ctx: &SshContext<'_>) -> anyhow::Result<String> {
-    let result = crate::snippet::run_snippet_ctx(ctx, "pwd", true)?;
+    let result = crate::snippet::run_parsed_ctx(ctx, "pwd")?;
     if result.status.success() {
         Ok(result.stdout.trim().to_string())
     } else {
@@ -390,10 +507,20 @@ pub fn fetch_remote_listing(
     show_hidden: bool,
     sort: BrowserSort,
 ) -> Result<Vec<FileEntry>, String> {
-    let command = format!("LC_ALL=C ls -lhAL {}", shell_escape(remote_path));
-    let result = crate::snippet::run_snippet_ctx(ctx, &command, true);
+    let command = remote_listing_command(remote_path);
+    let result = crate::snippet::run_parsed_ctx(ctx, &command);
     match result {
-        Ok(r) if r.status.success() => Ok(parse_ls_output(&r.stdout, show_hidden, sort)),
+        Ok(r) if listing_is_usable(r.status.code(), &r.stdout, &r.stderr) => {
+            if !r.status.success() {
+                log::debug!(
+                    "[external] remote ls skipped entries it could not read: alias={} path={} stderr={}",
+                    ctx.alias,
+                    remote_path,
+                    filter_ssh_warnings(r.stderr.trim()),
+                );
+            }
+            Ok(parse_ls_output(&r.stdout, show_hidden, sort))
+        }
         Ok(r) => {
             let msg = filter_ssh_warnings(r.stderr.trim());
             let code = r.status.code().unwrap_or(1);

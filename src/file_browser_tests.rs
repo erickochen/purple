@@ -105,6 +105,396 @@ fn test_parse_ls_empty() {
 }
 
 // =========================================================================
+// remote listing: real `ls -lnhAL` output from GNU coreutils and BusyBox
+// =========================================================================
+
+/// What GNU coreutils `ls -lnhAL` prints for a directory holding a name
+/// with a leading space, a dangling symlink, a device file, a directory
+/// with a space and a name with a trailing space. It exits 1.
+const GNU_LISTING: &str = concat!(
+    "total 16K\n",
+    "-rw-r--r-- 1    0    0    2 Nov  3 17:25  leading\n",
+    "l????????? ? ?    ?       ?            ? dangling\n",
+    "crw-r--r-- 1    0    0 1, 3 Nov  3 17:25 nulldev\n",
+    "-rw-r--r-- 1 1500 1500    3 Nov  3 17:25 small.txt\n",
+    "drwxr-xr-x 2    0    0 4.0K Nov  3 17:25 sub dir\n",
+    "-rw-r--r-- 1    0    0    2 Nov  3 17:25 trailing \n",
+);
+
+/// The same directory listed by BusyBox, which leaves the dangling
+/// symlink out and also exits 1.
+const BUSYBOX_LISTING: &str = concat!(
+    "total 16K    \n",
+    "-rw-r--r--    1 0        0              2 Nov  3 17:25  leading\n",
+    "crw-r--r--    1 0        0           1,   3 Nov  3 17:25 nulldev\n",
+    "-rw-r--r--    1 1500     1500           3 Nov  3 17:25 small.txt\n",
+    "drwxr-xr-x    2 0        0           4.0K Nov  3 17:25 sub dir\n",
+    "-rw-r--r--    1 0        0              2 Nov  3 17:25 trailing \n",
+);
+
+fn names(entries: &[FileEntry]) -> Vec<&str> {
+    entries.iter().map(|e| e.name.as_str()).collect()
+}
+
+#[test]
+fn remote_listing_asks_for_numeric_owners_and_literal_names() {
+    assert_eq!(
+        remote_listing_command("/home/my dir"),
+        "LC_ALL=C QUOTING_STYLE=literal TIME_STYLE=locale ls -lnhAL '/home/my dir'"
+    );
+}
+
+#[test]
+fn gnu_and_busybox_listings_keep_every_name_intact() {
+    for (label, listing) in [("gnu", GNU_LISTING), ("busybox", BUSYBOX_LISTING)] {
+        let entries = parse_ls_output(listing, true, BrowserSort::Name);
+        assert_eq!(
+            names(&entries),
+            vec!["sub dir", " leading", "nulldev", "small.txt", "trailing "],
+            "{label}"
+        );
+        assert!(entries[0].is_dir, "{label}");
+        let small = entries.iter().find(|e| e.name == "small.txt").unwrap();
+        assert_eq!(small.size, Some(3), "{label}");
+        assert!(small.modified.is_some(), "{label}");
+    }
+}
+
+#[test]
+fn a_device_file_takes_its_name_and_date_after_major_and_minor() {
+    for listing in [GNU_LISTING, BUSYBOX_LISTING] {
+        let entries = parse_ls_output(listing, true, BrowserSort::Name);
+        let dev = entries.iter().find(|e| e.name == "nulldev").unwrap();
+        assert!(!dev.is_dir);
+        assert_eq!(dev.size, None);
+        assert!(dev.modified.is_some());
+    }
+}
+
+#[test]
+fn a_broken_symlink_is_left_out_whatever_its_name() {
+    let output = concat!(
+        "total 8.0K\n",
+        "l????????? ? ? ? ?            ? dangling link\n",
+        "-rw-r--r-- 1 0 0 2 Jan  1  2020 old file\n",
+    );
+    let entries = parse_ls_output(output, true, BrowserSort::Name);
+    assert_eq!(names(&entries), vec!["old file"]);
+    assert_eq!(epoch_to_year(entries[0].modified.unwrap()), 2020);
+}
+
+#[test]
+fn other_entries_ls_could_not_stat_keep_their_name() {
+    // A stale network mount and a file in a folder without search permission.
+    let output = concat!(
+        "total 4.0K\n",
+        "drwxr-xr-x 2 0 0 4.0K Nov  3 17:25 backup\n",
+        "d????????? ? ? ? ?            ? nas share\n",
+        "-????????? ? ? ? ?            ? secret\n",
+    );
+    let entries = parse_ls_output(output, true, BrowserSort::Name);
+    assert_eq!(names(&entries), vec!["backup", "nas share", "secret"]);
+    let nas = &entries[1];
+    assert!(nas.is_dir);
+    assert_eq!((nas.size, nas.modified), (None, None));
+    assert!(!entries[2].is_dir);
+}
+
+#[test]
+fn unstat_marks_widen_when_another_entry_has_an_acl() {
+    // GNU prints one more `?` when an entry carries an ACL or SELinux label.
+    let output = concat!(
+        "total 4.0K\n",
+        "-rw-r--r--+ 1 0 0    2 Nov  3 17:25 acl file\n",
+        "d?????????? ? ? ?    ?            ? nas share\n",
+        "l?????????? ? ? ?    ?            ? gone\n",
+    );
+    let entries = parse_ls_output(output, true, BrowserSort::Name);
+    assert_eq!(names(&entries), vec!["nas share", "acl file"]);
+    assert!(entries[0].is_dir);
+}
+
+#[test]
+fn an_entry_of_unknown_type_is_left_out() {
+    // A broken symlink on a filesystem that gives no entry type.
+    let output = "total 0\n?????????? ? ? ? ?            ? x\n";
+    assert!(parse_ls_output(output, true, BrowserSort::Name).is_empty());
+}
+
+#[test]
+fn a_broken_symlink_printed_as_a_link_is_left_out() {
+    // What FreeBSD-family `ls -L` prints for broken links, with exit 0.
+    let output = concat!(
+        "total 0 B\n",
+        "lrwxrwxrwx  1 0 0    7B Nov  3 18:35 abs -> /nope/x\n",
+        "lrwxrwxrwx  1 0 0    7B Nov  3 18:35 rel -> missing\n",
+    );
+    assert!(listing_is_usable(Some(0), output, ""));
+    assert!(parse_ls_output(output, true, BrowserSort::Name).is_empty());
+}
+
+#[test]
+fn a_folder_that_is_itself_a_dangling_link_reads_as_an_error() {
+    // What macOS prints when the listed path is a link to a removed folder.
+    let stdout = "lrwxr-xr-x@ 1 501  0   122B Nov  3 19:21 /srv/current -> /srv/releases/v42\n";
+    let stderr = "ls: current: No such file or directory\n";
+    assert!(parse_ls_output(stdout, true, BrowserSort::Name).is_empty());
+    assert!(!listing_is_usable(Some(1), stdout, stderr));
+}
+
+#[test]
+fn a_bsd_device_with_a_hex_number_has_no_size() {
+    // What macOS prints for a device with a large minor number.
+    let output = "crw-rw-rw-  1 0    0    0x1d000000 Oct 27 22:11 aes_0\n";
+    let entries = parse_ls_output(output, true, BrowserSort::Name);
+    assert_eq!(names(&entries), vec!["aes_0"]);
+    assert_eq!(entries[0].size, None);
+}
+
+#[test]
+fn lines_that_are_not_entries_are_ignored() {
+    let output = concat!(
+        "total 4\n",
+        "welcome to the build server, please be nice to it today ok\n",
+        "-rw-r--r-- 1 0 0 2 Jan  1  2020 kept\n",
+    );
+    let entries = parse_ls_output(output, true, BrowserSort::Name);
+    assert_eq!(names(&entries), vec!["kept"]);
+}
+
+#[test]
+fn a_bsd_size_with_a_byte_suffix_parses() {
+    let output = "-rw-r--r--@ 1 501  0     3B Nov  3 18:25 small.txt\n";
+    let entries = parse_ls_output(output, true, BrowserSort::Name);
+    assert_eq!(entries[0].size, Some(3));
+}
+
+#[test]
+fn a_partial_listing_counts_when_it_holds_an_entry() {
+    let stderr = "ls: cannot access '/probe/dangling': No such file or directory\n";
+    assert!(listing_is_usable(Some(1), GNU_LISTING, stderr));
+    assert!(listing_is_usable(Some(1), BUSYBOX_LISTING, stderr));
+}
+
+#[test]
+fn a_directory_busybox_could_not_open_reads_as_an_error() {
+    // BusyBox prints `total 0` and exits 1 for a directory it cannot open.
+    assert!(!listing_is_usable(
+        Some(1),
+        "total 0      \n",
+        "ls: can't open '/probe/locked': Permission denied\n"
+    ));
+}
+
+#[test]
+fn a_directory_holding_only_broken_symlinks_lists_as_empty() {
+    // GNU and uutils print the link, BusyBox leaves it out. Both exit 1.
+    let gnu = (
+        "total 0\nl????????? ? ? ? ?            ? gone\n",
+        "ls: cannot access '/only/gone': No such file or directory\n",
+    );
+    let busybox = (
+        "total 0      \n",
+        "ls: /only/gone: No such file or directory\n",
+    );
+    for (stdout, stderr) in [gnu, busybox] {
+        assert!(listing_is_usable(Some(1), stdout, stderr), "{stdout}");
+        assert!(parse_ls_output(stdout, true, BrowserSort::Name).is_empty());
+    }
+}
+
+#[test]
+fn a_folder_without_search_permission_shows_names_or_the_error() {
+    // What GNU prints to a user who may read the folder but not search it.
+    let with_file = concat!(
+        "total 0\n",
+        "l????????? ? ? ? ?            ? gone\n",
+        "-????????? ? ? ? ?            ? secret\n",
+    );
+    let only_links = "total 0\nl????????? ? ? ? ?            ? gone\n";
+    let denied = "ls: cannot access '/rx/gone': Permission denied\n";
+    assert!(listing_is_usable(Some(1), with_file, denied));
+    assert_eq!(
+        names(&parse_ls_output(with_file, true, BrowserSort::Name)),
+        vec!["secret"]
+    );
+    assert!(!listing_is_usable(Some(1), only_links, denied));
+}
+
+#[test]
+fn a_folder_holding_only_symlink_loops_lists_as_empty() {
+    // glibc and musl word the loop error differently.
+    let gnu = (
+        "total 0\nl????????? ? ? ? ?            ? loop\n",
+        "ls: cannot access '/d/loop': Too many levels of symbolic links\n",
+    );
+    let busybox = ("total 0      \n", "ls: /d/loop: Symbolic link loop\n");
+    let uutils = (
+        "total 0\nl????????? ? ? ? ?            ? a\n",
+        concat!(
+            "ls: unknown io error: '/tmp/w/loop/a', 'Os { code: 40, kind: FilesystemLoop, ",
+            "message: \"Too many levels of symbolic links\" }'\n",
+        ),
+    );
+    for (stdout, stderr) in [gnu, busybox, uutils] {
+        assert!(listing_is_usable(Some(1), stdout, stderr), "{stderr}");
+    }
+}
+
+#[test]
+fn a_folder_holding_only_links_through_a_file_lists_as_empty() {
+    let gnu = (
+        "total 0\nl????????? ? ? ? ?            ? nd\n",
+        "ls: cannot access '/w/through/nd': Not a directory\n",
+    );
+    let busybox = ("total 0      \n", "ls: /w/through/nd: Not a directory\n");
+    let uutils = (
+        "total 0\nl????????? ? ? ? ?            ? nd\n",
+        concat!(
+            "ls: unknown io error: '/w/through/nd', 'Os { code: 20, kind: NotADirectory, ",
+            "message: \"Not a directory\" }'\n",
+        ),
+    );
+    for (stdout, stderr) in [gnu, busybox, uutils] {
+        assert!(listing_is_usable(Some(1), stdout, stderr), "{stderr}");
+    }
+}
+
+#[test]
+fn rc_file_noise_on_stderr_does_not_hide_a_broken_symlink_folder() {
+    let stderr = concat!(
+        "stty: 'standard input': Inappropriate ioctl for device\n",
+        "ls: cannot access '/only/gone': No such file or directory\n",
+    );
+    assert!(listing_is_usable(Some(1), "total 0\n", stderr));
+}
+
+#[test]
+fn ssh_warnings_do_not_hide_a_broken_symlink_folder() {
+    let stderr = concat!(
+        "** WARNING: connection is not using a post-quantum key exchange algorithm.\n",
+        "ls: cannot access '/only/gone': No such file or directory\n",
+    );
+    assert!(listing_is_usable(Some(1), "total 0\n", stderr));
+    assert!(!listing_is_usable(Some(1), "total 0\n", "** WARNING: x\n"));
+}
+
+#[test]
+fn solaris_doors_and_mandatory_locks_still_list() {
+    let output = concat!(
+        "Dr--r--r--   1 0 0 0 Nov  3 17:25 name_service_door\n",
+        "-rw-r-lr--   1 0 0 5 Nov  3 17:25 locked.db\n",
+    );
+    let entries = parse_ls_output(output, true, BrowserSort::Name);
+    assert_eq!(names(&entries), vec!["locked.db", "name_service_door"]);
+}
+
+#[test]
+fn a_clean_run_counts_even_when_empty() {
+    assert!(listing_is_usable(Some(0), "total 0\n", ""));
+}
+
+#[test]
+fn other_exit_codes_read_as_an_error() {
+    // GNU exits 2 for a missing directory, ssh exits 255 when it drops.
+    let missing = "ls: cannot access '/x': No such file or directory\n";
+    assert!(!listing_is_usable(Some(2), "", missing));
+    assert!(!listing_is_usable(Some(255), GNU_LISTING, ""));
+    assert!(!listing_is_usable(None, GNU_LISTING, ""));
+}
+
+#[test]
+fn a_missing_directory_with_exit_one_reads_as_an_error() {
+    // BusyBox and BSD exit 1 here, with nothing on stdout.
+    let stderr = "ls: /probe/missing: No such file or directory\n";
+    assert!(!listing_is_usable(Some(1), "", stderr));
+}
+
+/// Run the listing command through a local `sh`, with the format variables
+/// a remote shell might export set to values that would break the parser.
+fn run_listing_locally(path: &Path) -> std::process::Output {
+    Command::new("sh")
+        .arg("-c")
+        .arg(remote_listing_command(&path.to_string_lossy()))
+        .env("QUOTING_STYLE", "shell-escape")
+        .env("TIME_STYLE", "long-iso")
+        .output()
+        .expect("run sh")
+}
+
+#[test]
+fn the_local_ls_lists_odd_names_and_skips_a_dangling_symlink() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base = dir.path();
+    std::fs::create_dir(base.join("sub dir")).unwrap();
+    std::fs::write(base.join(" leading"), "x").unwrap();
+    std::fs::write(base.join("trailing "), "x").unwrap();
+    std::fs::write(base.join("small.txt"), "abc").unwrap();
+    std::os::unix::fs::symlink(base.join("missing target"), base.join("dangling link")).unwrap();
+
+    let out = run_listing_locally(base);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        listing_is_usable(out.status.code(), &stdout, &stderr),
+        "{:?}: {stdout}{stderr}",
+        out.status
+    );
+    let entries = parse_ls_output(&stdout, true, BrowserSort::Name);
+    assert_eq!(
+        names(&entries),
+        vec!["sub dir", " leading", "small.txt", "trailing "]
+    );
+    assert!(entries[0].is_dir);
+    assert_eq!(entries[2].size, Some(3));
+    assert!(entries[2].modified.is_some());
+}
+
+#[test]
+fn the_local_ls_lists_a_directory_of_broken_symlinks_as_empty() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base = dir.path();
+    std::os::unix::fs::symlink(base.join("missing target"), base.join("gone")).unwrap();
+
+    let out = run_listing_locally(base);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        listing_is_usable(out.status.code(), &stdout, &stderr),
+        "{:?}: {stdout}{stderr}",
+        out.status
+    );
+    assert!(parse_ls_output(&stdout, true, BrowserSort::Name).is_empty());
+}
+
+#[test]
+fn the_local_ls_reports_a_dangling_link_to_a_folder_as_an_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let link = dir.path().join("current");
+    std::os::unix::fs::symlink(dir.path().join("removed release"), &link).unwrap();
+    let out = run_listing_locally(&link);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !listing_is_usable(out.status.code(), &stdout, &stderr),
+        "{:?}: {stdout}{stderr}",
+        out.status
+    );
+}
+
+#[test]
+fn the_local_ls_reports_a_missing_directory_as_an_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = run_listing_locally(&dir.path().join("missing"));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !listing_is_usable(out.status.code(), &stdout, &stderr),
+        "{stdout}{stderr}"
+    );
+}
+
+// =========================================================================
 // parse_human_size
 // =========================================================================
 
@@ -114,6 +504,8 @@ fn test_parse_human_size() {
     assert_eq!(parse_human_size("1.0K"), 1024);
     assert_eq!(parse_human_size("1.5M"), 1572864);
     assert_eq!(parse_human_size("2.0G"), 2147483648);
+    assert_eq!(parse_human_size("512B"), 512);
+    assert_eq!(parse_human_size("0B"), 0);
 }
 
 // =========================================================================
