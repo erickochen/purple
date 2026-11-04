@@ -37,6 +37,11 @@ pub fn scp_copying_many(count: usize) -> String {
     format!("Copying {} files...", count)
 }
 
+/// Shown when an upload target has special characters and scp did not say
+/// which protocol it uses, so the path cannot be written safely.
+pub const SCP_PROTOCOL_UNKNOWN: &str =
+    "Could not tell which protocol scp uses.\nUpload to a folder with a plain name.";
+
 /// Toast shown when scp exited non-zero with no captured stderr to relay.
 /// The exit code is the only signal we have left.
 pub fn scp_failed_exit_code(code: i32) -> String {

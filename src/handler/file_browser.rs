@@ -128,44 +128,9 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
                 let Some(req) = fb.confirm_copy.take() else {
                     return;
                 };
-                let alias = fb.alias.clone();
-                let askpass = fb.askpass.clone();
-                let local_path = fb.local_path.clone();
-                let remote_path = if fb.remote_path.ends_with('/') {
-                    fb.remote_path.clone()
-                } else {
-                    format!("{}/", fb.remote_path)
-                };
-                let scp_args = crate::file_browser::build_scp_args(
-                    &alias,
-                    req.source_pane,
-                    &local_path,
-                    &remote_path,
-                    &req.sources,
-                    req.has_dirs,
-                );
-
-                // Show transfer status in the file browser
-                let label = if req.sources.len() == 1 {
-                    crate::messages::scp_copying_one(&req.sources[0])
-                } else {
-                    crate::messages::scp_copying_many(req.sources.len())
-                };
-                fb.transferring = Some(label);
-
-                // Run scp in background thread
-                let direction = match req.source_pane {
-                    crate::file_browser::BrowserPane::Local => "upload",
-                    crate::file_browser::BrowserPane::Remote => "download",
-                };
-                info!(
-                    "[external] SCP transfer started: {direction} {} <-> {alias}:{}",
-                    local_path.display(),
-                    remote_path
-                );
                 let ssh_ctx = fb_ssh_context(
-                    &alias,
-                    askpass,
+                    &fb.alias,
+                    fb.askpass.clone(),
                     ctx.tunnels,
                     ctx.session_passwords,
                     ctx.bw_session,
@@ -173,42 +138,13 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
                     ctx.config_path,
                     &ctx.env,
                 );
-                let tx = events_tx.clone();
-                let direction_str = direction.to_string();
-                std::thread::spawn(move || {
-                    debug!(
-                        "[external] SCP command: scp -F {} ...",
-                        ssh_ctx.config_path.display()
-                    );
-                    let result = crate::file_browser::run_scp(&ssh_ctx.borrow(), &scp_args);
-                    let (success, message) = match result {
-                        Ok(r) if r.status.success() => {
-                            info!("[external] SCP transfer completed: {direction_str} {alias}");
-                            (true, String::new())
-                        }
-                        Ok(r) => {
-                            // A non-zero scp exit is a routine remote failure
-                            // (file missing, no permission), already logged at
-                            // warn by run_scp; do not re-log it as an error.
-                            let code = r.status.code().unwrap_or(1);
-                            let err = crate::file_browser::filter_ssh_warnings(&r.stderr_output);
-                            if !err.is_empty() {
-                                debug!("[external] SCP stderr: {}", err.trim());
-                            }
-                            if err.is_empty() {
-                                (false, crate::messages::scp_failed_exit_code(code))
-                            } else {
-                                (false, err)
-                            }
-                        }
-                        Err(e) => (false, crate::messages::scp_spawn_failed(&e)),
-                    };
-                    let _ = tx.send(crate::event::AppEvent::ScpComplete {
-                        alias: ssh_ctx.alias,
-                        success,
-                        message,
-                    });
-                });
+                fb_start_transfer(
+                    fb,
+                    req,
+                    ssh_ctx,
+                    events_tx,
+                    crate::file_browser::detect_scp_mode,
+                );
             }
             super::ConfirmAction::No => {
                 fb.confirm_copy = None;
@@ -531,6 +467,95 @@ fn file_browser_key(ctx: &mut FileBrowserCtx, key: KeyEvent, events_tx: &mpsc::S
         }
         _ => {}
     }
+}
+
+/// Show the transfer in the browser and run scp on its own thread, which sends
+/// `ScpComplete` when it ends. `detect_mode` runs on that thread, for uploads
+/// only, because a download source reads the same on either protocol.
+pub(super) fn fb_start_transfer(
+    fb: &mut crate::file_browser::FileBrowserSession,
+    req: crate::file_browser::CopyRequest,
+    ssh_ctx: crate::ssh_context::OwnedSshContext,
+    events_tx: &mpsc::Sender<AppEvent>,
+    detect_mode: impl FnOnce() -> crate::file_browser::ScpMode + Send + 'static,
+) {
+    let local_path = fb.local_path.clone();
+    let remote_path = if fb.remote_path.ends_with('/') {
+        fb.remote_path.clone()
+    } else {
+        format!("{}/", fb.remote_path)
+    };
+    fb.transferring = Some(if req.sources.len() == 1 {
+        crate::messages::scp_copying_one(&req.sources[0])
+    } else {
+        crate::messages::scp_copying_many(req.sources.len())
+    });
+    let direction = match req.source_pane {
+        crate::file_browser::BrowserPane::Local => "upload",
+        crate::file_browser::BrowserPane::Remote => "download",
+    };
+    let alias = ssh_ctx.alias.clone();
+    info!(
+        "[external] SCP transfer started: {direction} {} <-> {alias}:{}",
+        local_path.display(),
+        remote_path
+    );
+    let tx = events_tx.clone();
+    std::thread::spawn(move || {
+        debug!(
+            "[external] SCP command: scp -F {} ...",
+            ssh_ctx.config_path.display()
+        );
+        let mode = match req.source_pane {
+            crate::file_browser::BrowserPane::Local => detect_mode(),
+            crate::file_browser::BrowserPane::Remote => crate::file_browser::ScpMode::Unknown,
+        };
+        let Some(scp_args) = crate::file_browser::build_scp_args(
+            &alias,
+            req.source_pane,
+            &local_path,
+            &remote_path,
+            &req.sources,
+            req.has_dirs,
+            mode,
+        ) else {
+            log::warn!("[external] scp upload refused: alias={alias} target={remote_path}");
+            let _ = tx.send(crate::event::AppEvent::ScpComplete {
+                alias: ssh_ctx.alias,
+                success: false,
+                message: crate::messages::SCP_PROTOCOL_UNKNOWN.to_string(),
+            });
+            return;
+        };
+        let result = crate::file_browser::run_scp(&ssh_ctx.borrow(), &scp_args);
+        let (success, message) = match result {
+            Ok(r) if r.status.success() => {
+                info!("[external] SCP transfer completed: {direction} {alias}");
+                (true, String::new())
+            }
+            Ok(r) => {
+                // A non-zero scp exit is a routine remote failure
+                // (file missing, no permission), already logged at
+                // warn by run_scp; do not re-log it as an error.
+                let code = r.status.code().unwrap_or(1);
+                let err = crate::file_browser::filter_ssh_warnings(&r.stderr_output);
+                if !err.is_empty() {
+                    debug!("[external] SCP stderr: {}", err.trim());
+                }
+                if err.is_empty() {
+                    (false, crate::messages::scp_failed_exit_code(code))
+                } else {
+                    (false, err)
+                }
+            }
+            Err(e) => (false, crate::messages::scp_spawn_failed(&e)),
+        };
+        let _ = tx.send(crate::event::AppEvent::ScpComplete {
+            alias: ssh_ctx.alias,
+            success,
+            message,
+        });
+    });
 }
 
 pub(super) fn fb_send(

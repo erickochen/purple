@@ -687,6 +687,27 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_upload_ends_the_transfer_and_says_why() {
+        let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
+        open_browser(&mut app, "h", "/var/my dir");
+        app.file_browser_session.as_mut().unwrap().transferring = Some("Copying".to_string());
+        let (tx, _rx) = mpsc::channel();
+        apply_scp_complete(
+            &mut app,
+            "h".into(),
+            false,
+            crate::messages::SCP_PROTOCOL_UNKNOWN.into(),
+            &tx,
+        );
+        let fb = app.file_browser_session.as_ref().unwrap();
+        assert!(fb.transferring.is_none());
+        assert_eq!(
+            fb.transfer_error.as_deref(),
+            Some(crate::messages::SCP_PROTOCOL_UNKNOWN)
+        );
+    }
+
+    #[test]
     fn a_successful_listing_clears_the_error_and_fills_the_pane() {
         let mut app = app_with("Host h\n  HostName 1.1.1.1\n");
         open_browser(&mut app, "h", "");

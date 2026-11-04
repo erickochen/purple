@@ -535,9 +535,10 @@ fn test_build_scp_args_upload() {
         "/remote/path/",
         &["file.txt".to_string()],
         false,
+        ScpMode::Legacy,
     );
     assert_eq!(
-        args,
+        args.unwrap(),
         vec!["--", "/home/user/docs/file.txt", "myhost:/remote/path/",]
     );
 }
@@ -551,27 +552,11 @@ fn test_build_scp_args_download() {
         "/remote/path",
         &["file.txt".to_string()],
         false,
+        ScpMode::Legacy,
     );
     assert_eq!(
-        args,
+        args.unwrap(),
         vec!["--", "myhost:/remote/path/file.txt", "/home/user/docs",]
-    );
-}
-
-#[test]
-fn test_build_scp_args_spaces_in_path() {
-    let args = build_scp_args(
-        "myhost",
-        BrowserPane::Remote,
-        Path::new("/local"),
-        "/remote/my path",
-        &["my file.txt".to_string()],
-        false,
-    );
-    // No shell escaping: Command::arg() passes paths literally
-    assert_eq!(
-        args,
-        vec!["--", "myhost:/remote/my path/my file.txt", "/local",]
     );
 }
 
@@ -584,8 +569,215 @@ fn test_build_scp_args_with_dirs() {
         "/remote/",
         &["mydir".to_string()],
         true,
+        ScpMode::Legacy,
     );
-    assert_eq!(args[0], "-r");
+    assert_eq!(args.unwrap()[0], "-r");
+}
+
+fn download_args(mode: ScpMode) -> Option<Vec<String>> {
+    build_scp_args(
+        "myhost",
+        BrowserPane::Remote,
+        Path::new("/local dir"),
+        "/remote/my path",
+        &["my file[1].txt".to_string()],
+        false,
+        mode,
+    )
+}
+
+fn upload_args(mode: ScpMode, remote_path: &str) -> Option<Vec<String>> {
+    build_scp_args(
+        "myhost",
+        BrowserPane::Local,
+        Path::new("/local dir"),
+        remote_path,
+        &["my file[1].txt".to_string()],
+        false,
+        mode,
+    )
+}
+
+#[test]
+fn a_download_source_is_escaped_whatever_the_protocol() {
+    for mode in [ScpMode::Sftp, ScpMode::Legacy, ScpMode::Unknown] {
+        assert_eq!(
+            download_args(mode).unwrap(),
+            [
+                "--",
+                "myhost:/remote/my\\ path/my\\ file\\[1\\].txt",
+                "/local dir"
+            ],
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
+fn an_upload_target_is_escaped_on_the_legacy_protocol_only() {
+    let local = "/local dir/my file[1].txt";
+    assert_eq!(
+        upload_args(ScpMode::Sftp, "/remote/my path/").unwrap(),
+        ["--", local, "myhost:/remote/my path/"]
+    );
+    assert_eq!(
+        upload_args(ScpMode::Legacy, "/remote/my path/").unwrap(),
+        ["--", local, "myhost:/remote/my\\ path/"]
+    );
+}
+
+#[test]
+fn an_unknown_protocol_refuses_an_upload_target_that_needs_escaping() {
+    for target in ["/remote/my path/", "/remote/a[1]/", "/remote/x$(id)/"] {
+        assert_eq!(upload_args(ScpMode::Unknown, target), None, "{target}");
+    }
+}
+
+#[test]
+fn an_unknown_protocol_allows_a_plain_upload_target() {
+    assert_eq!(
+        upload_args(ScpMode::Unknown, "/remote/plain-dir_1.0/").unwrap(),
+        [
+            "--",
+            "/local dir/my file[1].txt",
+            "myhost:/remote/plain-dir_1.0/"
+        ]
+    );
+}
+
+#[test]
+fn a_download_from_the_root_folder_has_one_slash() {
+    let args = build_scp_args(
+        "myhost",
+        BrowserPane::Remote,
+        Path::new("/local"),
+        "/",
+        &["file".to_string()],
+        false,
+        ScpMode::Sftp,
+    );
+    assert_eq!(args.unwrap()[1], "myhost:/file");
+}
+
+#[test]
+fn escaping_leaves_ordinary_characters_alone() {
+    let path = "/home/caf\u{e9}/a.b_c-d,e=f+g:h@i%j";
+    assert_eq!(escape_remote_path(path), path);
+}
+
+#[test]
+fn escaping_covers_shell_and_glob_characters() {
+    assert_eq!(escape_remote_path("a b"), "a\\ b");
+    assert_eq!(escape_remote_path("x$(id)"), "x\\$\\(id\\)");
+    assert_eq!(escape_remote_path("a[1]*?"), "a\\[1\\]\\*\\?");
+    assert_eq!(escape_remote_path("it's"), "it\\'s");
+    assert_eq!(escape_remote_path("back\\slash"), "back\\\\slash");
+    assert_eq!(escape_remote_path("line\nbreak"), "line\\\nbreak");
+    assert_eq!(escape_remote_path("car\rriage"), "car\\\rriage");
+}
+
+#[test]
+fn an_sftp_upload_target_stays_as_it_is() {
+    let target = "/a b[1]*\\$(id)/";
+    assert_eq!(ScpMode::Sftp.upload_target(target).unwrap(), target);
+}
+
+/// Names that each mean something to a shell or a glob.
+const ODD_REMOTE_NAMES: [&str; 21] = [
+    "a b.txt",
+    "x$(touch PWNED)",
+    "a[1].txt",
+    "star*",
+    "it's",
+    "{br,ace}",
+    "semi;colon",
+    "back\\slash",
+    "tab\tname",
+    "car\rriage",
+    "dq\"uote",
+    "caf\u{e9}",
+    "amp&er",
+    "hash#x",
+    "~tilde",
+    "bang!x",
+    "q?x",
+    "p|pe",
+    "<lt>",
+    "back`tick`",
+    " spaces ",
+];
+
+#[test]
+fn an_escaped_name_reads_back_intact_in_every_local_login_shell() {
+    let shells = crate::snippet::tests::local_shells()
+        .into_iter()
+        .chain(crate::snippet::tests::other_local_shells());
+    for shell in shells {
+        for name in ODD_REMOTE_NAMES {
+            let script = format!("printf '%s\\n' {}", escape_remote_path(name));
+            let out = crate::snippet::tests::run_in_sandbox(shell, &script, "");
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout),
+                format!("{name}\n"),
+                "{shell}: {name}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+    }
+}
+
+#[test]
+fn a_newline_in_a_path_never_starts_a_command() {
+    let shells = crate::snippet::tests::local_shells()
+        .into_iter()
+        .chain(crate::snippet::tests::other_local_shells());
+    for shell in shells {
+        // With no space in the payload, a shell that broke the line would run
+        // `id` for real.
+        let escaped = escape_remote_path("a\nid");
+        let script = format!("printf '%s\\n' {escaped}");
+        let out = crate::snippet::tests::run_in_sandbox(shell, &script, "");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(!stdout.contains("uid="), "{shell}: {stdout}");
+    }
+}
+
+#[test]
+fn a_client_that_logs_the_sftp_command_runs_in_sftp_mode() {
+    // OpenSSH 8.7 (Red Hat family), 10.0 (Debian 13) and 10.5 (macOS).
+    let stderr = concat!(
+        "Executing: program false host probe, user (unspecified), command sftp\n",
+        "scp: Connection closed\n",
+    );
+    assert_eq!(scp_mode_from_probe(stderr), ScpMode::Sftp);
+}
+
+#[test]
+fn a_client_that_logs_the_scp_command_runs_in_legacy_mode() {
+    // OpenSSH 8.0 (Rocky 8), 8.4 (Debian 11) and 8.9 (Ubuntu 22.04).
+    let stderr = "Executing: program false host probe, user (unspecified), command scp -v -f /x\n";
+    assert_eq!(scp_mode_from_probe(stderr), ScpMode::Legacy);
+}
+
+#[test]
+fn a_probe_without_a_known_command_line_reads_as_unknown() {
+    for stderr in [
+        "",
+        "scp: not found\n",
+        "something, command sftp\n",
+        "Executing: program false host probe, user (unspecified), subsystem sftp\n",
+    ] {
+        assert_eq!(scp_mode_from_probe(stderr), ScpMode::Unknown, "{stderr}");
+    }
+}
+
+#[test]
+fn the_local_scp_gives_an_answer_the_probe_can_read() {
+    let Ok(stderr) = scp_probe_output() else {
+        eprintln!("skipping: scp binary unavailable");
+        return;
+    };
+    assert_ne!(scp_mode_from_probe(&stderr), ScpMode::Unknown, "{stderr}");
 }
 
 // =========================================================================

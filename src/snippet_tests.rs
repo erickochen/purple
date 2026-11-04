@@ -497,7 +497,7 @@ fn run_wrapped_locally(shell: &str, command: &str, stdin: &str) -> std::process:
 /// Run `script` with `shell -c` the way sshd starts a login shell (short name
 /// as argv[0]), inside an empty HOME that is also the working directory, so
 /// nothing from the developer's own dotfiles or the repo leaks in or out.
-fn run_in_sandbox(shell: &str, script: &str, stdin: &str) -> std::process::Output {
+pub(crate) fn run_in_sandbox(shell: &str, script: &str, stdin: &str) -> std::process::Output {
     use std::io::Write;
     use std::os::unix::process::CommandExt;
     let home = tempfile::tempdir().expect("create tempdir");

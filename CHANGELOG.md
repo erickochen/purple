@@ -1,3 +1,11 @@
+## 3.34.2 - 2026-11-04
+
+- feat: Copy files with any name, on any OpenSSH version.
+- feat: Remote names are always treated as names, never as commands.
+- feat: Downloads always fetch the exact file you selected.
+- change: Uploads to unusual folder names stop if scp's protocol is unclear.
+- How it works: see the File Explorer page on the wiki.
+
 ## 3.34.1 - 2026-11-03
 
 - feat: Browse remote folders owned by LDAP or AD users.

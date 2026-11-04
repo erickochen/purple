@@ -5906,6 +5906,37 @@ fn test_file_browser_confirm_no_clears_request() {
     assert!(fb.transferring.is_none(), "n must not start a transfer");
 }
 
+/// How long a test waits for the transfer thread to report back.
+const TRANSFER_REPORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+#[test]
+fn an_upload_to_an_odd_folder_with_an_unknown_protocol_stops_with_a_message() {
+    let app = make_app("Host web\n  HostName 1.2.3.4\n");
+    let mut fb = make_file_browser_session_with_confirm();
+    fb.remote_path = "/home/my dir".to_string();
+    let req = fb.confirm_copy.take().unwrap();
+    let ssh_ctx = app.file_browser_ssh_context("web".to_string(), None);
+    let (tx, rx) = mpsc::channel();
+    super::file_browser::fb_start_transfer(&mut fb, req, ssh_ctx, &tx, || {
+        crate::file_browser::ScpMode::Unknown
+    });
+    assert!(fb.transferring.is_some(), "the browser shows the transfer");
+    let event = rx
+        .recv_timeout(TRANSFER_REPORT_TIMEOUT)
+        .expect("the transfer thread reports back");
+    let crate::event::AppEvent::ScpComplete {
+        alias,
+        success,
+        message,
+    } = event
+    else {
+        panic!("expected ScpComplete");
+    };
+    assert_eq!(alias, "web");
+    assert!(!success);
+    assert_eq!(message, crate::messages::SCP_PROTOCOL_UNKNOWN);
+}
+
 // Pins the route_confirm_key Ignored contract for the SCP confirm dialog:
 // a stray key during pending confirm must NOT cancel the dialog or kick
 // off the transfer. Guards against a regression where the inner match

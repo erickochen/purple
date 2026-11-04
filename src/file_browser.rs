@@ -606,6 +606,94 @@ pub struct ScpResult {
     pub stderr_output: String,
 }
 
+/// How the `scp -v` line that names the remote command ends on SFTP.
+const SCP_SFTP_COMMAND: &str = ", command sftp";
+
+/// What the same line holds on the legacy protocol: `command scp -v -f <path>`.
+const SCP_LEGACY_COMMAND: &str = ", command scp ";
+
+/// Characters a remote shell acts on. Line breaks are in the set because a
+/// shell would otherwise end the word or the command there. An escaped newline
+/// drops out of the name, which only a home folder could hold: listed names are
+/// cut at a line break.
+const REMOTE_SHELL_SPECIALS: &str = " \t\r\n!\"#$&'()*;<>?[\\]^`{|}~";
+
+/// Backslash-escape a remote path. The legacy remote shell and the SFTP glob
+/// both read this form. Quotes cannot do it, because on the legacy protocol scp
+/// also matches returned names against the path as a glob, which refuses a
+/// quote.
+fn escape_remote_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for c in path.chars() {
+        if REMOTE_SHELL_SPECIALS.contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The protocol the local scp uses by default, which decides how an upload
+/// target has to be written. purple never changes it, so every host a plain
+/// `scp` reaches stays reachable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScpMode {
+    Sftp,
+    Legacy,
+    Unknown,
+}
+
+impl ScpMode {
+    /// A remote folder to upload to. SFTP takes it literally and the legacy
+    /// protocol hands it to the remote shell, so the wrong form lands files in
+    /// another folder. With the protocol unknown only a path that reads the
+    /// same both ways is safe, so anything else gives `None`.
+    fn upload_target(self, path: &str) -> Option<String> {
+        let escaped = escape_remote_path(path);
+        match self {
+            Self::Sftp => Some(path.to_string()),
+            Self::Legacy => Some(escaped),
+            Self::Unknown => (escaped == path).then_some(escaped),
+        }
+    }
+}
+
+/// Read the protocol from `scp -v` output.
+fn scp_mode_from_probe(stderr: &str) -> ScpMode {
+    let command = stderr.lines().find(|line| line.starts_with("Executing:"));
+    match command.map(str::trim_end) {
+        Some(line) if line.ends_with(SCP_SFTP_COMMAND) => ScpMode::Sftp,
+        Some(line) if line.contains(SCP_LEGACY_COMMAND) => ScpMode::Legacy,
+        _ => ScpMode::Unknown,
+    }
+}
+
+/// Ask the local scp for the remote command it would run. With `false` as its
+/// ssh program nothing connects: scp logs the command and stops.
+fn scp_probe_output() -> std::io::Result<String> {
+    let out = Command::new("scp")
+        .args(["-v", "-S", "false", "--", "probe:/x", "/tmp/"])
+        .stdin(Stdio::null())
+        .output()?;
+    Ok(String::from_utf8_lossy(&out.stderr).to_string())
+}
+
+/// The protocol the local scp uses. A version number cannot answer this,
+/// because distros changed the default in older releases.
+pub fn detect_scp_mode() -> ScpMode {
+    let probe = match scp_probe_output() {
+        Ok(stderr) => stderr,
+        Err(e) => format!("could not start scp: {e}"),
+    };
+    let mode = scp_mode_from_probe(&probe);
+    if mode == ScpMode::Unknown {
+        log::warn!("[external] scp protocol unknown: {}", probe.trim());
+    } else {
+        log::debug!("[external] scp mode: {mode:?}");
+    }
+    mode
+}
+
 /// Build the scp command for a transfer. Runs strict host key checking and
 /// BatchMode the way `snippet::base_ssh_command` does for a background ssh,
 /// so a transfer can never block on a hidden tty prompt. Pure, so tests can
@@ -741,10 +829,9 @@ pub fn filter_ssh_warnings(stderr: &str) -> String {
 /// Build scp arguments for a file transfer.
 /// Returns the args to pass after `scp -F <config>`.
 ///
-/// Remote paths are NOT shell-escaped because scp is invoked via Command::arg()
-/// which bypasses the shell entirely. The colon in `alias:path` is the only
-/// special character scp interprets. Paths with spaces, globbing chars etc. are
-/// passed through literally by the OS exec layer.
+/// Local paths reach scp literally through `Command::arg()`. A download source
+/// is always escaped and an upload target is written for `mode`. Returns `None`
+/// for an upload whose target cannot be written safely.
 pub fn build_scp_args(
     alias: &str,
     source_pane: BrowserPane,
@@ -752,7 +839,8 @@ pub fn build_scp_args(
     remote_path: &str,
     filenames: &[String],
     has_dirs: bool,
-) -> Vec<String> {
+    mode: ScpMode,
+) -> Option<Vec<String>> {
     let mut args = Vec::new();
     if has_dirs {
         args.push("-r".to_string());
@@ -765,20 +853,19 @@ pub fn build_scp_args(
             for name in filenames {
                 args.push(local_path.join(name).to_string_lossy().to_string());
             }
-            let dest = format!("{}:{}", alias, remote_path);
-            args.push(dest);
+            args.push(format!("{alias}:{}", mode.upload_target(remote_path)?));
         }
         // Download: remote files -> local
         BrowserPane::Remote => {
             let base = remote_path.trim_end_matches('/');
             for name in filenames {
-                let rpath = format!("{}/{}", base, name);
-                args.push(format!("{}:{}", alias, rpath));
+                let rpath = escape_remote_path(&format!("{base}/{name}"));
+                args.push(format!("{alias}:{rpath}"));
             }
             args.push(local_path.to_string_lossy().to_string());
         }
     }
-    args
+    Some(args)
 }
 
 /// Format a file size in human-readable form.
