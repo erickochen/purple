@@ -397,6 +397,10 @@ pub const WARN_VERIFY_TLS_NOT_USED: &str =
     "Warning: --verify-tls is only used by self-hosted providers (Proxmox, NetBox). Ignoring.";
 pub const WARN_FILTER_NOT_USED: &str =
     "Warning: --filter is only used by the NetBox provider. Ignoring.";
+pub const WARN_INTERFACE_NOT_USED: &str =
+    "Warning: --interface is only used by the NetBox provider. Ignoring.";
+pub const WARN_SSH_PORT_NOT_USED: &str =
+    "Warning: --ssh-port is only used by the NetBox provider. Ignoring.";
 pub const WARN_REGIONS_NOT_USED: &str = "Warning: --regions is only used by the AWS, Scaleway, GCP, Azure and Oracle providers. \
      Ignoring.";
 

@@ -410,6 +410,8 @@ impl ProviderState {
                     || self.form.compartment != b.compartment
                     || self.form.regions != b.regions
                     || self.form.filter != b.filter
+                    || self.form.interface != b.interface
+                    || self.form.ssh_port != b.ssh_port
                     || self.form.alias_prefix != b.alias_prefix
                     || self.form.user != b.user
                     || self.form.identity_file != b.identity_file
@@ -791,6 +793,8 @@ mod tests {
             compartment: "comp".into(),
             regions: "eu-west".into(),
             filter: "status=active".into(),
+            interface: "ens192".into(),
+            ssh_port: "2222".into(),
             alias_prefix: "ap".into(),
             user: "ec2-user".into(),
             identity_file: "~/.ssh/id".into(),
@@ -808,6 +812,8 @@ mod tests {
         s.form.compartment = b.compartment.clone();
         s.form.regions = b.regions.clone();
         s.form.filter = b.filter.clone();
+        s.form.interface = b.interface.clone();
+        s.form.ssh_port = b.ssh_port.clone();
         s.form.alias_prefix = b.alias_prefix.clone();
         s.form.user = b.user.clone();
         s.form.identity_file = b.identity_file.clone();
@@ -845,6 +851,8 @@ mod tests {
         assert_field_change_is_dirty("project", |f| f.project.push('x'));
         assert_field_change_is_dirty("compartment", |f| f.compartment.push('x'));
         assert_field_change_is_dirty("regions", |f| f.regions.push('x'));
+        assert_field_change_is_dirty("interface", |f| f.interface.push('x'));
+        assert_field_change_is_dirty("ssh_port", |f| f.ssh_port.push('x'));
         assert_field_change_is_dirty("alias_prefix", |f| f.alias_prefix.push('x'));
         assert_field_change_is_dirty("user", |f| f.user.push('x'));
         assert_field_change_is_dirty("identity_file", |f| f.identity_file.push('x'));

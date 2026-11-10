@@ -49,6 +49,8 @@ fn make_providers_app_with_do() -> App {
     *app.providers.config_mut() = test_provider_config();
     app.providers.config_mut().set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
         token: "tok".to_string(),
         alias_prefix: "do".to_string(),
@@ -74,6 +76,8 @@ fn make_providers_app_with_proxmox() -> App {
     *app.providers.config_mut() = test_provider_config();
     app.providers.config_mut().set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("proxmox"),
         token: "user@pam!t=secret".to_string(),
         alias_prefix: "pve".to_string(),
@@ -132,6 +136,8 @@ fn test_provider_form_init_existing_do_explicit_false_preserved() {
     // DO met auto_sync=false (gebruiker heeft het handmatig uitgezet)
     app.providers.config_mut().set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
         token: "tok".to_string(),
         alias_prefix: "do".to_string(),
@@ -189,6 +195,8 @@ fn make_form_app_focused_on(provider: &str, field: ProviderFormField) -> App {
     };
     *app.providers.form_mut() = ProviderFormFields {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: String::new(),
         label: String::new(),
         label_entry: false,
         url: String::new(),
@@ -326,6 +334,8 @@ fn test_submit_provider_form_persists_auto_sync_false() {
     *app.providers.config_mut() = test_provider_config();
     *app.providers.form_mut() = ProviderFormFields {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: String::new(),
         label: String::new(),
         label_entry: false,
         url: String::new(),
@@ -372,6 +382,8 @@ fn test_submit_provider_form_persists_auto_sync_true() {
     *app.providers.config_mut() = test_provider_config();
     *app.providers.form_mut() = ProviderFormFields {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: String::new(),
         label: String::new(),
         label_entry: false,
         url: String::new(),
@@ -417,6 +429,8 @@ fn test_submit_provider_form_persists_vault_role() {
     *app.providers.config_mut() = test_provider_config();
     *app.providers.form_mut() = ProviderFormFields {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: String::new(),
         label: String::new(),
         label_entry: false,
         url: String::new(),
@@ -682,6 +696,8 @@ fn make_gcp_form_app() -> App {
     };
     *app.providers.form_mut() = ProviderFormFields {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: String::new(),
         label: String::new(),
         label_entry: false,
         url: String::new(),
@@ -785,6 +801,8 @@ fn make_azure_form_app() -> App {
     *app.providers.config_mut() = test_provider_config();
     *app.providers.form_mut() = ProviderFormFields {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: String::new(),
         label: String::new(),
         label_entry: false,
         url: String::new(),
@@ -870,6 +888,8 @@ fn make_ovh_form_app() -> App {
     };
     *app.providers.form_mut() = ProviderFormFields {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: String::new(),
         label: String::new(),
         label_entry: false,
         url: String::new(),
@@ -5023,6 +5043,8 @@ fn test_provider_x_key_opens_scoped_purge() {
     *app.providers.config_mut() = test_provider_config();
     app.providers.config_mut().set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
         token: "tok".to_string(),
         alias_prefix: "do".to_string(),
@@ -7565,11 +7587,15 @@ fn provider_required_fields_netbox() {
     assert_eq!(fields[0], crate::app::ProviderFormField::Url);
     assert_eq!(fields[1], crate::app::ProviderFormField::Token);
     assert!(fields.contains(&crate::app::ProviderFormField::Filter));
+    assert!(fields.contains(&crate::app::ProviderFormField::Interface));
+    assert!(fields.contains(&crate::app::ProviderFormField::SshPort));
     assert!(fields.contains(&crate::app::ProviderFormField::VerifyTls));
     let required = crate::app::ProviderFormField::required_fields_for("netbox");
     assert!(required.contains(&crate::app::ProviderFormField::Url));
     assert!(required.contains(&crate::app::ProviderFormField::Token));
     assert!(!required.contains(&crate::app::ProviderFormField::Filter));
+    assert!(!required.contains(&crate::app::ProviderFormField::Interface));
+    assert!(!required.contains(&crate::app::ProviderFormField::SshPort));
 }
 
 #[test]
@@ -7582,6 +7608,74 @@ fn provider_netbox_filter_is_optional_not_mandatory() {
         crate::app::ProviderFormField::Filter,
         "netbox"
     ));
+}
+
+#[test]
+fn provider_netbox_interface_is_optional_not_mandatory() {
+    assert!(!crate::app::ProviderFormField::is_mandatory_field(
+        crate::app::ProviderFormField::Interface,
+        "netbox"
+    ));
+    assert!(!crate::app::ProviderFormField::is_required_field(
+        crate::app::ProviderFormField::Interface,
+        "netbox"
+    ));
+}
+
+#[test]
+fn provider_netbox_ssh_port_is_optional_not_mandatory() {
+    assert!(!crate::app::ProviderFormField::is_mandatory_field(
+        crate::app::ProviderFormField::SshPort,
+        "netbox"
+    ));
+    assert!(!crate::app::ProviderFormField::is_required_field(
+        crate::app::ProviderFormField::SshPort,
+        "netbox"
+    ));
+}
+
+fn make_netbox_form_app() -> App {
+    let mut app = make_app("");
+    app.screen = Screen::ProviderForm {
+        id: crate::providers::config::ProviderConfigId::bare("netbox"),
+    };
+    app.providers.form_mut().url = "https://netbox.example.com".to_string();
+    app.providers.form_mut().token = "tk".to_string();
+    app.providers.form_mut().alias_prefix = "nb".to_string();
+    app
+}
+
+#[test]
+fn provider_netbox_ssh_port_is_saved() {
+    let mut app = make_netbox_form_app();
+    app.providers.form_mut().ssh_port = "2222".to_string();
+    submit_form(&mut app);
+    assert_eq!(
+        app.providers.config().section("netbox").unwrap().ssh_port,
+        Some(2222)
+    );
+}
+
+#[test]
+fn provider_form_loads_saved_netbox_ssh_port() {
+    let mut app = make_netbox_form_app();
+    app.providers.config_mut().set_section(ProviderSection {
+        id: crate::providers::config::ProviderConfigId::bare("netbox"),
+        ssh_port: Some(2222),
+        ..Default::default()
+    });
+    app.open_provider_form(crate::providers::config::ProviderConfigId::bare("netbox"));
+    assert_eq!(app.providers.form().ssh_port, "2222");
+}
+
+#[test]
+fn provider_netbox_rejects_invalid_ssh_port() {
+    let mut app = make_netbox_form_app();
+    app.providers.form_mut().ssh_port = "0".to_string();
+    submit_form(&mut app);
+    assert!(matches!(app.screen, Screen::ProviderForm { .. }));
+    assert_status_contains(&app, "1 to 65535");
+    assert!(app.providers.config().section("netbox").is_none());
 }
 
 #[test]
@@ -13970,6 +14064,8 @@ fn make_aws_form_app(config: &str, credentials: &str) -> (App, tempfile::TempDir
     };
     *app.providers.form_mut() = ProviderFormFields {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: String::new(),
         label: String::new(),
         label_entry: false,
         url: String::new(),

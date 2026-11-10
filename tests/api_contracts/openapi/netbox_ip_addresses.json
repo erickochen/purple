@@ -1,0 +1,21 @@
+{
+    "_meta": {
+        "provider": "netbox",
+        "endpoint": "GET /api/ipam/ip-addresses/",
+        "spec_url": "https://netboxlabs.com/docs/netbox/integrations/rest-api/",
+        "spec_version": "4.6",
+        "last_verified": "2026-11-10"
+    },
+    "fixture": "netbox_ip_addresses.json",
+    "required_paths": [
+        "count",
+        "next",
+        "results",
+        "results[0].address",
+        "results[0].assigned_object.name",
+        "results[0].assigned_object.device.id",
+        "results[1].address",
+        "results[1].assigned_object.name",
+        "results[1].assigned_object.virtual_machine.id"
+    ]
+}

@@ -411,6 +411,8 @@ pub const PROVIDERS: &[ProviderDescriptor] = &[
                 base_url: s.url,
                 verify_tls: s.verify_tls,
                 filter: s.filter,
+                interface: s.interface,
+                ssh_port: s.ssh_port,
             })
         },
     },

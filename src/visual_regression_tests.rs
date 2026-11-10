@@ -1838,6 +1838,8 @@ fn visual_provider_form_label_entry() {
     // sits in collapsed mode like a freshly opened add flow.
     *app.providers.form_mut() = crate::app::ProviderFormFields {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: String::new(),
         label: String::new(),
         label_entry: true,
         url: String::new(),

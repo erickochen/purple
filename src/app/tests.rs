@@ -470,6 +470,8 @@ fn open_provider_form_initializes_state_for_all_modes() {
         .config
         .set_section(crate::providers::config::ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: ProviderConfigId::bare("digitalocean"),
             token: "secret-token".to_string(),
             alias_prefix: "do".to_string(),
@@ -2145,6 +2147,8 @@ fn make_provider_app() -> App {
         .config
         .set_section(crate::providers::config::ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
             token: "test-token".to_string(),
             alias_prefix: "do".to_string(),
@@ -2243,6 +2247,8 @@ fn test_apply_sync_result_unknown_provider() {
         .config
         .set_section(crate::providers::config::ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: crate::providers::config::ProviderConfigId::bare("nonexistent"),
             token: "tok".to_string(),
             alias_prefix: "nope".to_string(),
@@ -2278,6 +2284,8 @@ fn test_apply_sync_result_labeled_provider_resolves() {
         .config
         .set_section(crate::providers::config::ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: crate::providers::config::ProviderConfigId::labeled("digitalocean", "work"),
             token: "tok".to_string(),
             alias_prefix: "do-work".to_string(),
@@ -2494,6 +2502,8 @@ fn test_sync_record_load_malformed_lines() {
 fn make_section(provider: &str, auto_sync: bool) -> crate::providers::config::ProviderSection {
     crate::providers::config::ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare(provider),
         token: "tok".to_string(),
         alias_prefix: provider[..2].to_string(),
@@ -4263,6 +4273,8 @@ Host do-db
         .config
         .set_section(crate::providers::config::ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
             token: "test-token".to_string(),
             alias_prefix: "do".to_string(),

@@ -120,6 +120,10 @@ pub struct ProviderSection {
     pub compartment: String,
     /// Raw NetBox query parameters scoping which objects sync. NetBox only.
     pub filter: String,
+    /// NetBox interface name whose assigned IP should be used when set.
+    pub interface: String,
+    /// Optional SSH port override for NetBox hosts.
+    pub ssh_port: Option<u16>,
     pub vault_role: String,
     /// Optional `VAULT_ADDR` override passed to the `vault` CLI when signing
     /// SSH certs. Empty = inherit parent env. Stored as a plain string so an
@@ -164,12 +168,16 @@ impl ProviderSection {
             ("project", &self.project),
             ("compartment", &self.compartment),
             ("filter", &self.filter),
+            ("interface", &self.interface),
             ("identity_file", &self.identity_file),
             ("vault_role", &self.vault_role),
         ] {
             if !value.is_empty() {
                 parts.push(format!("{}='{}'", name, value));
             }
+        }
+        if let Some(port) = self.ssh_port {
+            parts.push(format!("ssh_port={port}"));
         }
         if self.ssm.is_enabled() {
             parts.push(format!("ssm={}", self.ssm));
@@ -199,6 +207,8 @@ impl std::fmt::Debug for ProviderSection {
             .field("project", &self.project)
             .field("compartment", &self.compartment)
             .field("filter", &self.filter)
+            .field("interface", &self.interface)
+            .field("ssh_port", &self.ssh_port)
             .field("vault_role", &self.vault_role)
             .field("vault_addr", &redacted(&self.vault_addr))
             .field("ssm", &self.ssm)
@@ -232,6 +242,8 @@ impl Default for ProviderSection {
             project: String::new(),
             compartment: String::new(),
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             vault_role: String::new(),
             vault_addr: String::new(),
             ssm: crate::providers::aws_ssm::SsmMode::default(),
@@ -367,6 +379,8 @@ impl ProviderConfig {
                     project: String::new(),
                     compartment: String::new(),
                     filter: String::new(),
+                    interface: String::new(),
+                    ssh_port: None,
                     vault_role: String::new(),
                     vault_addr: String::new(),
                     ssm: crate::providers::aws_ssm::SsmMode::default(),
@@ -395,6 +409,10 @@ impl ProviderConfig {
                     "project" => section.project = value,
                     "compartment" => section.compartment = value,
                     "filter" => section.filter = value,
+                    "interface" => section.interface = value,
+                    "ssh_port" => {
+                        section.ssh_port = value.parse::<u16>().ok().filter(|port| *port > 0)
+                    }
                     "vault_role" => {
                         // Silently drop invalid roles so parsing stays infallible.
                         section.vault_role = if crate::vault_ssh::is_valid_role(&value) {
@@ -519,6 +537,15 @@ impl ProviderConfig {
                     "filter={}\n",
                     Self::sanitize_value(&section.filter)
                 ));
+            }
+            if !section.interface.is_empty() {
+                content.push_str(&format!(
+                    "interface={}\n",
+                    Self::sanitize_value(&section.interface)
+                ));
+            }
+            if let Some(port) = section.ssh_port {
+                content.push_str(&format!("ssh_port={port}\n"));
             }
             if !section.vault_role.is_empty()
                 && crate::vault_ssh::is_valid_role(&section.vault_role)
