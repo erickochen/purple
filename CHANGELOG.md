@@ -1,3 +1,9 @@
+## Unreleased
+
+- feat: Choose a NetBox interface for SSH addresses; existing configs keep using the primary IP.
+- feat: Set a custom SSH port for hosts synced from NetBox.
+- fix: Preserve system SSH authentication settings when connecting with the default config.
+
 ## 3.34.2 - 2026-11-04
 
 - feat: Copy files with any name, on any OpenSSH version.

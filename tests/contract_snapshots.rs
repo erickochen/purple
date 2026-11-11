@@ -281,6 +281,20 @@ fn contract_netbox_virtual_machines() {
     assert_has_key(vm, "cluster.name");
 }
 
+#[test]
+fn contract_netbox_ip_addresses() {
+    let v = load_json("netbox_ip_addresses.json");
+    assert_has_key(&v, "count");
+    assert_has_key(&v, "results");
+    let device_ip = &v["results"][0];
+    assert_has_key(device_ip, "address");
+    assert_has_key(device_ip, "assigned_object.name");
+    assert_has_key(device_ip, "assigned_object.device.id");
+    let vm_ip = &v["results"][1];
+    assert_has_key(vm_ip, "address");
+    assert_has_key(vm_ip, "assigned_object.virtual_machine.id");
+}
+
 // ── Linode ───────────────────────────────────────────────────────────
 
 #[test]

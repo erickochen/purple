@@ -170,6 +170,8 @@ fn test_get_provider_all_names_resolve() {
 fn test_get_provider_with_config_proxmox_uses_url() {
     let section = config::ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("proxmox"),
         token: "user@pam!token=secret".to_string(),
         alias_prefix: "pve-".to_string(),
@@ -194,6 +196,8 @@ fn test_get_provider_with_config_proxmox_uses_url() {
 fn test_get_provider_with_config_non_proxmox_delegates() {
     let section = config::ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
         token: "do-token".to_string(),
         alias_prefix: "do-".to_string(),
@@ -218,6 +222,8 @@ fn test_get_provider_with_config_non_proxmox_delegates() {
 fn test_get_provider_with_config_gcp_uses_project_and_zones() {
     let section = config::ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("gcp"),
         token: "sa.json".to_string(),
         alias_prefix: "gcp".to_string(),
@@ -242,6 +248,8 @@ fn test_get_provider_with_config_gcp_uses_project_and_zones() {
 fn test_get_provider_with_config_unknown_returns_none() {
     let section = config::ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("unknown_provider"),
         token: String::new(),
         alias_prefix: String::new(),
@@ -274,6 +282,8 @@ fn test_get_provider_with_config_unknown_returns_none() {
 fn test_get_provider_with_config_labeled_section() {
     let section = config::ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::labeled("proxmox", "server1"),
         token: "user@pam!token=secret".to_string(),
         alias_prefix: "pve-server1".to_string(),
@@ -302,6 +312,8 @@ fn test_get_provider_with_config_labeled_section() {
 fn test_get_provider_with_config_labeled_unknown_returns_none() {
     let section = config::ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::labeled("unknown_provider", "any"),
         token: String::new(),
         alias_prefix: String::new(),
@@ -584,6 +596,8 @@ fn test_get_provider_with_config_all_providers() {
     for &name in PROVIDER_NAMES {
         let section = config::ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: crate::providers::config::ProviderConfigId::bare(name),
             token: "tok".to_string(),
             alias_prefix: "test".to_string(),
