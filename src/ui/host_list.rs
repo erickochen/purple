@@ -35,13 +35,13 @@ pub(super) fn build_update_label(
     let budget = (max_width as usize).saturating_sub(4);
     match headline {
         Some(hl) => {
-            let full = format!(" v{}: {} (run {}) ", ver, hl, hint);
+            let full = format!(" v{}: {} ({}) ", ver, hl, hint);
             if full.width() <= budget {
                 return full;
             }
             // Truncate headline to fit
             let prefix = format!(" v{}: ", ver);
-            let suffix = format!(" (run {}) ", hint);
+            let suffix = format!(" ({}) ", hint);
             let hl_budget = budget
                 .saturating_sub(prefix.width())
                 .saturating_sub(suffix.width());
@@ -50,10 +50,10 @@ pub(super) fn build_update_label(
                 format!("{}{}{}", prefix, hl_trunc, suffix)
             } else {
                 // Not enough room for headline: fall back to version-only
-                format!(" v{} available, run {} ", ver, hint)
+                format!(" v{} available ({}) ", ver, hint)
             }
         }
-        None => format!(" v{} available, run {} ", ver, hint),
+        None => format!(" v{} available ({}) ", ver, hint),
     }
 }
 

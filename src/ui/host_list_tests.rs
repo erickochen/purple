@@ -102,13 +102,13 @@ fn very_long_config_row_name_is_cut_with_one_gap_before_tags() {
 #[test]
 fn label_fits_fully() {
     let label = build_update_label("2.7.0", Some("New feature"), "purple update", 80);
-    assert_eq!(label, " v2.7.0: New feature (run purple update) ");
+    assert_eq!(label, " v2.7.0: New feature (purple update) ");
 }
 
 #[test]
 fn label_no_headline() {
     let label = build_update_label("2.7.0", None, "purple update", 80);
-    assert_eq!(label, " v2.7.0 available, run purple update ");
+    assert_eq!(label, " v2.7.0 available (purple update) ");
 }
 
 #[test]
@@ -117,12 +117,12 @@ fn label_truncates_at_various_widths() {
 
     let hl = "Provider metadata uses provider-specific terminology (instance, vm_size, zone, location, image, specs)";
     let hint = "purple update";
-    let full = " v2.7.0: Provider metadata uses provider-specific terminology (instance, vm_size, zone, location, image, specs) (run purple update) ";
+    let full = " v2.7.0: Provider metadata uses provider-specific terminology (instance, vm_size, zone, location, image, specs) (purple update) ";
 
-    // Full label is 132 display columns; budget = width - 4
-    assert_eq!(full.width(), 132);
+    // Full label is 128 display columns; budget = width - 4
+    assert_eq!(full.width(), 128);
 
-    // 136+ cols: fits fully (budget >= 132)
+    // 132+ cols: fits fully (budget >= 128)
     assert_eq!(build_update_label("2.7.0", Some(hl), hint, 136), full);
 
     // 80 cols: budget 76, headline truncated with ellipsis
@@ -132,7 +132,7 @@ fn label_truncates_at_various_widths() {
         "Should contain ellipsis: {}",
         label_80
     );
-    assert!(label_80.contains("(run purple update)"));
+    assert!(label_80.contains("(purple update)"));
     assert!(
         label_80.width() <= 76,
         "Should fit in budget: width={}",
@@ -142,7 +142,7 @@ fn label_truncates_at_various_widths() {
     // 60 cols: budget 56, headline truncated further
     let label_60 = build_update_label("2.7.0", Some(hl), hint, 60);
     assert!(label_60.contains('\u{2026}'));
-    assert!(label_60.contains("(run purple update)"));
+    assert!(label_60.contains("(purple update)"));
     assert!(
         label_60.width() <= 56,
         "Should fit in budget: width={}",
@@ -155,14 +155,14 @@ fn label_truncates_at_various_widths() {
     // 30 cols: not enough room for headline, falls back to version-only
     assert_eq!(
         build_update_label("2.7.0", Some(hl), hint, 30),
-        " v2.7.0 available, run purple update "
+        " v2.7.0 available (purple update) "
     );
 }
 
 #[test]
 fn label_falls_back_when_very_narrow() {
     let label = build_update_label("2.7.0", Some("Headline"), "purple update", 30);
-    assert_eq!(label, " v2.7.0 available, run purple update ");
+    assert_eq!(label, " v2.7.0 available (purple update) ");
 }
 
 #[test]
@@ -175,14 +175,20 @@ fn label_brew_hint() {
     );
     assert_eq!(
         label,
-        " v2.7.0: Fix (run brew upgrade erickochen/purple/purple) "
+        " v2.7.0: Fix (brew upgrade erickochen/purple/purple) "
     );
+}
+
+#[test]
+fn label_nix_hint() {
+    let label = build_update_label("2.7.0", Some("Fix"), "automatic update not supported", 80);
+    assert_eq!(label, " v2.7.0: Fix (automatic update not supported) ");
 }
 
 #[test]
 fn label_zero_width() {
     let label = build_update_label("2.7.0", Some("Headline"), "purple update", 0);
-    assert_eq!(label, " v2.7.0 available, run purple update ");
+    assert_eq!(label, " v2.7.0 available (purple update) ");
 }
 
 // =========================================================================
