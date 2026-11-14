@@ -180,6 +180,12 @@ fn label_brew_hint() {
 }
 
 #[test]
+fn label_nix_hint() {
+    let label = build_update_label("2.7.0", Some("Fix"), "automatic update not supported", 80);
+    assert_eq!(label, " v2.7.0: Fix (automatic update not supported) ");
+}
+
+#[test]
 fn label_zero_width() {
     let label = build_update_label("2.7.0", Some("Headline"), "purple update", 0);
     assert_eq!(label, " v2.7.0 available (purple update) ");

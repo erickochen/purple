@@ -374,6 +374,7 @@ fn bold_purple(text: &str, no_color: bool) -> String {
 enum InstallMethod {
     Homebrew,
     Cargo,
+    Nix,
     CurlOrManual,
 }
 
@@ -399,6 +400,20 @@ fn is_homebrew_path(exe_path: &Path, cellar: &Path) -> bool {
 fn is_cargo_path(exe_path: &Path, cargo_home: &Path) -> bool {
     let cargo_bin = cargo_home.join("bin");
     exe_path.parent() == Some(cargo_bin.as_path())
+}
+
+/// Check if exe_path is a Nix store binary, e.g.
+/// `/nix/store/<hash>-purple-ssh-3.34.2/bin/purple`. Profiles, NixOS and
+/// home-manager installs all symlink into the store, so a canonicalized
+/// binary path ends up here.
+fn is_nix_store_path(exe_path: &Path) -> bool {
+    const NIX_STORE: &str = "/nix/store";
+    let Ok(rest) = exe_path.strip_prefix(NIX_STORE) else {
+        return false;
+    };
+    // Exactly <package>/bin/<binary>
+    let comps: Vec<_> = rest.components().collect();
+    comps.len() == 3 && comps[1].as_os_str() == "bin"
 }
 
 /// Detect how purple was installed by checking the binary path against
@@ -448,6 +463,11 @@ fn detect_install_method(exe_path: &Path, env: &crate::runtime::env::Env) -> Ins
         return InstallMethod::Cargo;
     }
 
+    // Nix: the canonicalized path is always inside the store
+    if is_nix_store_path(exe_path) {
+        return InstallMethod::Nix;
+    }
+
     InstallMethod::CurlOrManual
 }
 
@@ -461,6 +481,7 @@ pub fn update_hint(env: &crate::runtime::env::Env) -> &'static str {
         return match detect_install_method(&path, env) {
             InstallMethod::Homebrew => "brew upgrade erickochen/purple/purple",
             InstallMethod::Cargo => "cargo install purple-ssh",
+            InstallMethod::Nix => "automatic update not supported",
             InstallMethod::CurlOrManual => "purple update",
         };
     }
@@ -500,6 +521,13 @@ pub fn self_update(env: &crate::runtime::env::Env) -> Result<()> {
             anyhow::bail!(
                 "purple appears to be installed via cargo.\n  \
                  Update with: cargo install purple-ssh"
+            );
+        }
+        InstallMethod::Nix => {
+            anyhow::bail!(
+                "purple appears to be installed via Nix.\n  \
+                 Updating automatically is not supported.\n  \
+                 Update the flake input or channel that provides purple, then rebuild."
             );
         }
         InstallMethod::CurlOrManual => {}

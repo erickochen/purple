@@ -254,7 +254,43 @@ fn test_cargo_rejects_prefix_overlap() {
     assert!(!is_cargo_path(path, Path::new("/Users/user/.cargo")));
 }
 
+// --- is_nix_store_path tests ---
+
+#[test]
+fn test_nix_store_path() {
+    let path = Path::new("/nix/store/3a1b2c3d-purple-ssh-3.34.2/bin/purple");
+    assert!(is_nix_store_path(path));
+}
+
+#[test]
+fn test_nix_store_rejects_non_bin() {
+    let path = Path::new("/nix/store/3a1b2c3d-purple-ssh-3.34.2/lib/purple");
+    assert!(!is_nix_store_path(path));
+}
+
+#[test]
+fn test_nix_store_rejects_unprofiled_store_path() {
+    // Bare /nix/store/purple is not a store package
+    assert!(!is_nix_store_path(Path::new("/nix/store/purple")));
+    assert!(!is_nix_store_path(Path::new("/nix/store/bin/purple")));
+}
+
+#[test]
+fn test_nix_store_rejects_prefix_overlap() {
+    let path = Path::new("/nix/store-custom/3a1b2c3d-purple/bin/purple");
+    assert!(!is_nix_store_path(path));
+}
+
 // --- detect_install_method tests (path-only, no env vars) ---
+
+#[test]
+fn test_detect_nix_store() {
+    let path = Path::new("/nix/store/3a1b2c3d-purple-ssh-3.34.2/bin/purple");
+    assert!(matches!(
+        detect_install_method(path, &crate::runtime::env::Env::empty()),
+        InstallMethod::Nix
+    ));
+}
 
 #[test]
 fn test_detect_homebrew_cellar() {
