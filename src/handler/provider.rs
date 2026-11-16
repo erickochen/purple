@@ -1046,6 +1046,7 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
             (&pf.project, "Project ID"),
             (&pf.regions, "Regions"),
             (&pf.filter, "Filter"),
+            (&pf.ssh_port, "SSH Port"),
         ]
         .into_iter()
         .find(|(value, _)| value.chars().any(|c| c.is_control()))
@@ -1148,6 +1149,23 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         return;
     }
 
+    let ssh_port = if kind == Some(ProviderKind::NetBox) {
+        let value = app.providers.form().ssh_port.trim();
+        if value.is_empty() {
+            None
+        } else {
+            match value.parse::<u16>() {
+                Ok(port) if port > 0 => Some(port),
+                _ => {
+                    app.notify_warning(crate::messages::SSH_PORT_INVALID);
+                    return;
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     // The profile goes into a shell line purple writes, so a name it cannot
     // quote is refused here rather than at the next sync.
     if kind == Some(ProviderKind::Aws) && app.providers.form().ssm.is_enabled() {
@@ -1178,6 +1196,8 @@ fn submit_provider_form(app: &mut App, events_tx: &mpsc::Sender<AppEvent>) {
         project: app.providers.form_mut().project.trim().to_string(),
         compartment: app.providers.form_mut().compartment.trim().to_string(),
         filter: app.providers.form_mut().filter.trim().to_string(),
+        interface: app.providers.form_mut().interface.trim().to_string(),
+        ssh_port,
         vault_role: app.providers.form_mut().vault_role.trim().to_string(),
         vault_addr: app.providers.form_mut().vault_addr.trim().to_string(),
         ssm: app.providers.form_mut().ssm,
@@ -1420,6 +1440,8 @@ mod labeled_add_tests {
     fn proxmox_section(label: Option<&str>) -> ProviderSection {
         ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: match label {
                 Some(l) => ProviderConfigId::labeled("proxmox", l),
                 None => ProviderConfigId::bare("proxmox"),

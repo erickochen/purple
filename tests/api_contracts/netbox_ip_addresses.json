@@ -1,0 +1,37 @@
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 601,
+      "address": "198.51.100.42/24",
+      "assigned_object_type": "dcim.interface",
+      "assigned_object_id": 114771,
+      "assigned_object": {
+        "id": 114771,
+        "url": "https://netbox.example.com/api/dcim/interfaces/114771/",
+        "device": {
+          "id": 101,
+          "name": "core-sw01"
+        },
+        "name": "ens192"
+      }
+    },
+    {
+      "id": 602,
+      "address": "203.0.113.9/24",
+      "assigned_object_type": "virtualization.vminterface",
+      "assigned_object_id": 2045,
+      "assigned_object": {
+        "id": 2045,
+        "url": "https://netbox.example.com/api/virtualization/interfaces/2045/",
+        "virtual_machine": {
+          "id": 2044,
+          "name": "app-01"
+        },
+        "name": "ens192"
+      }
+    }
+  ]
+}

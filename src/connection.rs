@@ -6,6 +6,10 @@ use log::{debug, error, info, warn};
 
 use crate::ssh_launcher::SshLauncher;
 
+fn pass_config_path(config_path: &Path, paths: Option<&crate::runtime::env::Paths>) -> bool {
+    paths.is_none_or(|paths| config_path != paths.ssh_dir().join("config"))
+}
+
 /// Result of an SSH connection attempt.
 #[derive(Debug)]
 pub struct ConnectResult {
@@ -41,6 +45,7 @@ pub fn is_in_tmux(_env: &crate::runtime::env::Env) -> bool {
 pub fn connect_tmux_window(
     alias: &str,
     config_path: &Path,
+    paths: Option<&crate::runtime::env::Paths>,
     has_active_tunnel: bool,
     launcher: &SshLauncher,
 ) -> Result<()> {
@@ -50,7 +55,15 @@ pub fn connect_tmux_window(
         .to_str()
         .context("SSH config path is not valid UTF-8")?;
 
-    let args = tmux_window_args(alias, launcher, config_str, has_active_tunnel, alias, None);
+    let args = tmux_window_args(
+        alias,
+        launcher,
+        config_str,
+        pass_config_path(config_path, paths),
+        has_active_tunnel,
+        alias,
+        None,
+    );
 
     debug!("[external] tmux args: {:?}", args);
 
@@ -75,6 +88,7 @@ fn tmux_window_args(
     window_label: &str,
     launcher: &SshLauncher,
     config_str: &str,
+    pass_config_path: bool,
     has_active_tunnel: bool,
     alias: &str,
     remote_command: Option<&str>,
@@ -84,8 +98,10 @@ fn tmux_window_args(
         .map(str::to_string)
         .collect();
     args.extend(launcher.words().iter().cloned());
-    args.push("-F".to_string());
-    args.push(config_str.to_string());
+    if pass_config_path {
+        args.push("-F".to_string());
+        args.push(config_str.to_string());
+    }
     if remote_command.is_some() {
         args.push("-t".to_string());
     }
@@ -311,26 +327,34 @@ fn spawn_ssh_and_wait(
 /// Runs the `launcher` program (plain `ssh` unless the user configured a
 /// wrapper) with inherited stdin/stdout. Stderr is piped and forwarded to real
 /// stderr in real time so the output is captured for error detection.
-/// Passes `-F <config_path>` so the alias resolves against the correct config file.
+/// Uses OpenSSH's default config loading for `~/.ssh/config`; passes
+/// `-F <config_path>` only when a custom config path is selected.
 /// When `askpass` is Some, delegates to `askpass_env::configure_ssh_command` to wire up
 /// SSH_ASKPASS, SSH_ASKPASS_REQUIRE=force and the PURPLE_* env vars.
 pub fn connect(
     alias: &str,
     config_path: &Path,
+    paths: Option<&crate::runtime::env::Paths>,
     askpass: Option<&str>,
     bw_session: Option<&str>,
     has_active_tunnel: bool,
     launcher: &SshLauncher,
 ) -> Result<ConnectResult> {
     info!("[external] SSH connection started: {alias}");
-    debug!(
-        "[external] SSH command: {} -F {} -- {alias}",
-        launcher.display(),
-        config_path.display()
-    );
+    if pass_config_path(config_path, paths) {
+        debug!(
+            "[external] SSH command: {} -F {} -- {alias}",
+            launcher.display(),
+            config_path.display()
+        );
+    } else {
+        debug!("[external] SSH command: {} -- {alias}", launcher.display());
+    }
 
     let mut cmd = launcher.command();
-    cmd.arg("-F").arg(config_path);
+    if pass_config_path(config_path, paths) {
+        cmd.arg("-F").arg(config_path);
+    }
 
     // When a tunnel is already running for this host, disable forwards in the
     // interactive session to avoid "Address already in use" bind conflicts.
@@ -375,12 +399,21 @@ pub fn connect_with_remote_command(
     launcher: &SshLauncher,
 ) -> Result<ConnectResult> {
     info!("[external] SSH exec started: {alias}");
-    debug!(
-        "[external] SSH command: {} -F {} -t -- {alias} {}",
-        launcher.display(),
-        config_path.display(),
-        remote_command
-    );
+    let use_config_path = pass_config_path(config_path, env.paths());
+    if use_config_path {
+        debug!(
+            "[external] SSH command: {} -F {} -t -- {alias} {}",
+            launcher.display(),
+            config_path.display(),
+            remote_command
+        );
+    } else {
+        debug!(
+            "[external] SSH command: {} -t -- {alias} {}",
+            launcher.display(),
+            remote_command
+        );
+    }
 
     // Renew the Vault SSH cert before exec'ing into a container so an
     // expired cert is refreshed, mirroring the interactive connect path.
@@ -388,7 +421,10 @@ pub fn connect_with_remote_command(
     crate::runtime::helpers::ensure_vault_cert_for_alias(env, alias, config_path);
 
     let mut cmd = launcher.command();
-    cmd.arg("-F").arg(config_path).arg("-t");
+    if use_config_path {
+        cmd.arg("-F").arg(config_path);
+    }
+    cmd.arg("-t");
 
     if has_active_tunnel {
         cmd.arg("-o").arg("ClearAllForwardings=yes");
@@ -435,6 +471,7 @@ pub fn connect_tmux_window_with_remote_command(
         window_label,
         launcher,
         config_str,
+        pass_config_path(config_path, env.paths()),
         has_active_tunnel,
         alias,
         Some(remote_command),
@@ -660,6 +697,7 @@ mod tests {
             Path::new("/tmp/__purple_test_nonexistent_config__"),
             None,
             None,
+            None,
             false,
             &SshLauncher::default(),
         );
@@ -675,6 +713,7 @@ mod tests {
         let result = connect(
             "nonexistent-host",
             Path::new("/tmp/__purple_test_nonexistent_config__"),
+            None,
             None,
             None,
             true,
@@ -693,6 +732,7 @@ mod tests {
         let result = connect(
             "launcher-host",
             Path::new("/tmp/__purple_test_cfg__"),
+            None,
             None,
             None,
             true,
@@ -715,11 +755,35 @@ mod tests {
     }
 
     #[test]
+    fn connect_uses_normal_openssh_config_for_the_default_path() {
+        let paths = crate::runtime::env::Paths::new("/tmp/purple-ssh-home");
+        let config_path = paths.ssh_dir().join("config");
+        let launcher =
+            SshLauncher::parse("sh -c 'printf \"%s\\n\" \"$@\" >&2; exit 7' sh").unwrap();
+        let result = connect(
+            "launcher-host",
+            &config_path,
+            Some(&paths),
+            None,
+            None,
+            false,
+            &launcher,
+        )
+        .unwrap();
+        assert_eq!(result.status.code(), Some(7));
+        assert_eq!(
+            result.stderr_output.lines().collect::<Vec<_>>(),
+            ["--", "launcher-host"]
+        );
+    }
+
+    #[test]
     fn connect_reports_missing_launcher_program() {
         let launcher = SshLauncher::parse("/nonexistent/purple-test-launcher ssh").unwrap();
         let err = connect(
             "launcher-host",
             Path::new("/tmp/__purple_test_cfg__"),
+            None,
             None,
             None,
             false,
@@ -740,6 +804,7 @@ mod tests {
             "web1",
             &launcher,
             "/home/u/.ssh/config",
+            true,
             false,
             "web1",
             None,
@@ -763,6 +828,7 @@ mod tests {
             "web1/app",
             &SshLauncher::default(),
             "/home/u/.ssh/config",
+            true,
             true,
             "web1",
             Some("docker exec -it abc sh"),
@@ -793,6 +859,7 @@ mod tests {
         let result = connect(
             "nonexistent-host",
             Path::new("/tmp/__purple_test_nonexistent_config__"),
+            None,
             None,
             None,
             false,
@@ -1072,6 +1139,7 @@ Host key verification failed.
         let result = connect_tmux_window(
             "test-host",
             Path::new("/tmp/__purple_test_nonexistent_config__"),
+            None,
             false,
             &SshLauncher::default(),
         );
@@ -1095,6 +1163,7 @@ Host key verification failed.
         let result = connect_tmux_window(
             "tunnel-host",
             Path::new("/tmp/__purple_test_nonexistent_config__"),
+            None,
             true,
             &SshLauncher::default(),
         );

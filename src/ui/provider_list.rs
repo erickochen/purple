@@ -695,6 +695,8 @@ fn placeholder_for(field: ProviderFormField, provider_name: &str) -> &'static st
             ) => hints::DEFAULT_SSH_USER,
         },
         ProviderFormField::Filter => hints::PROVIDER_FILTER_NETBOX,
+        ProviderFormField::Interface => hints::PROVIDER_INTERFACE_NETBOX,
+        ProviderFormField::SshPort => hints::PROVIDER_SSH_PORT_NETBOX,
         ProviderFormField::IdentityFile => hints::IDENTITY_FILE_PICK,
         ProviderFormField::VaultRole => hints::PROVIDER_VAULT_ROLE,
         ProviderFormField::VaultAddr => hints::PROVIDER_VAULT_ADDR,
@@ -750,6 +752,8 @@ fn render_field_content(
         ProviderFormField::Compartment => &form.compartment,
         ProviderFormField::Regions => &form.regions,
         ProviderFormField::Filter => &form.filter,
+        ProviderFormField::Interface => &form.interface,
+        ProviderFormField::SshPort => &form.ssh_port,
         ProviderFormField::AliasPrefix => &form.alias_prefix,
         ProviderFormField::User => &form.user,
         ProviderFormField::IdentityFile => &form.identity_file,
@@ -996,6 +1000,8 @@ mod tests {
             ProviderFormField::Compartment,
             ProviderFormField::Regions,
             ProviderFormField::Filter,
+            ProviderFormField::Interface,
+            ProviderFormField::SshPort,
             ProviderFormField::Ssm,
             ProviderFormField::AliasPrefix,
             ProviderFormField::User,
@@ -1019,6 +1025,8 @@ mod tests {
                 | ProviderFormField::Compartment
                 | ProviderFormField::Regions
                 | ProviderFormField::Filter
+                | ProviderFormField::Interface
+                | ProviderFormField::SshPort
                 | ProviderFormField::AliasPrefix
                 | ProviderFormField::User
                 | ProviderFormField::IdentityFile

@@ -412,6 +412,7 @@ fn run_direct_connect(
     let result = connection::connect(
         &alias,
         config_path,
+        env.paths(),
         askpass.as_deref(),
         bw_session.as_deref(),
         false,
@@ -466,6 +467,7 @@ fn run_positional_alias(
         let result = connection::connect(
             &alias,
             config_path,
+            env.paths(),
             askpass.as_deref(),
             bw_session.as_deref(),
             false,

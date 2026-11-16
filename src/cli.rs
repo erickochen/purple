@@ -387,6 +387,8 @@ fn apply_stored_provider_defaults(
     project: &mut Option<String>,
     compartment: &mut Option<String>,
     filter: &mut Option<String>,
+    interface: &mut Option<String>,
+    ssh_port: &mut Option<u16>,
 ) {
     // URL fallback only applies to providers that use the url field
     if kind.is_some_and(ProviderKind::requires_url) && url.is_none() && !existing.url.is_empty() {
@@ -439,6 +441,12 @@ fn apply_stored_provider_defaults(
     if kind == Some(ProviderKind::NetBox) && filter.is_none() && !existing.filter.is_empty() {
         *filter = Some(existing.filter.clone());
     }
+    if kind == Some(ProviderKind::NetBox) && interface.is_none() && !existing.interface.is_empty() {
+        *interface = Some(existing.interface.clone());
+    }
+    if kind == Some(ProviderKind::NetBox) && ssh_port.is_none() {
+        *ssh_port = existing.ssh_port;
+    }
 }
 
 /// The `--ssm` value as a mode. An unknown value is refused rather than
@@ -457,6 +465,34 @@ fn resolve_ssm_mode(raw: Option<&str>) -> providers::aws_ssm::SsmMode {
             eprintln!("{}", crate::messages::cli::ssm_mode_invalid(raw));
             std::process::exit(1);
         }
+    }
+}
+
+fn resolve_netbox_ssh_port(kind: Option<ProviderKind>, port: Option<u16>) -> Option<u16> {
+    if kind != Some(ProviderKind::NetBox) {
+        if port.is_some() {
+            eprintln!("{}", crate::messages::cli::WARN_SSH_PORT_NOT_USED);
+        }
+        return None;
+    }
+    if port == Some(0) {
+        eprintln!("{}", crate::messages::SSH_PORT_INVALID);
+        std::process::exit(1);
+    }
+    port
+}
+
+fn resolve_netbox_interface(
+    kind: Option<ProviderKind>,
+    interface: Option<String>,
+) -> Option<String> {
+    if kind == Some(ProviderKind::NetBox) {
+        interface
+    } else {
+        if interface.is_some() {
+            eprintln!("{}", crate::messages::cli::WARN_INTERFACE_NOT_USED);
+        }
+        None
     }
 }
 
@@ -480,6 +516,8 @@ pub fn handle_provider_command(
             mut project,
             mut compartment,
             mut filter,
+            interface,
+            ssh_port,
             no_verify_tls,
             verify_tls,
             auto_sync,
@@ -495,6 +533,8 @@ pub fn handle_provider_command(
             };
             // provider is validated above, so from_str always returns Some here.
             let kind = provider.parse::<ProviderKind>().ok();
+            let mut interface = resolve_netbox_interface(kind, interface);
+            let mut ssh_port = resolve_netbox_ssh_port(kind, ssh_port);
 
             // --url, --no-verify-tls and --verify-tls only apply to providers
             // with a self-hosted endpoint; clear them for the rest
@@ -543,7 +583,6 @@ pub fn handle_provider_command(
                 eprintln!("{}", crate::messages::cli::WARN_FILTER_NOT_USED);
                 filter = None;
             }
-
             // When updating an existing section, fall back to stored values for
             // fields not supplied. Matched on the exact id being written: a
             // lookup by provider name alone returns the first section, which
@@ -577,6 +616,8 @@ pub fn handle_provider_command(
                     &mut project,
                     &mut compartment,
                     &mut filter,
+                    &mut interface,
+                    &mut ssh_port,
                 );
             }
 
@@ -822,6 +863,8 @@ pub fn handle_provider_command(
                 project: resolved_project,
                 compartment: resolved_compartment,
                 filter: filter.unwrap_or_default(),
+                interface: interface.unwrap_or_default(),
+                ssh_port,
                 vault_role: String::new(),
                 vault_addr: String::new(),
                 ssm: ssm_mode,

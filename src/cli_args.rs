@@ -290,6 +290,14 @@ pub enum ProviderCommands {
         #[arg(long)]
         filter: Option<String>,
 
+        /// NetBox interface name to use instead of the primary IP
+        #[arg(long)]
+        interface: Option<String>,
+
+        /// NetBox SSH port override (1-65535)
+        #[arg(long)]
+        ssh_port: Option<u16>,
+
         /// Skip TLS certificate verification (for self-signed certs)
         #[arg(long, conflicts_with = "verify_tls")]
         no_verify_tls: bool,

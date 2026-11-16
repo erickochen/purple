@@ -37,6 +37,8 @@ fn vault_role_roundtrip_preserves_value() {
         path_override: Some(tmp.clone()),
         sections: vec![ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: crate::providers::config::ProviderConfigId::bare("aws"),
             token: "abc".to_string(),
             alias_prefix: "aws".to_string(),
@@ -149,6 +151,8 @@ fn test_set_section_add() {
     let mut config = ProviderConfig::default();
     config.set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("vultr"),
         token: "abc".to_string(),
         alias_prefix: "vultr".to_string(),
@@ -173,6 +177,8 @@ fn test_set_section_replace() {
     let mut config = ProviderConfig::parse("[vultr]\ntoken=old\n");
     config.set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("vultr"),
         token: "new".to_string(),
         alias_prefix: "vultr".to_string(),
@@ -328,6 +334,8 @@ fn test_non_proxmox_url_not_written() {
     // url and verify_tls=false must not appear for non-Proxmox providers in saved config
     let section = ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
         token: "tok".to_string(),
         alias_prefix: "do".to_string(),
@@ -367,6 +375,8 @@ fn test_proxmox_url_fallback_in_section() {
     let mut config = existing;
     config.set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("proxmox"),
         token: "new".to_string(),
         alias_prefix: "pve".to_string(),
@@ -418,6 +428,8 @@ fn test_auto_sync_not_written_when_default() {
     let mut config = ProviderConfig::default();
     config.set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
         token: "tok".to_string(),
         alias_prefix: "do".to_string(),
@@ -441,6 +453,8 @@ fn test_auto_sync_not_written_when_default() {
     let mut config2 = ProviderConfig::default();
     config2.set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("proxmox"),
         token: "tok".to_string(),
         alias_prefix: "pve".to_string(),
@@ -504,6 +518,8 @@ fn test_auto_sync_written_only_when_non_default() {
     let mut config = ProviderConfig::default();
     config.set_section(ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("proxmox"),
         token: "tok".to_string(),
         alias_prefix: "pve".to_string(),
@@ -754,6 +770,8 @@ fn test_set_section_adds_new() {
     let mut config = ProviderConfig::default();
     let section = ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("vultr"),
         token: "tok".to_string(),
         alias_prefix: "vultr".to_string(),
@@ -781,6 +799,8 @@ fn test_set_section_replaces_existing() {
     assert_eq!(config.sections[0].token, "old");
     let section = ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("vultr"),
         token: "new".to_string(),
         alias_prefix: "vultr".to_string(),
@@ -1100,6 +1120,8 @@ fn test_set_section_multiple_adds() {
     for name in ["digitalocean", "vultr", "hetzner"] {
         config.set_section(ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: crate::providers::config::ProviderConfigId::bare(name),
             token: format!("{}-tok", name),
             alias_prefix: name.to_string(),
@@ -1185,6 +1207,8 @@ fn test_save_sanitizes_token_with_newline() {
     let config = ProviderConfig {
         sections: vec![ProviderSection {
             filter: String::new(),
+            interface: String::new(),
+            ssh_port: None,
             id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
             token: "abc\ndef".to_string(),
             alias_prefix: "do".to_string(),
@@ -1725,6 +1749,8 @@ fn parse_reads_filter_key() {
 fn filter_defaults_to_empty() {
     let config = ProviderConfig::parse("[netbox]\ntoken=tk\n");
     assert_eq!(config.sections[0].filter, "");
+    assert_eq!(config.sections[0].interface, "");
+    assert_eq!(config.sections[0].ssh_port, None);
 }
 
 #[test]
@@ -1748,6 +1774,48 @@ fn save_omits_empty_filter() {
     let content = std::fs::read_to_string(&path).unwrap();
     let _ = std::fs::remove_file(&path);
     assert!(!content.contains("filter="));
+}
+
+#[test]
+fn save_round_trips_netbox_interface() {
+    let path = unique_tmp_path("netbox_interface_roundtrip");
+    let mut config = ProviderConfig::parse("[netbox]\ntoken=tk\ninterface=ens192\n");
+    config.path_override = Some(path.clone());
+    config.save().unwrap();
+    let content = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    let reread = ProviderConfig::parse(&content);
+    assert_eq!(reread.sections[0].interface, "ens192");
+}
+
+#[test]
+fn parse_reads_valid_netbox_ssh_port_and_ignores_invalid_values() {
+    let valid = ProviderConfig::parse("[netbox]\nssh_port=2222\n");
+    assert_eq!(valid.sections[0].ssh_port, Some(2222));
+
+    for value in ["0", "65536", "not-a-port"] {
+        let config = ProviderConfig::parse(&format!("[netbox]\nssh_port={value}\n"));
+        assert_eq!(config.sections[0].ssh_port, None);
+    }
+}
+
+#[test]
+fn save_round_trips_netbox_ssh_port() {
+    let path = unique_tmp_path("netbox_ssh_port_roundtrip");
+    let mut config = ProviderConfig::parse("[netbox]\ntoken=tk\nssh_port=2222\n");
+    config.path_override = Some(path.clone());
+    config.save().unwrap();
+    let content = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    let reread = ProviderConfig::parse(&content);
+    assert_eq!(reread.sections[0].ssh_port, Some(2222));
+}
+
+#[test]
+fn ssh_port_is_included_in_log_record_when_set() {
+    let config = ProviderConfig::parse("[netbox]\nssh_port=2222\n");
+    let record = config.sections[0].log_record();
+    assert!(record.contains("ssh_port=2222"), "got: {record}");
 }
 
 #[test]

@@ -22,6 +22,8 @@ fn empty_config() -> SshConfigFile {
 fn make_section() -> ProviderSection {
     ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
         token: "test".to_string(),
         alias_prefix: "do".to_string(),
@@ -1020,6 +1022,8 @@ fn test_sync_rename_skips_included_host() {
 
     let new_section = ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("digitalocean"),
         token: "test".to_string(),
         alias_prefix: "ocean".to_string(), // Different prefix
@@ -3283,6 +3287,8 @@ fn test_sync_two_providers_independent() {
     let do_section = make_section(); // prefix = "do"
     let vultr_section = ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("vultr"),
         token: "test".to_string(),
         alias_prefix: "vultr".to_string(),
@@ -3347,6 +3353,8 @@ fn test_sync_remove_only_affects_own_provider() {
     let do_section = make_section();
     let vultr_section = ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare("vultr"),
         token: "test".to_string(),
         alias_prefix: "vultr".to_string(),
@@ -6817,6 +6825,8 @@ impl Provider for MockProxmox {
 fn make_section_with_provider(name: &str) -> ProviderSection {
     ProviderSection {
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         id: crate::providers::config::ProviderConfigId::bare(name),
         token: "test".to_string(),
         alias_prefix: name.to_string(),

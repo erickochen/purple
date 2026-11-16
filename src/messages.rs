@@ -784,6 +784,8 @@ pub mod hints {
     pub const PROVIDER_REGIONS_AZURE: &str = "comma-separated subscription IDs";
     pub const PROVIDER_REGIONS_OVH: &str = "Space to select endpoint (default: EU)";
     pub const PROVIDER_FILTER_NETBOX: &str = "status=active&tag=ssh (NetBox query params)";
+    pub const PROVIDER_INTERFACE_NETBOX: &str = "interface name (empty = primary IP)";
+    pub const PROVIDER_SSH_PORT_NETBOX: &str = "port from 1 to 65535 (empty = 22)";
 
     /// The Session Manager mode as the form shows it. Each reads as the
     /// outcome rather than the setting name, the way the other toggles do.

@@ -537,6 +537,7 @@ fn handle_pending_connect(
         match connection::connect_tmux_window(
             &alias,
             app.reload.config_path(),
+            app.env().paths(),
             has_active_tunnel,
             &launcher,
         ) {
@@ -595,6 +596,7 @@ fn handle_pending_connect(
     let result = connection::connect(
         &alias,
         app.reload.config_path(),
+        app.env().paths(),
         askpass.as_deref(),
         app.bw_session.as_deref(),
         has_active_tunnel,

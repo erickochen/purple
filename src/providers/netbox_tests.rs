@@ -46,6 +46,7 @@ fn map_object_maps_a_device() {
     assert_eq!(host.server_id, "device-42");
     assert_eq!(host.name, "db-01");
     assert_eq!(host.ip, "192.0.2.10");
+    assert_eq!(host.port, None);
     assert_eq!(host.tags, vec!["ansible".to_string(), "prod".to_string()]);
     let meta: std::collections::HashMap<_, _> = host.metadata.into_iter().collect();
     assert_eq!(meta.get("location").map(String::as_str), Some("ams1"));
@@ -53,6 +54,14 @@ fn map_object_maps_a_device() {
     assert_eq!(meta.get("os").map(String::as_str), Some("ubuntu-24.04"));
     assert_eq!(meta.get("type").map(String::as_str), Some("PowerEdge R650"));
     assert_eq!(meta.get("status").map(String::as_str), Some("active"));
+}
+
+#[test]
+fn map_object_uses_the_selected_interface_ip() {
+    let obj: NetBoxObject =
+        serde_json::from_str(&device_json(42, "db-01", Some("192.0.2.10/24"))).unwrap();
+    let host = map_object_with_ip(&obj, ObjectKind::Device, Some("198.51.100.10/24")).unwrap();
+    assert_eq!(host.ip, "198.51.100.10");
 }
 
 #[test]
@@ -123,6 +132,8 @@ fn netbox() -> NetBox {
         base_url: String::new(),
         verify_tls: true,
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
     }
 }
 
@@ -156,7 +167,9 @@ fn fetch_from_walks_devices_then_vms() {
         )
         .create();
 
-    let hosts = netbox()
+    let mut nb = netbox();
+    nb.ssh_port = Some(2222);
+    let hosts = nb
         .fetch_from(&server.url(), "tk-1", &AtomicBool::new(false))
         .unwrap();
     devices.assert();
@@ -164,6 +177,8 @@ fn fetch_from_walks_devices_then_vms() {
     assert_eq!(hosts.len(), 2);
     assert_eq!(hosts[0].server_id, "device-42");
     assert_eq!(hosts[1].server_id, "vm-42");
+    assert_eq!(hosts[0].port, Some(2222));
+    assert_eq!(hosts[1].port, Some(2222));
 }
 
 #[test]
@@ -251,6 +266,104 @@ fn fetch_from_passes_the_configured_filter() {
 }
 
 #[test]
+fn fetch_from_uses_the_selected_interface_for_devices_and_vms() {
+    let mut server = mockito::Server::new();
+    let devices = server
+        .mock("GET", "/api/dcim/devices/")
+        .match_query(mockito::Matcher::Any)
+        .with_body(format!(
+            r#"{{"count": 1, "next": null, "previous": null, "results": [{}]}}"#,
+            device_json(42, "db-01", Some("192.0.2.10/24"))
+        ))
+        .create();
+    let vms = server
+        .mock("GET", "/api/virtualization/virtual-machines/")
+        .match_query(mockito::Matcher::Any)
+        .with_body(
+            r#"{"count": 1, "next": null, "previous": null, "results":
+               [{"id": 9, "name": "app-01", "primary_ip4": {"address": "192.0.2.9/24"}}]}"#,
+        )
+        .create();
+    let device_ips = server
+        .mock("GET", "/api/ipam/ip-addresses/")
+        .match_query(mockito::Matcher::AllOf(vec![
+            mockito::Matcher::UrlEncoded("device_id".into(), "42".into()),
+            mockito::Matcher::UrlEncoded("offset".into(), "0".into()),
+        ]))
+        .with_body(
+            r#"{"count": 1, "next": null, "previous": null, "results":
+                             [{"address": "198.51.100.42/24", "assigned_object":
+                                 {"name": "ens192", "device": {"id": 42}}}]}"#,
+        )
+        .create();
+    let vm_ips = server
+        .mock("GET", "/api/ipam/ip-addresses/")
+        .match_query(mockito::Matcher::AllOf(vec![
+            mockito::Matcher::UrlEncoded("virtual_machine_id".into(), "9".into()),
+            mockito::Matcher::UrlEncoded("offset".into(), "0".into()),
+        ]))
+        .with_body(
+            r#"{"count": 1, "next": null, "previous": null, "results":
+                             [{"address": "203.0.113.9/24", "assigned_object":
+                                 {"name": "ens192", "virtual_machine": {"id": 9}}}]}"#,
+        )
+        .create();
+
+    let mut nb = netbox();
+    nb.interface = "ens192".to_string();
+    nb.ssh_port = Some(2222);
+    let hosts = nb
+        .fetch_from(&server.url(), "tk-1", &AtomicBool::new(false))
+        .unwrap();
+    devices.assert();
+    vms.assert();
+    device_ips.assert();
+    vm_ips.assert();
+    assert_eq!(hosts.len(), 2);
+    assert_eq!(hosts[0].ip, "198.51.100.42");
+    assert_eq!(hosts[1].ip, "203.0.113.9");
+    assert_eq!(hosts[0].port, Some(2222));
+    assert_eq!(hosts[1].port, Some(2222));
+}
+
+#[test]
+fn fetch_from_skips_objects_without_the_selected_interface_ip() {
+    let mut server = mockito::Server::new();
+    let _devices = server
+        .mock("GET", "/api/dcim/devices/")
+        .match_query(mockito::Matcher::Any)
+        .with_body(format!(
+            r#"{{"count": 1, "next": null, "previous": null, "results": [{}]}}"#,
+            device_json(42, "db-01", Some("192.0.2.10/24"))
+        ))
+        .create();
+    let _vms = server
+        .mock("GET", "/api/virtualization/virtual-machines/")
+        .match_query(mockito::Matcher::Any)
+        .with_body(empty_page())
+        .create();
+    let _ips = server
+        .mock("GET", "/api/ipam/ip-addresses/")
+        .match_query(mockito::Matcher::UrlEncoded(
+            "device_id".into(),
+            "42".into(),
+        ))
+        .with_body(
+            r#"{"count": 1, "next": null, "previous": null, "results":
+                             [{"address": "198.51.100.42/24", "assigned_object":
+                                 {"name": "eth0", "device": {"id": 42}}}]}"#,
+        )
+        .create();
+
+    let mut nb = netbox();
+    nb.interface = "ens192".to_string();
+    let hosts = nb
+        .fetch_from(&server.url(), "tk-1", &AtomicBool::new(false))
+        .unwrap();
+    assert!(hosts.is_empty());
+}
+
+#[test]
 fn fetch_from_maps_auth_failure() {
     let mut server = mockito::Server::new();
     server
@@ -302,6 +415,21 @@ fn vms_fixture_deserializes_and_maps() {
             .metadata
             .contains(&("cluster".to_string(), "prod-vmw".to_string()))
     );
+}
+
+#[test]
+fn ip_addresses_fixture_deserializes_assigned_interfaces() {
+    let json = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/api_contracts/netbox_ip_addresses.json"
+    ));
+    let resp: NetBoxIpListResponse = serde_json::from_str(json).unwrap();
+    assert_eq!(resp.results.len(), 2);
+    let device = resp.results[0].assigned_object.as_ref().unwrap();
+    assert_eq!(device.name, "ens192");
+    assert_eq!(device.device.as_ref().unwrap().id, 101);
+    let vm = resp.results[1].assigned_object.as_ref().unwrap();
+    assert_eq!(vm.virtual_machine.as_ref().unwrap().id, 2044);
 }
 
 #[test]
@@ -449,6 +577,8 @@ fn hostile_netbox_payloads_cannot_corrupt_the_ssh_config() {
         project: String::new(),
         compartment: String::new(),
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
         vault_role: String::new(),
         vault_addr: String::new(),
         ssm: crate::providers::aws_ssm::SsmMode::default(),
@@ -517,6 +647,8 @@ fn fetch_hosts_rejects_missing_and_non_https_urls() {
         base_url: "http://netbox.example.com".to_string(),
         verify_tls: true,
         filter: String::new(),
+        interface: String::new(),
+        ssh_port: None,
     };
     assert!(matches!(
         http_only.fetch_hosts_cancellable("tk", &AtomicBool::new(false), &env),
